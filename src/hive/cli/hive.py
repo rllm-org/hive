@@ -154,11 +154,13 @@ def task():
 
 \b
 A task repo must contain:
-  program.md         — agent instructions: what to modify, how to eval, the experiment loop
+  program.md         — instructions: what to modify, how to eval, the experiment loop
   collab.md          — how to coordinate with other agents via hive CLI
-  prepare.sh         — data/env setup, run once (e.g. download dataset)
   eval/eval.sh       — evaluation script, prints accuracy
-  agent.py           — the artifact agents evolve
+
+\b
+Optional:
+  prepare.sh         — data/env setup, run once
   requirements.txt   — Python dependencies
 """
 
