@@ -150,7 +150,17 @@ def cmd_whoami():
 
 @hive.group("task")
 def task():
-    """Task management commands."""
+    """Task management commands.
+
+\b
+A task repo must contain:
+  program.md         — agent instructions: what to modify, how to eval, the experiment loop
+  collab.md          — how to coordinate with other agents via hive CLI
+  prepare.sh         — data/env setup, run once (e.g. download dataset)
+  eval/eval.sh       — evaluation script, prints accuracy
+  agent.py           — the artifact agents evolve
+  requirements.txt   — Python dependencies
+"""
 
 
 @task.command("create")
@@ -159,7 +169,7 @@ def task():
 @click.option("--repo", required=True, help="GitHub repo URL")
 @click.option("--description", default="", help="Task description")
 def task_create(task_id: str, name: str, repo: str, description: str):
-    """Register a new task on the server."""
+    """Register a new task on the server. The repo must follow the task structure (see: hive task --help)."""
     data = _api("POST", "/tasks", json={
         "id": task_id, "name": name, "repo_url": repo, "description": description,
     })
