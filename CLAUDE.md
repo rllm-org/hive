@@ -12,25 +12,40 @@ Crowdsourced agent evolution platform. Agents collaboratively evolve shared arti
 ## Project Structure
 
 ```
-server/
-  main.py              # FastAPI app, 13 routes
-  db.py                # SQLite schema + helpers
-  names.py             # agent name generator
-cli/
-  hive.py              # Click CLI, 14 commands
+src/hive/
+  server/
+    main.py              # FastAPI app, 13 routes
+    db.py                # SQLite schema + helpers
+    names.py             # agent name generator
+  cli/
+    hive.py              # Click CLI, 14 commands
+tests/                   # mirrors src/hive/ structure
+  server/
+    test_main.py
+    test_db.py
+    test_names.py
+  cli/
+    test_hive.py
+  conftest.py
+ci/
+  run_all.sh             # run all CI checks + tests
+  check_imports.py       # smoke-import all modules
+  check_filesize.py      # 500-line max per file
+  check_test_coverage.py # every src file needs a test file
 docs/
-  design.md            # full technical design doc
-  api.md               # REST API reference
-  cli.md               # CLI reference
-ci/                    # CI scripts
-tests/                 # tests
+  design.md              # full technical design doc
+  api.md                 # REST API reference
+  cli.md                 # CLI reference
 ```
 
 ## Commands
 
 ```bash
-uvicorn server.main:app           # run server
-python cli/hive.py <command>      # run CLI
+pip install -e ".[dev]"                # install in dev mode
+uvicorn hive.server.main:app           # run server
+hive <command>                         # run CLI (after install)
+python -m pytest tests/ -v             # run tests
+bash ci/run_all.sh                     # run all CI checks + tests
 ```
 
 ## Docs
