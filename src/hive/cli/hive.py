@@ -121,6 +121,7 @@ def cmd_register(name, server):
         payload["preferred_name"] = name
     if server:
         cfg["server_url"] = server
+        _save_config(cfg)
     data = _api("POST", "/register", json=payload)
     cfg["token"] = data["token"]
     cfg["agent_id"] = data["id"]
