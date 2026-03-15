@@ -1,383 +1,370 @@
 import json
-from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from .db import init_db, get_db
-from .git_ops import init_bare_repo, get_repo_path
-
-app = FastAPI(title="Evolve Hive Mind Server")
+from .db import init_db, get_db, now
+from .names import generate_name, generate_name_with_preference
 
 
-def now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def row_to_dict(row) -> dict:
-    return dict(row) if row else None
-
-
-@app.on_event("startup")
-def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     init_db()
+    yield
 
 
-# ── Tasks ──────────────────────────────────────────────────────────────────
+app = FastAPI(title="Evolve Hive Mind Server", lifespan=lifespan)
 
-@app.post("/tasks", status_code=201)
-def create_task(body: dict[str, Any]):
-    task_id = body.get("id")
-    if not task_id:
-        raise HTTPException(400, "id required")
 
-    repo_path = init_bare_repo(task_id)
+def get_agent(token: str, conn) -> str:
+    row = conn.execute("SELECT id FROM agents WHERE id = ?", (token,)).fetchone()
+    if not row:
+        raise HTTPException(401, "invalid token")
+    conn.execute("UPDATE agents SET last_seen_at = ? WHERE id = ?", (now(), token))
+    return row["id"]
 
+
+def _task_stats(conn, task_id: str, full: bool = False) -> dict:
+    total_runs = conn.execute("SELECT COUNT(*) FROM runs WHERE task_id = ?", (task_id,)).fetchone()[0]
+    best_score = conn.execute("SELECT MAX(score) FROM runs WHERE task_id = ?", (task_id,)).fetchone()[0]
+    agents_contributing = conn.execute("SELECT COUNT(DISTINCT agent_id) FROM runs WHERE task_id = ?", (task_id,)).fetchone()[0]
+    score_rows = conn.execute(
+        "SELECT score FROM runs WHERE task_id = ? AND score IS NOT NULL ORDER BY created_at", (task_id,)
+    ).fetchall()
+    improvements, best = 0, None
+    for (s,) in score_rows:
+        if best is None or s > best:
+            if best is not None:
+                improvements += 1
+            best = s
+    stats = {"total_runs": total_runs, "improvements": improvements,
+             "agents_contributing": agents_contributing, "best_score": best_score}
+    if full:
+        stats["total_posts"] = conn.execute("SELECT COUNT(*) FROM posts WHERE task_id = ?", (task_id,)).fetchone()[0]
+        stats["total_skills"] = conn.execute("SELECT COUNT(*) FROM skills WHERE task_id = ?", (task_id,)).fetchone()[0]
+    return stats
+
+
+@app.post("/register", status_code=201)
+def register(body: dict[str, Any] = {}):
+    preferred, ts = body.get("preferred_name"), now()
     with get_db() as conn:
-        conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_path, config, created_by, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                task_id,
-                body.get("name", ""),
-                body.get("description", ""),
-                repo_path,
-                json.dumps(body.get("config", {})),
-                body.get("created_by", "unknown"),
-                now(),
-            ),
-        )
-    return JSONResponse({"id": task_id, "repo_path": repo_path}, status_code=201)
+        agent_id = generate_name_with_preference(preferred, conn) if preferred else generate_name(conn)
+        conn.execute("INSERT INTO agents (id, registered_at, last_seen_at) VALUES (?, ?, ?)", (agent_id, ts, ts))
+    return JSONResponse({"id": agent_id, "token": agent_id, "registered_at": ts}, status_code=201)
 
 
 @app.get("/tasks")
 def list_tasks():
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM tasks ORDER BY created_at DESC").fetchall()
-    return [row_to_dict(r) for r in rows]
+        tasks = [dict(r) | {"stats": _task_stats(conn, r["id"])} for r in rows]
+    return {"tasks": tasks}
 
 
 @app.get("/tasks/{task_id}")
 def get_task(task_id: str):
     with get_db() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, "task not found")
-    return row_to_dict(row)
+        if not row:
+            raise HTTPException(404, "task not found")
+        t = dict(row)
+        if t.get("config"):
+            try: t["config"] = json.loads(t["config"])
+            except Exception: pass
+        t["stats"] = _task_stats(conn, task_id, full=True)
+    return t
 
 
-# ── Nodes ──────────────────────────────────────────────────────────────────
-
-@app.post("/tasks/{task_id}/nodes", status_code=201)
-def register_node(task_id: str, body: dict[str, Any]):
-    sha = body.get("id")
-    if not sha:
-        raise HTTPException(400, "id (commit sha) required")
-
-    ts = now()
-    agent_id = body.get("agent_id", "unknown")
-
-    with get_db() as conn:
-        conn.execute(
-            "INSERT INTO nodes (id, task_id, parent_id, agent_id, message, score, status, diff_summary, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                sha,
-                task_id,
-                body.get("parent_id"),
-                agent_id,
-                body.get("message", ""),
-                body.get("score"),
-                body.get("status", "draft"),
-                body.get("diff_summary"),
-                ts,
-            ),
-        )
-        conn.execute(
-            "INSERT INTO feed (task_id, agent_id, event_type, node_id, message, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                task_id,
-                agent_id,
-                "push",
-                sha,
-                body.get("message", ""),
-                ts,
-            ),
-        )
-    return JSONResponse({"id": sha}, status_code=201)
-
-
-@app.get("/tasks/{task_id}/nodes/{sha}")
-def get_node(task_id: str, sha: str):
-    with get_db() as conn:
-        node = conn.execute(
-            "SELECT * FROM nodes WHERE id = ? AND task_id = ?", (sha, task_id)
-        ).fetchone()
-        if not node:
-            raise HTTPException(404, "node not found")
-        reactions = conn.execute(
-            "SELECT * FROM reactions WHERE node_id = ?", (sha,)
-        ).fetchall()
-    result = row_to_dict(node)
-    result["reactions"] = [row_to_dict(r) for r in reactions]
-    return result
-
-
-@app.patch("/tasks/{task_id}/nodes/{sha}")
-def update_node(task_id: str, sha: str, body: dict[str, Any]):
-    fields = {k: v for k, v in body.items() if k in ("score", "status")}
-    if not fields:
-        raise HTTPException(400, "nothing to update")
-    set_clause = ", ".join(f"{k} = ?" for k in fields)
-    with get_db() as conn:
-        conn.execute(
-            f"UPDATE nodes SET {set_clause} WHERE id = ? AND task_id = ?",
-            (*fields.values(), sha, task_id),
-        )
-    return {"ok": True}
-
-
-@app.get("/tasks/{task_id}/tree")
-def get_tree(task_id: str):
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM nodes WHERE task_id = ? ORDER BY created_at", (task_id,)
-        ).fetchall()
-    return [row_to_dict(r) for r in rows]
-
-
-@app.get("/tasks/{task_id}/leaderboard")
-def get_leaderboard(task_id: str, limit: int = Query(10, ge=1, le=100)):
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT n.*, ("
-            "  SELECT COUNT(*) FROM reactions r WHERE r.node_id = n.id AND r.type = 'up'"
-            ") AS upvotes"
-            " FROM nodes n WHERE n.task_id = ? AND n.score IS NOT NULL"
-            " ORDER BY n.score DESC LIMIT ?",
-            (task_id, limit),
-        ).fetchall()
-    return [row_to_dict(r) for r in rows]
-
-
-# ── Feed ───────────────────────────────────────────────────────────────────
-
-@app.get("/tasks/{task_id}/feed")
-def get_feed(
-    task_id: str,
-    since: str | None = Query(None),
-    limit: int = Query(50, ge=1, le=500),
-):
-    with get_db() as conn:
-        if since:
-            rows = conn.execute(
-                "SELECT * FROM feed WHERE task_id = ? AND created_at > ?"
-                " ORDER BY created_at DESC LIMIT ?",
-                (task_id, since, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM feed WHERE task_id = ? ORDER BY created_at DESC LIMIT ?",
-                (task_id, limit),
-            ).fetchall()
-    return [row_to_dict(r) for r in rows]
-
-
-# ── Reactions ──────────────────────────────────────────────────────────────
-
-@app.post("/tasks/{task_id}/nodes/{sha}/react", status_code=201)
-def add_reaction(task_id: str, sha: str, body: dict[str, Any]):
-    agent_id = body.get("agent_id", "unknown")
-    reaction_type = body.get("type")
-    if reaction_type not in ("up", "down"):
-        raise HTTPException(400, "type must be 'up' or 'down'")
-
+@app.post("/tasks/{task_id}/submit", status_code=201)
+def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)):
     ts = now()
     with get_db() as conn:
+        agent_id = get_agent(token, conn)
+        if not conn.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone():
+            raise HTTPException(404, "task not found")
+        sha = body.get("sha")
+        if not sha:
+            raise HTTPException(400, "sha required")
         conn.execute(
-            "INSERT OR REPLACE INTO reactions (node_id, agent_id, type, comment, created_at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (sha, agent_id, reaction_type, body.get("comment"), ts),
+            "INSERT INTO runs (id, task_id, parent_id, agent_id, branch, tldr, message, score, verified, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+            (sha, task_id, body.get("parent_id"), agent_id, body.get("branch", ""),
+             body.get("tldr", ""), body.get("message", ""), body.get("score"), ts),
         )
-        conn.execute(
-            "INSERT INTO feed (task_id, agent_id, event_type, node_id, message, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                task_id,
-                agent_id,
-                "react",
-                sha,
-                f"{reaction_type} — {body.get('comment', '')}",
-                ts,
-            ),
-        )
-    return JSONResponse({"ok": True}, status_code=201)
-
-
-# ── Memories ───────────────────────────────────────────────────────────────
-
-@app.post("/tasks/{task_id}/memories", status_code=201)
-def add_memory(task_id: str, body: dict[str, Any]):
-    ts = now()
-    agent_id = body.get("agent_id", "unknown")
-    with get_db() as conn:
+        conn.execute("UPDATE agents SET total_runs = total_runs + 1 WHERE id = ?", (agent_id,))
         cur = conn.execute(
-            "INSERT INTO memories (task_id, agent_id, content, node_id, tags, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                task_id,
-                agent_id,
-                body.get("content", ""),
-                body.get("node_id"),
-                body.get("tags"),
-                ts,
-            ),
+            "INSERT INTO posts (task_id, agent_id, content, run_id, upvotes, downvotes, created_at)"
+            " VALUES (?, ?, ?, ?, 0, 0, ?)",
+            (task_id, agent_id, body.get("message", ""), sha, ts),
         )
-        memory_id = cur.lastrowid
-        conn.execute(
-            "INSERT INTO feed (task_id, agent_id, event_type, node_id, message, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (task_id, agent_id, "memory", body.get("node_id"), body.get("content", ""), ts),
-        )
-    return JSONResponse({"id": memory_id}, status_code=201)
+        post_id = cur.lastrowid
+    run = {"id": sha, "task_id": task_id, "agent_id": agent_id, "branch": body.get("branch", ""),
+           "parent_id": body.get("parent_id"), "tldr": body.get("tldr", ""),
+           "message": body.get("message", ""), "score": body.get("score"),
+           "verified": False, "created_at": ts}
+    return JSONResponse({"run": run, "post_id": post_id}, status_code=201)
 
 
-@app.get("/tasks/{task_id}/memories")
-def list_memories(task_id: str, q: str | None = Query(None)):
+@app.get("/tasks/{task_id}/runs")
+def list_runs(task_id: str, sort: str = Query("score"), view: str = Query("best_runs"),
+              agent: str | None = Query(None), limit: int = Query(20)):
     with get_db() as conn:
-        if q:
+        if not conn.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone():
+            raise HTTPException(404, "task not found")
+
+        if view == "contributors":
             rows = conn.execute(
-                "SELECT * FROM memories WHERE task_id = ? AND content LIKE ?"
-                " ORDER BY upvotes DESC",
-                (task_id, f"%{q}%"),
+                "SELECT agent_id, COUNT(*) AS total_runs, MAX(score) AS best_score FROM runs"
+                " WHERE task_id = ? GROUP BY agent_id ORDER BY best_score DESC LIMIT ?", (task_id, limit)
             ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM memories WHERE task_id = ? ORDER BY upvotes DESC",
-                (task_id,),
+            entries = []
+            for r in rows:
+                imps = conn.execute(
+                    "SELECT score FROM runs WHERE task_id = ? AND agent_id = ? AND score IS NOT NULL ORDER BY created_at",
+                    (task_id, r["agent_id"])
+                ).fetchall()
+                imp_count, rb = 0, None
+                for (s,) in imps:
+                    if rb is None or s > rb:
+                        if rb is not None: imp_count += 1
+                        rb = s
+                entries.append({"agent_id": r["agent_id"], "total_runs": r["total_runs"],
+                                 "best_score": r["best_score"], "improvements": imp_count})
+            return {"view": "contributors", "entries": entries}
+
+        if view == "deltas":
+            all_runs = conn.execute(
+                "SELECT id, agent_id, parent_id, score, tldr FROM runs WHERE task_id = ? AND score IS NOT NULL",
+                (task_id,)
             ).fetchall()
-    return [row_to_dict(r) for r in rows]
+            entries = []
+            for r in all_runs:
+                if r["parent_id"]:
+                    p = conn.execute("SELECT score FROM runs WHERE id = ?", (r["parent_id"],)).fetchone()
+                    if p and p["score"] is not None:
+                        entries.append({"run_id": r["id"], "agent_id": r["agent_id"],
+                                        "delta": r["score"] - p["score"], "from_score": p["score"],
+                                        "to_score": r["score"], "tldr": r["tldr"]})
+            entries.sort(key=lambda x: x["delta"], reverse=True)
+            return {"view": "deltas", "entries": entries[:limit]}
 
-
-@app.post("/tasks/{task_id}/memories/{memory_id}/upvote")
-def upvote_memory(task_id: str, memory_id: int):
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE memories SET upvotes = upvotes + 1 WHERE id = ? AND task_id = ?",
-            (memory_id, task_id),
-        )
-    return {"ok": True}
-
-
-# ── Skills ─────────────────────────────────────────────────────────────────
-
-@app.post("/tasks/{task_id}/skills", status_code=201)
-def add_skill(task_id: str, body: dict[str, Any]):
-    ts = now()
-    agent_id = body.get("agent_id", "unknown")
-    with get_db() as conn:
-        cur = conn.execute(
-            "INSERT INTO skills"
-            " (task_id, agent_id, name, description, code_snippet, source_node_id, score_delta, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                task_id,
-                agent_id,
-                body.get("name", ""),
-                body.get("description", ""),
-                body.get("code_snippet", ""),
-                body.get("source_node_id"),
-                body.get("score_delta"),
-                ts,
-            ),
-        )
-        skill_id = cur.lastrowid
-        conn.execute(
-            "INSERT INTO feed (task_id, agent_id, event_type, node_id, message, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (task_id, agent_id, "skill", body.get("source_node_id"), body.get("name", ""), ts),
-        )
-    return JSONResponse({"id": skill_id}, status_code=201)
-
-
-@app.get("/tasks/{task_id}/skills")
-def list_skills(task_id: str, q: str | None = Query(None)):
-    with get_db() as conn:
-        if q:
-            rows = conn.execute(
-                "SELECT * FROM skills WHERE task_id = ?"
-                " AND (name LIKE ? OR description LIKE ?)"
-                " ORDER BY upvotes DESC",
-                (task_id, f"%{q}%", f"%{q}%"),
+        if view == "improvers":
+            all_runs = conn.execute(
+                "SELECT agent_id, score FROM runs WHERE task_id = ? AND score IS NOT NULL ORDER BY created_at",
+                (task_id,)
             ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM skills WHERE task_id = ? ORDER BY upvotes DESC",
-                (task_id,),
-            ).fetchall()
-    return [row_to_dict(r) for r in rows]
+            global_best, agent_imps = None, {}
+            for r in all_runs:
+                if global_best is None or r["score"] > global_best:
+                    global_best = r["score"]
+                    aid = r["agent_id"]
+                    if aid not in agent_imps:
+                        agent_imps[aid] = {"agent_id": aid, "improvements_to_best": 0, "best_score": r["score"]}
+                    agent_imps[aid]["improvements_to_best"] += 1
+                    agent_imps[aid]["best_score"] = r["score"]
+            entries = sorted(agent_imps.values(), key=lambda x: x["improvements_to_best"], reverse=True)
+            return {"view": "improvers", "entries": entries[:limit]}
+
+        where, params = "task_id = ?", [task_id]
+        if agent:
+            where += " AND agent_id = ?"
+            params.append(agent)
+        order = "score DESC" if sort == "score" else "created_at DESC"
+        params.append(limit)
+        rows = conn.execute(
+            f"SELECT id, agent_id, branch, parent_id, tldr, score, verified, created_at"
+            f" FROM runs WHERE {where} ORDER BY {order} LIMIT ?", params
+        ).fetchall()
+        return {"view": "best_runs", "runs": [dict(r) for r in rows]}
 
 
-@app.get("/tasks/{task_id}/skills/{skill_id}")
-def get_skill(task_id: str, skill_id: int):
+@app.get("/tasks/{task_id}/runs/{sha}")
+def get_run(task_id: str, sha: str):
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM skills WHERE id = ? AND task_id = ?", (skill_id, task_id)
+            "SELECT r.*, p.id AS post_id FROM runs r LEFT JOIN posts p ON p.run_id = r.id"
+            " WHERE r.id = ? AND r.task_id = ?", (sha, task_id)
         ).fetchone()
     if not row:
-        raise HTTPException(404, "skill not found")
-    return row_to_dict(row)
+        raise HTTPException(404, "run not found")
+    return dict(row)
 
 
-@app.post("/tasks/{task_id}/skills/{skill_id}/upvote")
-def upvote_skill(task_id: str, skill_id: int):
+@app.post("/tasks/{task_id}/feed", status_code=201)
+def post_to_feed(task_id: str, body: dict[str, Any], token: str = Query(...)):
+    ts = now()
     with get_db() as conn:
-        conn.execute(
-            "UPDATE skills SET upvotes = upvotes + 1 WHERE id = ? AND task_id = ?",
-            (skill_id, task_id),
+        agent_id = get_agent(token, conn)
+        if not conn.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone():
+            raise HTTPException(404, "task not found")
+        kind = body.get("type")
+        if kind == "post":
+            cur = conn.execute(
+                "INSERT INTO posts (task_id, agent_id, content, upvotes, downvotes, created_at) VALUES (?, ?, ?, 0, 0, ?)",
+                (task_id, agent_id, body.get("content", ""), ts)
+            )
+            return JSONResponse({"id": cur.lastrowid, "type": "post", "content": body.get("content", ""),
+                                 "upvotes": 0, "downvotes": 0, "created_at": ts}, status_code=201)
+        if kind == "comment":
+            parent_id = body.get("parent_id")
+            if not parent_id:
+                raise HTTPException(400, "parent_id required for comment")
+            cur = conn.execute(
+                "INSERT INTO comments (post_id, agent_id, content, created_at) VALUES (?, ?, ?, ?)",
+                (parent_id, agent_id, body.get("content", ""), ts)
+            )
+            return JSONResponse({"id": cur.lastrowid, "type": "comment", "parent_id": parent_id,
+                                 "content": body.get("content", ""), "created_at": ts}, status_code=201)
+        raise HTTPException(400, "type must be 'post' or 'comment'")
+
+
+@app.get("/tasks/{task_id}/feed")
+def get_feed(task_id: str, since: str | None = Query(None),
+             limit: int = Query(50), agent: str | None = Query(None)):
+    with get_db() as conn:
+        where, params = "p.task_id = ?", [task_id]
+        if since:
+            where += " AND p.created_at > ?"; params.append(since)
+        if agent:
+            where += " AND p.agent_id = ?"; params.append(agent)
+        params.append(limit)
+        posts = conn.execute(
+            f"SELECT p.*, r.score, r.tldr FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
+            f" WHERE {where} ORDER BY p.created_at DESC LIMIT ?", params
+        ).fetchall()
+        now_ts = now()
+        claims = conn.execute(
+            "SELECT * FROM claims WHERE task_id = ? AND expires_at > ? ORDER BY created_at DESC",
+            (task_id, now_ts)
+        ).fetchall()
+        items = []
+        for p in posts:
+            pd = dict(p)
+            post_type = "result" if pd.get("run_id") else "post"
+            item = {"id": pd["id"], "type": post_type, "agent_id": pd["agent_id"],
+                    "content": pd["content"], "upvotes": pd["upvotes"],
+                    "downvotes": pd["downvotes"], "created_at": pd["created_at"]}
+            if post_type == "result":
+                item["run_id"] = pd["run_id"]; item["score"] = pd["score"]; item["tldr"] = pd["tldr"]
+            item["comments"] = [dict(c) for c in conn.execute(
+                "SELECT id, agent_id, content, created_at FROM comments WHERE post_id = ? ORDER BY created_at",
+                (pd["id"],)
+            ).fetchall()]
+            items.append(item)
+        for c in claims:
+            items.append({"id": c["id"], "type": "claim", "agent_id": c["agent_id"],
+                          "content": c["content"], "expires_at": c["expires_at"], "created_at": c["created_at"]})
+        items.sort(key=lambda x: x["created_at"], reverse=True)
+    return {"items": items[:limit]}
+
+
+@app.post("/tasks/{task_id}/feed/{post_id}/vote")
+def vote(task_id: str, post_id: int, body: dict[str, Any], token: str = Query(...)):
+    vote_type = body.get("type")
+    if vote_type not in ("up", "down"):
+        raise HTTPException(400, "type must be 'up' or 'down'")
+    with get_db() as conn:
+        agent_id = get_agent(token, conn)
+        conn.execute("INSERT OR REPLACE INTO votes (post_id, agent_id, type) VALUES (?, ?, ?)",
+                     (post_id, agent_id, vote_type))
+        upvotes = conn.execute("SELECT COUNT(*) FROM votes WHERE post_id = ? AND type = 'up'", (post_id,)).fetchone()[0]
+        downvotes = conn.execute("SELECT COUNT(*) FROM votes WHERE post_id = ? AND type = 'down'", (post_id,)).fetchone()[0]
+        conn.execute("UPDATE posts SET upvotes = ?, downvotes = ? WHERE id = ?", (upvotes, downvotes, post_id))
+    return {"upvotes": upvotes, "downvotes": downvotes}
+
+
+@app.post("/tasks/{task_id}/claim", status_code=201)
+def create_claim(task_id: str, body: dict[str, Any], token: str = Query(...)):
+    ts = now()
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with get_db() as conn:
+        agent_id = get_agent(token, conn)
+        if not conn.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone():
+            raise HTTPException(404, "task not found")
+        conn.execute("DELETE FROM claims WHERE task_id = ? AND expires_at <= ?", (task_id, ts))
+        cur = conn.execute(
+            "INSERT INTO claims (task_id, agent_id, content, expires_at, created_at) VALUES (?, ?, ?, ?, ?)",
+            (task_id, agent_id, body.get("content", ""), expires_at, ts)
         )
-    return {"ok": True}
+    return JSONResponse({"id": cur.lastrowid, "content": body.get("content", ""),
+                         "expires_at": expires_at, "created_at": ts}, status_code=201)
 
-
-# ── Context (all-in-one) ───────────────────────────────────────────────────
 
 @app.get("/tasks/{task_id}/context")
 def get_context(task_id: str):
     with get_db() as conn:
-        task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-        if not task:
+        task_row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if not task_row:
             raise HTTPException(404, "task not found")
-
+        t = dict(task_row)
+        if t.get("config"):
+            try: t["config"] = json.loads(t["config"])
+            except Exception: pass
+        t["stats"] = _task_stats(conn, task_id)
         leaderboard = conn.execute(
-            "SELECT n.*, ("
-            "  SELECT COUNT(*) FROM reactions r WHERE r.node_id = n.id AND r.type = 'up'"
-            ") AS upvotes"
-            " FROM nodes n WHERE n.task_id = ? AND n.score IS NOT NULL"
-            " ORDER BY n.score DESC LIMIT 5",
-            (task_id,),
+            "SELECT id, agent_id, score, tldr, branch, verified FROM runs"
+            " WHERE task_id = ? AND score IS NOT NULL ORDER BY score DESC LIMIT 5", (task_id,)
         ).fetchall()
-
-        feed = conn.execute(
-            "SELECT * FROM feed WHERE task_id = ? ORDER BY created_at DESC LIMIT 10",
-            (task_id,),
+        now_ts = now()
+        active_claims = conn.execute(
+            "SELECT agent_id, content, expires_at FROM claims WHERE task_id = ? AND expires_at > ?",
+            (task_id, now_ts)
         ).fetchall()
-
-        memories = conn.execute(
-            "SELECT * FROM memories WHERE task_id = ? ORDER BY upvotes DESC LIMIT 10",
-            (task_id,),
+        feed_rows = conn.execute(
+            "SELECT p.id, p.agent_id, p.content, p.upvotes, p.run_id, p.created_at, r.score, r.tldr"
+            " FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
+            " WHERE p.task_id = ? ORDER BY p.created_at DESC LIMIT 20", (task_id,)
         ).fetchall()
-
+        feed = []
+        for p in feed_rows:
+            pd = dict(p)
+            item = {"id": pd["id"], "type": "result" if pd.get("run_id") else "post",
+                    "agent_id": pd["agent_id"], "upvotes": pd["upvotes"], "created_at": pd["created_at"]}
+            if pd.get("run_id"):
+                item["tldr"] = pd["tldr"]; item["score"] = pd["score"]
+            else:
+                item["content"] = pd["content"]
+            feed.append(item)
         skills = conn.execute(
-            "SELECT * FROM skills WHERE task_id = ? ORDER BY upvotes DESC LIMIT 5",
-            (task_id,),
+            "SELECT id, name, description, score_delta, upvotes FROM skills"
+            " WHERE task_id = ? ORDER BY upvotes DESC LIMIT 5", (task_id,)
         ).fetchall()
+    return {"task": t, "leaderboard": [dict(r) for r in leaderboard],
+            "active_claims": [dict(r) for r in active_claims], "feed": feed,
+            "skills": [dict(r) for r in skills]}
 
-    return {
-        "task": row_to_dict(task),
-        "leaderboard": [row_to_dict(r) for r in leaderboard],
-        "feed": [row_to_dict(r) for r in feed],
-        "memories": [row_to_dict(r) for r in memories],
-        "skills": [row_to_dict(r) for r in skills],
-    }
+
+@app.post("/tasks/{task_id}/skills", status_code=201)
+def add_skill(task_id: str, body: dict[str, Any], token: str = Query(...)):
+    ts = now()
+    with get_db() as conn:
+        agent_id = get_agent(token, conn)
+        if not conn.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone():
+            raise HTTPException(404, "task not found")
+        cur = conn.execute(
+            "INSERT INTO skills (task_id, agent_id, name, description, code_snippet, source_run_id, score_delta, upvotes, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
+            (task_id, agent_id, body.get("name", ""), body.get("description", ""),
+             body.get("code_snippet", ""), body.get("source_run_id"), body.get("score_delta"), ts)
+        )
+        skill = conn.execute("SELECT * FROM skills WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return JSONResponse(dict(skill), status_code=201)
+
+
+@app.get("/tasks/{task_id}/skills")
+def list_skills(task_id: str, q: str | None = Query(None), limit: int = Query(10)):
+    with get_db() as conn:
+        if q:
+            rows = conn.execute(
+                "SELECT * FROM skills WHERE task_id = ? AND (name LIKE ? OR description LIKE ?)"
+                " ORDER BY upvotes DESC LIMIT ?", (task_id, f"%{q}%", f"%{q}%", limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM skills WHERE task_id = ? ORDER BY upvotes DESC LIMIT ?", (task_id, limit)
+            ).fetchall()
+    return {"skills": [dict(r) for r in rows]}

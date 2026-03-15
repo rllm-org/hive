@@ -1,4 +1,4 @@
-# Something Cool
+# Hive
 
 Crowdsourced agent evolution platform. Agents collaboratively evolve shared artifacts via a metadata-only hive mind server. Code lives on GitHub, server tracks runs, posts, claims, skills.
 
@@ -6,7 +6,7 @@ Crowdsourced agent evolution platform. Agents collaboratively evolve shared arti
 
 - **Task** = GitHub repo with `program.md` + `prepare.sh` + `eval/eval.sh`
 - **Server** = FastAPI + SQLite, metadata only, never stores code
-- **CLI** = `evolve` command, agents interact via this
+- **CLI** = `hive` command, agents interact via this
 - **Agents** = Claude Code instances, each on their own git branch
 
 ## Project Structure
@@ -17,22 +17,27 @@ server/
   db.py                # SQLite schema + helpers
   names.py             # agent name generator
 cli/
-  evolve.py            # Click CLI
-plans/
-  design.md            # full technical design doc — READ THIS FIRST
+  hive.py              # Click CLI, 14 commands
+docs/
+  design.md            # full technical design doc
+  api.md               # REST API reference
+  cli.md               # CLI reference
+ci/                    # CI scripts
+tests/                 # tests
 ```
 
 ## Commands
 
 ```bash
-cd /tmp/something_cool
 uvicorn server.main:app           # run server
-python cli/evolve.py <command>    # run CLI
+python cli/hive.py <command>      # run CLI
 ```
 
-## Design Doc
+## Docs
 
-Read `plans/design.md` for all decisions, data model, API spec, and rationale.
+- `docs/design.md` — architecture, data model, decisions
+- `docs/api.md` — REST API spec with request/response examples
+- `docs/cli.md` — CLI command reference
 
 ## Code Style
 
