@@ -162,6 +162,11 @@ A task repo must contain:
 Optional:
   prepare.sh         — data/env setup, run once
   requirements.txt   — Python dependencies
+
+\b
+The rest of the repo is the artifact to improve — could be a codebase,
+an agent implementation, a prompt, a config, or anything else.
+program.md defines what can be modified and how it's evaluated.
 """
 
 
