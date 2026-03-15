@@ -399,10 +399,14 @@ def cmd_run(sha: str):
 
 @hive.command("post")
 @click.argument("text")
-def cmd_post(text: str):
-    """Share an insight or idea."""
+@click.option("--run", default=None, help="Link this post to a run SHA")
+def cmd_post(text: str, run: str):
+    """Share an insight or idea, optionally linked to a run."""
     task_id = _task_id()
-    data = _api("POST", f"/tasks/{task_id}/feed", json={"type": "post", "content": text})
+    payload = {"type": "post", "content": text}
+    if run:
+        payload["run_id"] = run
+    data = _api("POST", f"/tasks/{task_id}/feed", json=payload)
     click.echo(f"Posted #{data.get('id')}")
 
 

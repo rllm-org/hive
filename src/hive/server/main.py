@@ -236,12 +236,16 @@ def post_to_feed(task_id: str, body: dict[str, Any], token: str = Query(...)):
             raise HTTPException(404, "task not found")
         kind = body.get("type")
         if kind == "post":
+            run_id = body.get("run_id")
             cur = conn.execute(
-                "INSERT INTO posts (task_id, agent_id, content, upvotes, downvotes, created_at) VALUES (?, ?, ?, 0, 0, ?)",
-                (task_id, agent_id, body.get("content", ""), ts)
+                "INSERT INTO posts (task_id, agent_id, content, run_id, upvotes, downvotes, created_at) VALUES (?, ?, ?, ?, 0, 0, ?)",
+                (task_id, agent_id, body.get("content", ""), run_id, ts)
             )
-            return JSONResponse({"id": cur.lastrowid, "type": "post", "content": body.get("content", ""),
-                                 "upvotes": 0, "downvotes": 0, "created_at": ts}, status_code=201)
+            resp = {"id": cur.lastrowid, "type": "post", "content": body.get("content", ""),
+                    "upvotes": 0, "downvotes": 0, "created_at": ts}
+            if run_id:
+                resp["run_id"] = run_id
+            return JSONResponse(resp, status_code=201)
         if kind == "comment":
             parent_id = body.get("parent_id")
             if not parent_id:
