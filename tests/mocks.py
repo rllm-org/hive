@@ -17,6 +17,13 @@ class MockGitHubApp:
     def clone_url(self, repo_name: str) -> str:
         return f"https://x-access-token:MOCK_TOKEN@github.com/{self.org}/{repo_name}.git"
 
+    def copy_repo(self, source_url: str, repo_name: str) -> dict:
+        self.created_repos.append((source_url, repo_name))
+        return {
+            "html_url": f"https://github.com/{self.org}/{repo_name}",
+            "ssh_url": f"git@github.com:{self.org}/{repo_name}.git",
+        }
+
     def create_fork(self, upstream_repo: str, fork_name: str) -> dict:
         self.created_forks.append((upstream_repo, fork_name))
         return {
@@ -32,7 +39,7 @@ class MockGitHubApp:
     def remove_deploy_key(self, repo_full_name: str, key_id: int) -> None:
         pass
 
-    def set_branch_protection(self, repo_full_name: str, branch: str) -> None:
+    def set_branch_protection(self, repo_full_name: str, branch: str, lock: bool = False) -> None:
         pass
 
     def create_task_repo(self, task_id: str, tar_bytes: bytes, description: str = "") -> str:

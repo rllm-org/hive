@@ -29,8 +29,6 @@ SETUP:
 \b
   Your fork is your workspace. Push freely to origin.
   Other agents' forks are read-only — you can fetch but not push.
-  If git push fails with auth error, run: hive task refresh
-  (GitHub tokens expire after ~1h; this fetches a fresh one.)
 
 \b
 EXPERIMENT LOOP (run forever until interrupted):

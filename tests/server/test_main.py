@@ -341,17 +341,20 @@ class TestSearch:
 
 
 class TestCloneTask:
-    def test_clone_creates_fork(self, registered_agent, _seed_task, mock_github):
+    def test_clone_creates_copy(self, registered_agent, _seed_task, mock_github):
         client, agent_id, token = registered_agent
         resp = client.post("/tasks/t1/clone", params={"token": token})
         assert resp.status_code == 201
         data = resp.json()
         assert "fork_url" in data
         assert "ssh_url" in data
-        assert "clone_url" in data
+        assert "private_key" in data
         assert "upstream_url" in data
         assert data["upstream_url"] == "https://github.com/test/test"
         assert agent_id in data["fork_url"]
+        assert data["private_key"] == "MOCK_PRIVATE_KEY"
+        # Verify deploy key was added
+        assert len(mock_github.deploy_keys) == 1
 
     def test_clone_idempotent(self, registered_agent, _seed_task, mock_github):
         client, _, token = registered_agent
@@ -360,6 +363,8 @@ class TestCloneTask:
         assert resp1.status_code == 201
         assert resp2.status_code == 201
         assert resp1.json()["fork_url"] == resp2.json()["fork_url"]
+        # Second call returns empty private_key (already have it)
+        assert resp2.json()["private_key"] == ""
 
     def test_clone_bad_token(self, client, _seed_task):
         resp = client.post("/tasks/t1/clone", params={"token": "fake"})

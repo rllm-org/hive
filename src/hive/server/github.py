@@ -128,6 +128,37 @@ class GitHubApp:
         )
         resp.raise_for_status()
 
+    def copy_repo(self, source_url: str, repo_name: str) -> dict:
+        """Create a standalone repo by bare-cloning source. Returns {"html_url", "ssh_url"}."""
+        # Create repo if it doesn't exist
+        existing = httpx.get(
+            f"{_GITHUB_API}/repos/{self.org}/{repo_name}",
+            headers=self.headers(), timeout=15,
+        )
+        if existing.status_code == 200:
+            data = existing.json()
+            return {"html_url": data["html_url"], "ssh_url": data["ssh_url"]}
+        resp = httpx.post(
+            f"{_GITHUB_API}/orgs/{self.org}/repos",
+            headers=self.headers(),
+            json={"name": repo_name},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        # Bare clone source and mirror push to preserve all SHAs
+        token = self.get_token()
+        push_url = f"https://x-access-token:{token}@github.com/{self.org}/{repo_name}.git"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bare = os.path.join(tmpdir, "repo.git")
+            subprocess.run(["git", "clone", "--bare", source_url, bare],
+                           check=True, capture_output=True, timeout=120)
+            subprocess.run(["git", "remote", "set-url", "origin", push_url],
+                           cwd=bare, check=True, capture_output=True)
+            subprocess.run(["git", "push", "--mirror", push_url],
+                           cwd=bare, check=True, capture_output=True, timeout=120)
+        data = resp.json()
+        return {"html_url": data["html_url"], "ssh_url": data["ssh_url"]}
+
     def create_task_repo(self, task_id: str, tar_bytes: bytes, description: str = "") -> str:
         """Create task--{task_id} repo under org from uploaded tarball. Returns repo URL."""
         repo_name = f"task--{task_id}"

@@ -109,29 +109,25 @@ def clone_task(task_id: str, token: str = Query(...)):
         task = conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,)).fetchone()
         if not task: raise HTTPException(404, "task not found")
         repo_url = task["repo_url"]
-        gh = get_github_app()
         existing = conn.execute("SELECT * FROM forks WHERE task_id = %s AND agent_id = %s", (task_id, agent_id)).fetchone()
         if existing:
-            fork_name = f"fork--{task_id}--{agent_id}"
-            clone_url = gh.clone_url(fork_name)
-            return JSONResponse({"fork_url": existing["fork_url"], "ssh_url": clone_url,
-                                 "clone_url": clone_url, "upstream_url": repo_url}, status_code=201)
+            return JSONResponse({"fork_url": existing["fork_url"], "ssh_url": existing["ssh_url"],
+                                 "upstream_url": repo_url, "private_key": ""}, status_code=201)
         fork_name = f"fork--{task_id}--{agent_id}"
-        upstream_repo = repo_url.removeprefix("https://github.com/")
-        fork_info = gh.create_fork(upstream_repo, fork_name)
-        clone_url = gh.clone_url(fork_name)
-        # Get upstream HEAD SHA as the base for diffs
-        import httpx
-        base_resp = httpx.get(f"https://api.github.com/repos/{upstream_repo}/commits/HEAD",
-            headers=gh.headers(), timeout=15)
-        base_sha = base_resp.json().get("sha", "") if base_resp.status_code == 200 else ""
+        gh = get_github_app()
+        # Create standalone copy (not a GitHub fork) so deploy keys work
+        repo_info = gh.copy_repo(repo_url, fork_name)
+        # Generate deploy key for agent-only push access
+        private_key, public_key = gh.generate_ssh_keypair()
+        key_id = gh.add_deploy_key(f"{gh.org}/{fork_name}", f"hive-{agent_id}", public_key)
+        ssh_url = repo_info["ssh_url"]
         conn.execute(
-            "INSERT INTO forks (task_id, agent_id, fork_url, ssh_url, deploy_key_id, base_sha, created_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (task_id, agent_id, fork_info["fork_url"], clone_url, None, base_sha, now()),
+            "INSERT INTO forks (task_id, agent_id, fork_url, ssh_url, deploy_key_id, created_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s)",
+            (task_id, agent_id, repo_info["html_url"], ssh_url, key_id, now()),
         )
-    return JSONResponse({"fork_url": fork_info["fork_url"], "ssh_url": clone_url,
-                         "clone_url": clone_url, "upstream_url": repo_url, "base_sha": base_sha}, status_code=201)
+    return JSONResponse({"fork_url": repo_info["html_url"], "ssh_url": ssh_url,
+                         "upstream_url": repo_url, "private_key": private_key}, status_code=201)
 
 
 @app.post("/tasks/{task_id}/submit", status_code=201)

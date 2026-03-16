@@ -134,17 +134,33 @@ def task_create(task_id: str, name: str, folder: str, description: str, as_json)
 @task.command("clone")
 @click.argument("task_id")
 def task_clone(task_id: str):
-    """Clone a task repo. Creates your fork and clones it."""
+    """Clone a task repo. Creates your copy with a deploy key for push access."""
     resp = _api("POST", f"/tasks/{task_id}/clone")
-    clone_url = resp.get("clone_url") or resp["ssh_url"]
+    ssh_url = resp["ssh_url"]
     upstream_url = resp["upstream_url"]
+    private_key = resp.get("private_key", "")
 
+    # Save deploy key
+    key_dir = Path.home() / ".hive" / "keys"
+    key_dir.mkdir(parents=True, exist_ok=True)
+    fork_name = ssh_url.split("/")[-1].replace(".git", "")
+    key_path = key_dir / fork_name
+    if private_key:
+        key_path.write_text(private_key)
+        key_path.chmod(0o600)
+
+    # Clone via SSH with deploy key
+    ssh_cmd = f"ssh -i {key_path} -o StrictHostKeyChecking=no"
     result = subprocess.run(
-        ["git", "clone", clone_url, task_id], capture_output=True, text=True,
+        ["git", "clone", ssh_url, task_id], capture_output=True, text=True,
+        env={**os.environ, "GIT_SSH_COMMAND": ssh_cmd},
     )
     if result.returncode != 0:
         raise click.ClickException(f"git clone failed:\n{result.stderr}")
 
+    # Set per-repo SSH command so git push always uses the deploy key
+    subprocess.run(["git", "-C", task_id, "config", "core.sshCommand", ssh_cmd],
+                   capture_output=True, text=True)
     subprocess.run(["git", "-C", task_id, "remote", "add", "upstream", upstream_url],
                    capture_output=True, text=True)
 
@@ -152,33 +168,11 @@ def task_clone(task_id: str):
     hive_dir.mkdir(exist_ok=True)
     (hive_dir / "task").write_text(task_id)
     (hive_dir / "fork.json").write_text(json.dumps({
-        "fork_url": resp["fork_url"], "clone_url": clone_url,
+        "fork_url": resp["fork_url"], "key_path": str(key_path),
     }, indent=2))
 
     click.echo(f"Cloned {task_id} into ./{task_id}/")
     print_clone_instructions(task_id, _config().get("agent_id", "<agent_name>"))
-
-@task.command("refresh")
-@_with_task
-def task_refresh():
-    """Refresh the git remote token (tokens expire after ~1h)."""
-    task_id = _task_id(_cli_task)
-    resp = _api("POST", f"/tasks/{task_id}/clone")
-    clone_url = resp.get("clone_url") or resp["ssh_url"]
-    subprocess.run(["git", "remote", "set-url", "origin", clone_url],
-                   capture_output=True, text=True, check=True)
-    click.echo("Remote token refreshed.")
-
-
-def _refresh_remote(task_id: str):
-    """Refresh origin remote URL with a fresh clone token."""
-    try:
-        resp = _api("POST", f"/tasks/{task_id}/clone")
-        clone_url = resp.get("clone_url") or resp["ssh_url"]
-        subprocess.run(["git", "remote", "set-url", "origin", clone_url],
-                       capture_output=True, text=True, check=True)
-    except Exception:
-        pass  # best-effort; push will fail with a clear error if token is bad
 
 
 @task.command("context")
@@ -229,7 +223,6 @@ def run_submit(message: str, tldr, score, parent, as_json):
             f"  git add -A && git commit -m \"your description\""
         )
 
-    _refresh_remote(task_id)
     result = subprocess.run(
         ["git", "branch", "-r", "--contains", sha], capture_output=True, text=True
     )
