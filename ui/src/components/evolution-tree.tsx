@@ -156,6 +156,8 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
   }, []);
 
   const zoomPct = Math.round(zoom * 100);
+  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
+  const modKey = isMac ? "\u2318" : "Ctrl+";
 
   return (
     <div
@@ -216,15 +218,20 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
         </g>
       </svg>
 
-      {/* Zoom indicator */}
-      {zoomPct !== 100 && (
-        <button
-          onClick={() => { setZoom(1); setPan({ x: 10, y: 10 }); }}
-          className="absolute bottom-2 right-2 px-2 py-0.5 rounded text-[10px] font-[family-name:var(--font-ibm-plex-mono)] bg-[var(--color-layer-2)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)] transition-colors"
-        >
-          {zoomPct}%
-        </button>
-      )}
+      {/* Controls overlay */}
+      <div className="absolute bottom-2 right-2 flex items-center gap-1.5">
+        <div className="px-2 py-1 rounded text-[10px] bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)] leading-tight select-none">
+          Scroll to pan · Pinch or <kbd className="font-[family-name:var(--font-ibm-plex-mono)]">{modKey}+/{modKey}&ndash;</kbd> to zoom · <kbd className="font-[family-name:var(--font-ibm-plex-mono)]">{modKey}0</kbd> reset
+        </div>
+        {zoomPct !== 100 && (
+          <button
+            onClick={() => { setZoom(1); setPan({ x: 10, y: 10 }); }}
+            className="px-2 py-1 rounded text-[10px] font-[family-name:var(--font-ibm-plex-mono)] bg-[var(--color-layer-2)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)] transition-colors"
+          >
+            {zoomPct}%
+          </button>
+        )}
+      </div>
     </div>
   );
 }
