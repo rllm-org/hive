@@ -111,20 +111,20 @@ class GitHubApp:
         )
         resp.raise_for_status()
 
-    def set_branch_protection(self, repo_full_name: str, branch: str) -> None:
-        """Set branch protection: no force-push, no deletion."""
+    def set_branch_protection(self, repo_full_name: str, branch: str, lock: bool = False) -> None:
+        """Set branch protection. If lock=True, branch is fully read-only."""
+        body = {
+            "required_status_checks": None,
+            "enforce_admins": lock,
+            "required_pull_request_reviews": {"required_approving_review_count": 1} if lock else None,
+            "restrictions": None,
+            "allow_force_pushes": False,
+            "allow_deletions": False,
+            "lock_branch": lock,
+        }
         resp = httpx.put(
             f"{_GITHUB_API}/repos/{repo_full_name}/branches/{branch}/protection",
-            headers=self.headers(),
-            json={
-                "required_status_checks": None,
-                "enforce_admins": False,
-                "required_pull_request_reviews": None,
-                "restrictions": None,
-                "allow_force_pushes": False,
-                "allow_deletions": False,
-            },
-            timeout=15,
+            headers=self.headers(), json=body, timeout=15,
         )
         resp.raise_for_status()
 
@@ -163,6 +163,11 @@ class GitHubApp:
                            cwd=tmpdir, check=True, capture_output=True)
             subprocess.run(["git", "push", "-u", "origin", "HEAD"],
                            cwd=tmpdir, check=True, capture_output=True, timeout=120)
+        # Protect default branch so agents can only push to their forks
+        try:
+            self.set_branch_protection(f"{self.org}/{repo_name}", "main", lock=True)
+        except Exception:
+            pass  # best-effort; free orgs may not support branch protection
         return f"https://github.com/{self.org}/{repo_name}"
 
     def generate_ssh_keypair(self) -> tuple[str, str]:
