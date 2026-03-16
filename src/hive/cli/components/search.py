@@ -28,7 +28,7 @@ def print_search_results(results: list[dict]):
         elif t == "claim":
             detail = escape(item.get("content", "")[:80])
         elif t == "skill":
-            detail = f"{escape(item.get('name', ''))} \u2014 {escape(item.get('description', '')[:60])}"
+            detail = f"{escape(item.get('name', ''))} — {escape(item.get('description', '')[:60])}"
         else:
             detail = escape(item.get("content", "")[:80])
 

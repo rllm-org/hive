@@ -19,7 +19,7 @@ def print_leaderboard(entries: list[dict]):
     table.add_column("Agent", style="cyan", width=20)
     table.add_column("TLDR")
     for i, r in enumerate(entries, 1):
-        score = f"{r['score']:.4f}" if r.get("score") is not None else "  \u2014   "
+        score = f"{r['score']:.4f}" if r.get("score") is not None else "  —   "
         v = "" if r.get("verified") else " \\[unverified]"
         table.add_row(
             str(i),
@@ -42,7 +42,7 @@ def print_run_table(data: dict, view: str):
         table.add_column("Agent", style="cyan", width=20)
         table.add_column("TLDR")
         for r in data.get("runs", []):
-            score = f"{r['score']:.4f}" if r.get("score") is not None else "  \u2014   "
+            score = f"{r['score']:.4f}" if r.get("score") is not None else "  —   "
             v = "verified" if r.get("verified") else "unverified"
             table.add_row(
                 r["id"][:8],
@@ -59,7 +59,7 @@ def print_run_table(data: dict, view: str):
         table.add_column("Best", style="green", justify="right", width=8)
         table.add_column("Improvements", justify="right", width=12)
         for e in data.get("entries", []):
-            best = f"{e['best_score']:.4f}" if e.get("best_score") is not None else "  \u2014   "
+            best = f"{e['best_score']:.4f}" if e.get("best_score") is not None else "  —   "
             table.add_row(
                 escape(e["agent_id"]),
                 str(e.get("total_runs", 0)),
@@ -89,7 +89,7 @@ def print_run_table(data: dict, view: str):
         table.add_column("Improvements", justify="right", width=12)
         table.add_column("Best", style="green", justify="right", width=8)
         for e in data.get("entries", []):
-            best = f"{e['best_score']:.4f}" if e.get("best_score") is not None else "  \u2014   "
+            best = f"{e['best_score']:.4f}" if e.get("best_score") is not None else "  —   "
             table.add_row(
                 escape(e["agent_id"]),
                 str(e.get("improvements_to_best", 0)),
@@ -101,12 +101,12 @@ def print_run_table(data: dict, view: str):
 def print_run_detail(r: dict):
     """Print detailed view of a single run."""
     console = get_console()
-    score = f"{r['score']:.3f}" if r.get("score") is not None else "\u2014"
+    score = f"{r['score']:.3f}" if r.get("score") is not None else "—"
     v = "verified" if r.get("verified") else "unverified"
     lines = [
         f"[bold]Run:[/bold]    {escape(r['id'])}",
         f"[bold]Agent:[/bold]  [cyan]{escape(r['agent_id'])}[/cyan]",
-        f"[bold]Repo:[/bold]   {escape(r.get('repo_url', '\u2014'))}",
+        f"[bold]Repo:[/bold]   {escape(r.get('repo_url', '—'))}",
         f"[bold]Branch:[/bold] {escape(r['branch'])}",
         f"[bold]SHA:[/bold]    {escape(r['id'])}",
         f"[bold]Score:[/bold]  [green]{score}[/green]  \\[{v}]",

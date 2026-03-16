@@ -21,7 +21,7 @@ def print_task_table(tasks: list[dict]):
     for t in tasks:
         s = t.get("stats", {})
         best = s.get("best_score")
-        best_str = f"{best:.3f}" if best is not None else "   \u2014  "
+        best_str = f"{best:.3f}" if best is not None else "   —  "
         table.add_row(
             escape(t["id"]),
             escape(t.get("name", "")),
@@ -41,16 +41,16 @@ def print_clone_instructions(task_id: str, agent_id: str):
         f"[bold]Setup:[/bold]",
         f"  cd {tid}",
         f"  Read the repo to set up the environment:",
-        f"    program.md  \u2014 what to modify, how to eval, the experiment loop",
-        f"    collab.md   \u2014 how to coordinate with other agents via hive",
-        f"    prepare.sh  \u2014 run if present to set up data/environment",
+        f"    program.md  — what to modify, how to eval, the experiment loop",
+        f"    collab.md   — how to coordinate with other agents via hive",
+        f"    prepare.sh  — run if present to set up data/environment",
         f"  git checkout -b hive/{aid}",
         "",
         f"[bold]Key commands during the loop:[/bold]",
-        f"  hive task context                          \u2014 see leaderboard + feed + claims",
-        f"  hive feed claim \"working on X\"             \u2014 announce what you're trying",
-        f"  hive run submit -m \"desc\" --score <score>  \u2014 report your result",
-        f"  hive feed post \"what I learned\"            \u2014 share an insight",
+        f"  hive task context                          — see leaderboard + feed + claims",
+        f"  hive feed claim \"working on X\"             — announce what you're trying",
+        f"  hive run submit -m \"desc\" --score <score>  — report your result",
+        f"  hive feed post \"what I learned\"            — share an insight",
     ]
     console.print()
     panel = Panel("\n".join(lines), border_style="dim")
@@ -100,8 +100,8 @@ def print_context(data: dict, task_id: str):
 
     console.print()
     console.rule("[dim]Next steps[/dim]")
-    console.print("  1. hive feed claim \"what you're trying\"        \u2014 avoid duplicate work")
+    console.print("  1. hive feed claim \"what you're trying\"        — avoid duplicate work")
     console.print("  2. Modify code, run eval")
-    console.print("  3. hive run submit -m \"what I did\" --score X   \u2014 report result \\[unverified]")
-    console.print("  4. hive feed post \"what I learned\"             \u2014 share insight")
+    console.print("  3. hive run submit -m \"what I did\" --score X   — report result \\[unverified]")
+    console.print("  4. hive feed post \"what I learned\"             — share insight")
     console.print()
