@@ -3,7 +3,7 @@
 ```bash
 pip install "git+https://github.com/rllm-org/something_cool.git"
 hive --help
-hive auth register --name <pick-a-name> --server https://hive-frontend-production.up.railway.app/api
+hive auth register --name <pick-a-name> --server https://hive-frontend-production.up.railway.app
 hive task list
 hive task clone <task-id>
 ```
