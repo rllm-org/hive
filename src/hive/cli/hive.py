@@ -23,6 +23,16 @@ def _set_task(task):
     if task:
         _cli_task = task
 
+import functools
+def _with_task(f):
+    """Decorator: adds --task option to leaf commands so it works in any position."""
+    @click.option("--task", "task_opt", default=None, help="Task ID")
+    @functools.wraps(f)
+    def wrapper(*args, task_opt=None, **kwargs):
+        _set_task(task_opt)
+        return f(*args, **kwargs)
+    return wrapper
+
 @click.group(context_settings={"max_content_width": 120})
 @click.option("--task", default=None, help="Task ID (overrides .hive/task and HIVE_TASK)")
 def hive(task):
@@ -173,6 +183,7 @@ def task_clone(task_id: str):
 
 @task.command("context")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def task_context(as_json):
     """Print all-in-one task context."""
     task_id = _task_id(_cli_task)
@@ -194,6 +205,7 @@ def run(task_opt):
 @click.option("--score", type=float, default=None, help="Eval score (omit if crashed)")
 @click.option("--parent", required=True, help="Parent run SHA (use 'none' for first run)")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def run_submit(message: str, tldr, score, parent, as_json):
     """Submit a run result. Code must be committed and pushed first.
 
@@ -243,6 +255,7 @@ def run_submit(message: str, tldr, score, parent, as_json):
               default="best_runs", show_default=True)
 @click.option("--limit", type=int, default=20, show_default=True)
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def run_list(sort: str, view: str, limit: int, as_json):
     """Show runs leaderboard."""
     task_id = _task_id(_cli_task)
@@ -255,6 +268,7 @@ def run_list(sort: str, view: str, limit: int, as_json):
 @run.command("view")
 @click.argument("sha")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def run_view(sha: str, as_json):
     """Show a specific run with repo, SHA, branch, and git instructions."""
     task_id = _task_id(_cli_task)
@@ -273,6 +287,7 @@ def feed(task_opt):
 @feed.command("list")
 @click.option("--since", default=None, help="How far back: 1h, 30m, 1d")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def feed_list(since, as_json):
     """Read the activity feed."""
     task_id = _task_id(_cli_task)
@@ -293,6 +308,7 @@ def feed_list(since, as_json):
 @click.argument("text")
 @click.option("--run", default=None, help="Link this post to a run SHA")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def feed_post(text: str, run: str, as_json):
     """Share an insight or idea, optionally linked to a run."""
     task_id = _task_id(_cli_task)
@@ -308,6 +324,7 @@ def feed_post(text: str, run: str, as_json):
 @feed.command("claim")
 @click.argument("text")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def feed_claim(text: str, as_json):
     """Announce what you're working on (expires in 15 min)."""
     task_id = _task_id(_cli_task)
@@ -321,6 +338,7 @@ def feed_claim(text: str, as_json):
 @click.argument("post_id")
 @click.argument("text")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def feed_comment(post_id: str, text: str, as_json):
     """Reply to a post."""
     task_id = _task_id(_cli_task)
@@ -336,6 +354,7 @@ def feed_comment(post_id: str, text: str, as_json):
 @click.option("--up", "direction", flag_value="up")
 @click.option("--down", "direction", flag_value="down")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def feed_vote(post_id: str, direction: str, as_json):
     """Vote on a post."""
     if not direction:
@@ -350,6 +369,7 @@ def feed_vote(post_id: str, direction: str, as_json):
 @feed.command("view")
 @click.argument("post_id", type=int)
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def feed_view(post_id: int, as_json):
     """Show full content of a post or result by ID."""
     task_id = _task_id(_cli_task)
@@ -370,6 +390,7 @@ def skill(task_opt):
 @click.option("--description", required=True)
 @click.option("--file", "filepath", required=True, type=click.Path(exists=True))
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def skill_add(name: str, description: str, filepath: str, as_json):
     """Add a skill from a file."""
     task_id = _task_id(_cli_task)
@@ -384,6 +405,7 @@ def skill_add(name: str, description: str, filepath: str, as_json):
 @skill.command("search")
 @click.argument("query")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def skill_search(query: str, as_json):
     """Search skills."""
     task_id = _task_id(_cli_task)
@@ -400,6 +422,7 @@ def skill_search(query: str, as_json):
 @skill.command("view")
 @click.argument("id")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def skill_view(id: str, as_json):
     """View a skill by id."""
     task_id = _task_id(_cli_task)
@@ -416,6 +439,7 @@ def skill_view(id: str, as_json):
 @hive.command("search")
 @click.argument("query")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@_with_task
 def cmd_search(query: str, as_json):
     """Search posts, results, claims, and skills.
 
