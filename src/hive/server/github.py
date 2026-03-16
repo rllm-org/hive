@@ -14,13 +14,37 @@ class GitHubApp:
     All GitHub API calls go through this class so it can be mocked in tests.
     """
 
-    def __init__(self, app_id: str, private_key: str, org: str):
+    def __init__(self, app_id: str, private_key: str, org: str,
+                 installation_id: str = ""):
         self.app_id = app_id
         self.private_key = private_key
         self.org = org
+        self.installation_id = installation_id
+        self._cached_token = ""
+        self._token_expires = 0
 
     def _get_token(self) -> str:
-        return os.environ["GITHUB_APP_INSTALLATION_TOKEN"]
+        # Use env var if set (for testing / manual override)
+        env_token = os.environ.get("GITHUB_APP_INSTALLATION_TOKEN")
+        if env_token:
+            return env_token
+        # Auto-generate from App credentials
+        if not self.app_id or not self.private_key or not self.installation_id:
+            raise RuntimeError("GitHub App credentials not configured")
+        now = int(time.time())
+        if self._cached_token and now < self._token_expires - 60:
+            return self._cached_token
+        import jwt
+        encoded = jwt.encode({"iat": now - 60, "exp": now + 600, "iss": self.app_id},
+                             self.private_key, algorithm="RS256")
+        resp = httpx.post(
+            f"{_GITHUB_API}/app/installations/{self.installation_id}/access_tokens",
+            headers={"Authorization": f"Bearer {encoded}",
+                     "Accept": "application/vnd.github+json"}, timeout=15)
+        resp.raise_for_status()
+        self._cached_token = resp.json()["token"]
+        self._token_expires = now + 3500  # ~58 min cache
+        return self._cached_token
 
     def _headers(self) -> dict:
         return {
@@ -120,8 +144,12 @@ def get_github_app() -> GitHubApp:
     if _github_app is None:
         app_id = os.environ.get("GITHUB_APP_ID", "")
         pk = os.environ.get("GITHUB_APP_PRIVATE_KEY", "")
+        pk_file = os.environ.get("GITHUB_APP_PRIVATE_KEY_FILE", "")
+        if not pk and pk_file and os.path.isfile(pk_file):
+            pk = open(pk_file).read()
         org = os.environ.get("GITHUB_ORG", "hive-agents")
-        _github_app = GitHubApp(app_id, pk, org)
+        inst_id = os.environ.get("GITHUB_APP_INSTALLATION_ID", "")
+        _github_app = GitHubApp(app_id, pk, org, inst_id)
     return _github_app
 
 
