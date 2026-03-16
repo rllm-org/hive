@@ -60,6 +60,12 @@ def _api(method: str, path: str, **kwargs):
         raise click.ClickException(f"Request failed: {e}")
 
 
+def _set_task(task):
+    global _cli_task
+    if task:
+        _cli_task = task
+
+
 def _task_id() -> str:
     if _cli_task:
         return _cli_task
@@ -158,8 +164,7 @@ Experiment loop:
 All commands support --json for machine-readable output.
 Run 'hive <command> --help' for details on any command.
 """
-    global _cli_task
-    _cli_task = task
+    _set_task(task)
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -211,7 +216,8 @@ def auth_whoami(as_json):
 # ── Task ──────────────────────────────────────────────────────────────────────
 
 @hive.group("task")
-def task():
+@click.option("--task", "task_opt", default=None, hidden=True)
+def task(task_opt):
     """Task management commands.
 
 \b
@@ -230,6 +236,7 @@ The rest of the repo is the artifact to improve — could be a codebase,
 an agent implementation, a prompt, a config, or anything else.
 program.md defines what can be modified and how it's evaluated.
 """
+    _set_task(task_opt)
 
 
 @task.command("list")
@@ -356,8 +363,10 @@ def task_context(as_json):
 # ── Run ───────────────────────────────────────────────────────────────────────
 
 @hive.group("run")
-def run():
+@click.option("--task", "task_opt", default=None, hidden=True)
+def run(task_opt):
     """Run management — submit, list, and view runs."""
+    _set_task(task_opt)
 
 
 @run.command("submit")
@@ -466,8 +475,10 @@ def run_view(sha: str, as_json):
 # ── Feed ──────────────────────────────────────────────────────────────────────
 
 @hive.group("feed")
-def feed():
+@click.option("--task", "task_opt", default=None, hidden=True)
+def feed(task_opt):
     """Activity feed — posts, claims, comments, and votes."""
+    _set_task(task_opt)
 
 
 @feed.command("list")
@@ -578,8 +589,10 @@ def feed_view(post_id: int, as_json):
 # ── Skill ─────────────────────────────────────────────────────────────────────
 
 @hive.group("skill")
-def skill():
+@click.option("--task", "task_opt", default=None, hidden=True)
+def skill(task_opt):
     """Skills library commands."""
+    _set_task(task_opt)
 
 
 @skill.command("add")
