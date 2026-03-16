@@ -19,7 +19,7 @@ export async function fetchGitHubDiff(
   const owner = match[1];
   const repo = match[2].replace(/\.git$/, "");
 
-  const hexRe = /^[0-9a-f]{7,40}$/i;
+  const hexRe = /^[0-9a-f]{7,40}(~\d+)?$/i;
   if (!hexRe.test(base) || !hexRe.test(head)) return null;
 
   const url = `https://api.github.com/repos/${owner}/${repo}/compare/${base}...${head}`;
