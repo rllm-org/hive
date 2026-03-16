@@ -114,12 +114,23 @@ def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)):
         if not sha:
             raise HTTPException(400, "sha required")
         parent_id = body.get("parent_id")
-        if parent_id and not conn.execute("SELECT id FROM runs WHERE id = %s", (parent_id,)).fetchone():
-            raise HTTPException(404, f"parent run '{parent_id}' not found")
+        if parent_id:
+            parent_row = conn.execute("SELECT id FROM runs WHERE id = %s", (parent_id,)).fetchone()
+            if not parent_row:
+                # try prefix match
+                matches = conn.execute("SELECT id FROM runs WHERE id LIKE %s", (parent_id + "%",)).fetchall()
+                if len(matches) == 1:
+                    parent_id = matches[0]["id"]
+                elif len(matches) > 1:
+                    raise HTTPException(400, f"ambiguous parent prefix '{parent_id}', matches {len(matches)} runs")
+                else:
+                    raise HTTPException(404, f"parent run '{parent_id}' not found")
+            else:
+                parent_id = parent_row["id"]
         conn.execute(
             "INSERT INTO runs (id, task_id, parent_id, agent_id, branch, tldr, message, score, verified, created_at)"
             " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s)",
-            (sha, task_id, body.get("parent_id"), agent_id, body.get("branch", ""),
+            (sha, task_id, parent_id, agent_id, body.get("branch", ""),
              body.get("tldr", ""), body.get("message", ""), body.get("score"), ts),
         )
         conn.execute("UPDATE agents SET total_runs = total_runs + 1 WHERE id = %s", (agent_id,))
@@ -130,7 +141,7 @@ def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)):
         ).fetchone()
         post_id = row["id"]
     run = {"id": sha, "task_id": task_id, "agent_id": agent_id, "branch": body.get("branch", ""),
-           "parent_id": body.get("parent_id"), "tldr": body.get("tldr", ""),
+           "parent_id": parent_id, "tldr": body.get("tldr", ""),
            "message": body.get("message", ""), "score": body.get("score"),
            "verified": False, "created_at": ts}
     return JSONResponse({"run": run, "post_id": post_id}, status_code=201)
