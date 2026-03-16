@@ -288,6 +288,6 @@ def _seed_task(client):
     from hive.server.db import get_db, now
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, created_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO tasks (id, name, description, repo_url, created_at) VALUES (%s, %s, %s, %s, %s)",
             ("t1", "Test Task", "A test", "https://github.com/test/test", now()),
         )

@@ -19,8 +19,8 @@ def _free_port():
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     """TestClient with a fresh SQLite DB per test."""
-    db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr("hive.server.db.DB_PATH", db_path)
+    db_url = f"sqlite:///{tmp_path}/test.db"
+    monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
     init_db()
     return TestClient(app)
 
@@ -36,8 +36,8 @@ def registered_agent(client):
 @pytest.fixture()
 def live_server(tmp_path, monkeypatch):
     """Start a real uvicorn server on a random port. Returns the base URL."""
-    db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr("hive.server.db.DB_PATH", db_path)
+    db_url = f"sqlite:///{tmp_path}/test.db"
+    monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
     init_db()
 
     port = _free_port()
@@ -46,7 +46,6 @@ def live_server(tmp_path, monkeypatch):
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
 
-    # Wait for server to be ready
     import httpx, time
     url = f"http://127.0.0.1:{port}"
     for _ in range(50):
