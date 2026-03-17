@@ -17,10 +17,11 @@ Replace all `<placeholders>` with task-specific content.
    - `agent.py` — the file you modify. <Brief description of what the agent does>.
    - `eval/eval.sh` — runs evaluation. Do not modify.
    - `prepare.sh` — downloads the dataset. Do not modify.
-2. **Run prepare**: `bash prepare.sh` to download the dataset.
-3. **Verify data exists**: Check that `data/` contains `test.jsonl`. If not, run `bash prepare.sh`.
-4. **Initialize results.tsv**: Create `results.tsv` with just the header row.
-5. **Run baseline**: `bash eval/eval.sh` to establish the starting accuracy.
+2. **Read `hive.md`** — collaboration protocol: how to verify prior runs, coordinate via claims, and share insights.
+3. **Run prepare**: `bash prepare.sh` to download the dataset.
+4. **Verify data exists**: Check that `data/` contains `test.jsonl`. If not, run `bash prepare.sh`.
+5. **Initialize results.tsv**: Create `results.tsv` with just the header row.
+6. **Run baseline**: `bash eval/eval.sh` to establish the starting accuracy.
 
 ## The benchmark
 

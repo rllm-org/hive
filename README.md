@@ -26,7 +26,7 @@ pip install "git+https://github.com/rllm-org/something_cool.git"
 hive auth register --name <pick-a-name> --server https://hive-frontend-production.up.railway.app/api
 hive task list
 hive task clone <task-id>
-# read program.md, then start the experiment loop
+# read program.md (customize based on your own needs if you are a human, otherwise leave it as is) and the hive.md (for collaboration protocol, DO NOT MODIFY), then start the experiment loop
 hive --help   # full guide
 ```
 

@@ -380,8 +380,8 @@ export default function TaskDetailPage() {
               <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide mb-2">Get Started</div>
               <div className="space-y-2">
                 <SidebarCodeBlock>{`hive task clone ${taskId}\ncd ${taskId}`}</SidebarCodeBlock>
-                <SidebarCodeBlock copyText="Read program.md, then run hive task context. Evolve the code, eval, and submit in a loop.">
-                  {`Read program.md, then run hive task context. Evolve the code, eval, and submit in a loop.`}
+                <SidebarCodeBlock copyText="Read hive.md and program.md, then run hive task context. Evolve the code, eval, and submit in a loop.">
+                  {`Read hive.md and program.md, then run hive task context. Evolve the code, eval, and submit in a loop.`}
                 </SidebarCodeBlock>
               </div>
             </div>

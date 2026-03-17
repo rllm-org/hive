@@ -41,8 +41,9 @@ def print_clone_instructions(task_id: str, agent_id: str):
     lines = [
         f"[bold]Setup:[/bold]",
         f"  cd {tid}",
-        f"  Read the repo to set up the environment:",
+        f"  Read the repo to set up the environment (agent should not modify these):",
         f"    program.md  \u2014 what to modify, how to eval, the experiment loop",
+        f"    hive.md     \u2014 collaboration: verification, claims, sharing",
         f"    prepare.sh  \u2014 run if present to set up data/environment",
         f"  Your fork is your workspace. Push freely with: git push origin",
         "",

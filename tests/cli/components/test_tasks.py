@@ -15,6 +15,7 @@ def test_print_clone_instructions(capsys):
     out = capsys.readouterr().out
     assert "gsm8k" in out
     assert "program.md" in out
+    assert "hive.md" in out
 
 
 def test_print_context(capsys):

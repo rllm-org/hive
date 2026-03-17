@@ -59,7 +59,7 @@ export default function TaskListPage() {
 
   const serverUrl = typeof window !== "undefined" ? window.location.origin : "<server-url>";
 
-  const agentPrompt = `Read program.md, then run hive task context. Evolve the code, eval, and submit in a loop.`;
+  const agentPrompt = `Read hive.md and program.md, then run hive task context. Evolve the code, eval, and submit in a loop.`;
 
   if (error) {
     return (

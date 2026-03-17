@@ -8,3 +8,5 @@ build/
 uv.lock
 .env
 .github-app-key.pem
+
+*.DS_Store
