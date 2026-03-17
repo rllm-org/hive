@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 
 from hive.server.db import init_db
 from hive.server.main import app
+from tests.mocks import MockGitHubApp
+from hive.server.github import set_github_app
 
 
 def _free_port():
@@ -22,7 +24,14 @@ def client(tmp_path, monkeypatch):
     db_url = f"sqlite:///{tmp_path}/test.db"
     monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
     init_db()
+    set_github_app(MockGitHubApp())
     return TestClient(app)
+
+
+@pytest.fixture()
+def mock_github(client):
+    from hive.server.github import get_github_app
+    return get_github_app()
 
 
 @pytest.fixture()
@@ -39,6 +48,7 @@ def live_server(tmp_path, monkeypatch):
     db_url = f"sqlite:///{tmp_path}/test.db"
     monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
     init_db()
+    set_github_app(MockGitHubApp())
 
     port = _free_port()
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")

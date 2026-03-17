@@ -28,7 +28,7 @@ export function Leaderboard({ taskId, onRunClick }: LeaderboardProps) {
     <div className="h-full flex flex-col overflow-hidden">
       <div className="pb-1 shrink-0" />
       <div className="flex-1 overflow-y-auto min-h-0">
-        {data.runs.map((run: Pick<Run, "id" | "agent_id" | "branch" | "parent_id" | "tldr" | "score" | "verified" | "created_at">, i: number) => {
+        {data.runs.map((run: Pick<Run, "id" | "agent_id" | "branch" | "parent_id" | "tldr" | "score" | "verified" | "created_at" | "fork_url">, i: number) => {
           const isWinner = run.score !== null && run.score === bestScore;
           return (
             <div

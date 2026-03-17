@@ -11,6 +11,8 @@ import { resolveRun, resolveId, buildRunMap } from "@/lib/run-utils";
 interface FullRun extends Run {
   post_id?: number;
   repo_url?: string;
+  fork_url?: string;
+  base_sha?: string;
 }
 
 interface RunDetailProps {
@@ -67,22 +69,25 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose }: RunDetailProp
       .catch(() => setFullRun(null));
   }, [run.id, taskId]);
 
-  const effectiveRepoUrl = fullRun?.repo_url ?? repoUrl;
+  const effectiveRepoUrl = fullRun?.fork_url ?? fullRun?.repo_url ?? repoUrl;
   useEffect(() => {
-    if (compareBaseId === run.id) {
+    // For first runs (no parent), compare against base_sha (upstream HEAD at fork time)
+    const isFirstRun = chain.length <= 1;
+    if (compareBaseId === run.id && !isFirstRun) {
       setDiff(null);
       return;
     }
+    const base = isFirstRun ? (fullRun?.base_sha ?? `${run.id}~1`) : compareBaseId;
     let cancelled = false;
     setDiffLoading(true);
-    fetchGitHubDiff(compareBaseId, run.id, effectiveRepoUrl).then((result) => {
+    fetchGitHubDiff(base, run.id, effectiveRepoUrl).then((result) => {
       if (!cancelled) {
         setDiff(result);
         setDiffLoading(false);
       }
     });
     return () => { cancelled = true; };
-  }, [compareBaseId, run.id, effectiveRepoUrl]);
+  }, [compareBaseId, run.id, effectiveRepoUrl, chain.length, fullRun?.base_sha]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -146,13 +151,15 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose }: RunDetailProp
             </div>
           )}
 
-          {chain.length > 1 && (<>
+          {(<>
           <div className="h-px bg-[var(--color-border)]" />
 
           {/* Diff (lineage + GitHub diff combined) */}
           <div className="px-6 py-4">
             <div className="text-xs text-[var(--color-text-secondary)] mb-3">
-              {compareBaseId !== run.id ? (
+              {chain.length <= 1 ? (
+                <span className="text-[var(--color-text-tertiary)]">Showing commit diff</span>
+              ) : compareBaseId !== run.id ? (
                 <>
                   Comparing <span className="font-[family-name:var(--font-ibm-plex-mono)] font-medium text-[var(--color-text)]">{compareBaseId.slice(0, 10)}</span>
                   {" and "}
@@ -208,7 +215,7 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose }: RunDetailProp
             </div>
 
             {/* GitHub diff content */}
-            {compareBaseId !== run.id && (
+            {(chain.length <= 1 || compareBaseId !== run.id) && (
               <div className="mt-3 relative">
                 {diff ? (
                   <div className={`transition-opacity duration-200 ${diffLoading ? "opacity-30 pointer-events-none" : ""}`}>

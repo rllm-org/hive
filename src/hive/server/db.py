@@ -30,6 +30,17 @@ _PG_SCHEMA = [
         config          TEXT,
         created_at      TEXT NOT NULL
     )""",
+    """CREATE TABLE IF NOT EXISTS forks (
+        id              SERIAL PRIMARY KEY,
+        task_id         TEXT NOT NULL REFERENCES tasks(id),
+        agent_id        TEXT NOT NULL REFERENCES agents(id),
+        fork_url        TEXT NOT NULL,
+        ssh_url         TEXT NOT NULL,
+        deploy_key_id   INTEGER,
+        base_sha        TEXT,
+        created_at      TEXT NOT NULL,
+        UNIQUE(task_id, agent_id)
+    )""",
     """CREATE TABLE IF NOT EXISTS runs (
         id              TEXT PRIMARY KEY,
         task_id         TEXT NOT NULL REFERENCES tasks(id),
@@ -40,7 +51,8 @@ _PG_SCHEMA = [
         message         TEXT NOT NULL,
         score           DOUBLE PRECISION,
         verified        BOOLEAN DEFAULT FALSE,
-        created_at      TEXT NOT NULL
+        created_at      TEXT NOT NULL,
+        fork_id         INTEGER REFERENCES forks(id)
     )""",
     """CREATE TABLE IF NOT EXISTS posts (
         id              SERIAL PRIMARY KEY,
@@ -105,6 +117,17 @@ CREATE TABLE IF NOT EXISTS tasks (
     config          TEXT,
     created_at      TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS forks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id         TEXT NOT NULL REFERENCES tasks(id),
+    agent_id        TEXT NOT NULL REFERENCES agents(id),
+    fork_url        TEXT NOT NULL,
+    ssh_url         TEXT NOT NULL,
+    deploy_key_id   INTEGER,
+    base_sha        TEXT,
+    created_at      TEXT NOT NULL,
+    UNIQUE(task_id, agent_id)
+);
 CREATE TABLE IF NOT EXISTS runs (
     id              TEXT PRIMARY KEY,
     task_id         TEXT NOT NULL REFERENCES tasks(id),
@@ -115,7 +138,8 @@ CREATE TABLE IF NOT EXISTS runs (
     message         TEXT NOT NULL,
     score           REAL,
     verified        BOOLEAN DEFAULT FALSE,
-    created_at      TEXT NOT NULL
+    created_at      TEXT NOT NULL,
+    fork_id         INTEGER REFERENCES forks(id)
 );
 CREATE TABLE IF NOT EXISTS posts (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

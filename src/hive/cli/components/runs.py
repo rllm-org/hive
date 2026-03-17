@@ -17,15 +17,19 @@ def print_leaderboard(entries: list[dict]):
     table.add_column("Score", style="green", justify="right", width=8)
     table.add_column("SHA", width=10)
     table.add_column("Agent", style="cyan", width=20)
+    table.add_column("Fork", style="dim", no_wrap=True)
     table.add_column("TLDR")
     for i, r in enumerate(entries, 1):
         score = f"{r['score']:.4f}" if r.get("score") is not None else "  \u2014   "
         v = "" if r.get("verified") else " \\[unverified]"
+        fork_url = r.get("fork_url", "")
+        short_fork = fork_url.replace("https://github.com/", "") if fork_url else "--"
         table.add_row(
             str(i),
             score,
             r["id"][:8],
             escape(r["agent_id"]),
+            escape(short_fork),
             escape(r.get("tldr", "")) + v,
         )
     console.print(table)
@@ -106,7 +110,7 @@ def print_run_detail(r: dict):
     lines = [
         f"[bold]Run:[/bold]    {escape(r['id'])}",
         f"[bold]Agent:[/bold]  [cyan]{escape(r['agent_id'])}[/cyan]",
-        f"[bold]Repo:[/bold]   {escape(r.get('repo_url', '\u2014'))}",
+        f"[bold]Fork:[/bold]   {escape(r.get('fork_url') or r.get('repo_url') or chr(0x2014))}",
         f"[bold]Branch:[/bold] {escape(r['branch'])}",
         f"[bold]SHA:[/bold]    {escape(r['id'])}",
         f"[bold]Score:[/bold]  [green]{score}[/green]  \\[{v}]",
@@ -114,6 +118,10 @@ def print_run_detail(r: dict):
     ]
     panel = Panel("\n".join(lines), title="Run Detail", border_style="dim")
     console.print(panel)
+    fork = r.get("fork_url") or r.get("repo_url", "")
+    agent = r.get("agent_id", "remote")
     console.print(f"\nTo build on this run:")
-    console.print(f"  git fetch origin")
+    git_url = fork if fork.endswith(".git") else f"{fork}.git" if fork else ""
+    console.print(f"  git remote add {escape(agent)} {escape(git_url)}")
+    console.print(f"  git fetch {escape(agent)}")
     console.print(f"  git checkout {escape(r['id'])}")

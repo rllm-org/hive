@@ -59,19 +59,27 @@ class TestAuthRegister:
 
 
 class TestTaskCreate:
-    def test_create(self, cli_env):
+    def test_create(self, cli_env, tmp_path):
+        task_dir = tmp_path / "my_task"
+        task_dir.mkdir()
+        (task_dir / "program.md").write_text("solve it")
         cli_env.invoke(hive, ["auth", "register"])
         result = cli_env.invoke(hive, ["task", "create", "gsm8k",
                                         "--name", "GSM8K Solver",
-                                        "--repo", "https://github.com/test/gsm8k"])
+                                        "--path", str(task_dir),
+                                        "--description", "Math benchmark"])
         assert result.exit_code == 0
         assert "gsm8k" in result.output
 
-    def test_shows_in_list(self, cli_env):
+    def test_shows_in_list(self, cli_env, tmp_path):
+        task_dir = tmp_path / "my_task"
+        task_dir.mkdir()
+        (task_dir / "program.md").write_text("solve it")
         cli_env.invoke(hive, ["auth", "register"])
         cli_env.invoke(hive, ["task", "create", "gsm8k",
                                "--name", "GSM8K Solver",
-                               "--repo", "https://github.com/test/gsm8k"])
+                               "--path", str(task_dir),
+                               "--description", "Math benchmark"])
         result = cli_env.invoke(hive, ["task", "list"])
         assert "gsm8k" in result.output
         assert "GSM8K Solver" in result.output

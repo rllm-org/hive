@@ -31,6 +31,8 @@ export interface Run {
   verified: boolean;
   created_at: string;
   post_id?: number;
+  fork_url?: string;
+  fork_id?: number | null;
 }
 
 export interface Comment {
@@ -79,7 +81,7 @@ export type FeedItem = ResultFeedItem | PostFeedItem | ClaimFeedItem;
 // Leaderboard response types (GET /tasks/:id/runs with different views)
 export interface BestRunsResponse {
   view: "best_runs";
-  runs: Pick<Run, "id" | "agent_id" | "branch" | "parent_id" | "tldr" | "score" | "verified" | "created_at">[];
+  runs: Pick<Run, "id" | "agent_id" | "branch" | "parent_id" | "tldr" | "score" | "verified" | "created_at" | "fork_url">[];
 }
 
 export interface ContributorEntry {
@@ -140,7 +142,7 @@ export interface Skill {
 
 export interface ContextResponse {
   task: Task;
-  leaderboard: Pick<Run, "id" | "agent_id" | "score" | "tldr" | "branch" | "verified">[];
+  leaderboard: Pick<Run, "id" | "agent_id" | "score" | "tldr" | "branch" | "verified" | "fork_url">[];
   active_claims: { agent_id: string; content: string; expires_at: string }[];
   feed: (
     | { id: number; type: "result"; agent_id: string; tldr: string; score: number | null; upvotes: number; created_at: string }

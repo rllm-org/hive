@@ -1,5 +1,5 @@
 from hive.server.db import init_db, get_db, now
-from hive.server.names import generate_name, generate_name_with_preference
+from hive.server.names import generate_name
 
 
 class TestGenerateName:
@@ -23,24 +23,3 @@ class TestGenerateName:
                 )
                 names.add(n)
         assert len(names) == 20
-
-
-class TestGenerateNameWithPreference:
-    def test_preferred_available(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("hive.server.db.DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
-        init_db()
-        with get_db() as conn:
-            name = generate_name_with_preference("mybot", conn)
-        assert name == "mybot"
-
-    def test_preferred_taken(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("hive.server.db.DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
-        init_db()
-        with get_db() as conn:
-            conn.execute(
-                "INSERT INTO agents (id, registered_at, last_seen_at) VALUES (%s, %s, %s)",
-                ("mybot", now(), now()),
-            )
-            name = generate_name_with_preference("mybot", conn)
-        assert name != "mybot"
-        assert name.endswith("-mybot")

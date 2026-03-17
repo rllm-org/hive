@@ -1,25 +1,49 @@
 """Tests for all API endpoints."""
 
+import io
+import tarfile
+
 import pytest
+
+
+def _make_tar(files: dict[str, str] = None) -> io.BytesIO:
+    """Create a .tar.gz in memory with optional files."""
+    if files is None:
+        files = {"README.md": "hello"}
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for name, content in files.items():
+            data = content.encode()
+            info = tarfile.TarInfo(name=name)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    buf.seek(0)
+    return buf
+
+
+def _post_task(client, id="gsm8k", name="GSM8K Solver", description="A solver task", config=None):
+    data = {"id": id, "name": name, "description": description}
+    if config:
+        data["config"] = config
+    return client.post("/tasks", data=data, files={"archive": ("task.tar.gz", _make_tar(), "application/gzip")})
 
 
 class TestCreateTask:
     def test_create(self, client):
-        resp = client.post("/tasks", json={
-            "id": "gsm8k", "name": "GSM8K Solver", "repo_url": "https://github.com/test/gsm8k",
-        })
+        resp = _post_task(client)
         assert resp.status_code == 201
         assert resp.json()["id"] == "gsm8k"
+        assert resp.json()["repo_url"] == "https://github.com/hive-agents/task--gsm8k"
 
     def test_duplicate(self, client):
-        client.post("/tasks", json={"id": "t1", "name": "T", "repo_url": "https://x"})
-        resp = client.post("/tasks", json={"id": "t1", "name": "T", "repo_url": "https://x"})
+        _post_task(client, id="t1", name="T", description="D")
+        resp = _post_task(client, id="t1", name="T", description="D")
         assert resp.status_code == 409
 
     def test_missing_fields(self, client):
-        assert client.post("/tasks", json={}).status_code == 400
-        assert client.post("/tasks", json={"id": "x"}).status_code == 400
-        assert client.post("/tasks", json={"id": "x", "name": "X"}).status_code == 400
+        assert client.post("/tasks", data={}, files={"archive": ("t.tar.gz", _make_tar(), "application/gzip")}).status_code == 422
+        assert client.post("/tasks", data={"id": "x", "name": "X"},
+                           files={"archive": ("t.tar.gz", _make_tar(), "application/gzip")}).status_code == 422
 
 
 class TestRegister:
@@ -38,8 +62,7 @@ class TestRegister:
     def test_register_preferred_taken(self, client):
         client.post("/register", json={"preferred_name": "taken"})
         resp = client.post("/register", json={"preferred_name": "taken"})
-        assert resp.status_code == 201
-        assert resp.json()["id"] != "taken"
+        assert resp.status_code == 409
 
 
 class TestListTasks:
@@ -91,6 +114,21 @@ class TestSubmitRun:
             json={"sha": "x", "message": "hi"},
         )
         assert resp.status_code == 404
+
+    def test_submit_auto_fills_fork_id(self, registered_agent, _seed_task, mock_github):
+        client, _, token = registered_agent
+        client.post("/tasks/t1/clone", params={"token": token})
+        resp = client.post("/tasks/t1/submit", params={"token": token},
+                          json={"sha": "forkrun1", "message": "test", "score": 0.5})
+        assert resp.status_code == 201
+        assert resp.json()["run"].get("fork_id") is not None
+
+    def test_submit_without_fork_has_null_fork_id(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        resp = client.post("/tasks/t1/submit", params={"token": token},
+                          json={"sha": "nofork1", "message": "test", "score": 0.5})
+        assert resp.status_code == 201
+        assert resp.json()["run"].get("fork_id") is None
 
 
 class TestListRuns:
@@ -147,6 +185,23 @@ class TestGetRun:
     def test_not_found(self, client):
         resp = client.get("/tasks/t1/runs/nope")
         assert resp.status_code == 404
+
+    def test_get_run_includes_fork_url(self, registered_agent, _seed_task, mock_github):
+        client, _, token = registered_agent
+        client.post("/tasks/t1/clone", params={"token": token})
+        client.post("/tasks/t1/submit", params={"token": token},
+                    json={"sha": "forksha1", "message": "m", "score": 0.5})
+        resp = client.get("/tasks/t1/runs/forksha1")
+        assert resp.status_code == 200
+        assert resp.json().get("fork_url") is not None
+
+    def test_get_run_falls_back_to_repo_url(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        client.post("/tasks/t1/submit", params={"token": token},
+                    json={"sha": "noforksha", "message": "m", "score": 0.5})
+        resp = client.get("/tasks/t1/runs/noforksha")
+        assert resp.status_code == 200
+        assert resp.json()["fork_url"] == "https://github.com/test/test"
 
 
 class TestFeed:
@@ -279,6 +334,69 @@ class TestSearch:
 
     def test_task_not_found(self, client):
         resp = client.get("/tasks/nope/search", params={"q": "x"})
+        assert resp.status_code == 404
+
+
+class TestCloneTask:
+    def test_clone_creates_copy(self, registered_agent, _seed_task, mock_github):
+        client, agent_id, token = registered_agent
+        resp = client.post("/tasks/t1/clone", params={"token": token})
+        assert resp.status_code == 201
+        data = resp.json()
+        assert "fork_url" in data
+        assert "ssh_url" in data
+        assert "private_key" in data
+        assert "upstream_url" in data
+        assert data["upstream_url"] == "https://github.com/test/test"
+        assert agent_id in data["fork_url"]
+        assert data["private_key"] == "MOCK_PRIVATE_KEY"
+        # Verify deploy key was added
+        assert len(mock_github.deploy_keys) == 1
+
+    def test_clone_idempotent(self, registered_agent, _seed_task, mock_github):
+        client, _, token = registered_agent
+        resp1 = client.post("/tasks/t1/clone", params={"token": token})
+        resp2 = client.post("/tasks/t1/clone", params={"token": token})
+        assert resp1.status_code == 201
+        assert resp2.status_code == 201
+        assert resp1.json()["fork_url"] == resp2.json()["fork_url"]
+        # Second call returns empty private_key (already have it)
+        assert resp2.json()["private_key"] == ""
+
+    def test_clone_bad_token(self, client, _seed_task):
+        resp = client.post("/tasks/t1/clone", params={"token": "fake"})
+        assert resp.status_code == 401
+
+    def test_clone_task_not_found(self, registered_agent):
+        client, _, token = registered_agent
+        resp = client.post("/tasks/nope/clone", params={"token": token})
+        assert resp.status_code == 404
+
+
+class TestGraph:
+    def test_empty_graph(self, registered_agent, _seed_task):
+        client, _, _ = registered_agent
+        resp = client.get("/tasks/t1/graph")
+        assert resp.status_code == 200
+        assert resp.json()["nodes"] == []
+
+    def test_graph_with_runs(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        client.post("/tasks/t1/submit", params={"token": token},
+                    json={"sha": "g1", "message": "m", "score": 0.3})
+        client.post("/tasks/t1/submit", params={"token": token},
+                    json={"sha": "g2", "message": "m", "score": 0.6, "parent_id": "g1"})
+        resp = client.get("/tasks/t1/graph")
+        assert resp.status_code == 200
+        nodes = resp.json()["nodes"]
+        assert len(nodes) == 2
+        g1 = next(n for n in nodes if n["sha"] == "g1")
+        g2 = next(n for n in nodes if n["sha"] == "g2")
+        assert g1["parent"] is None
+        assert g2["parent"] == "g1"
+
+    def test_graph_task_not_found(self, client):
+        resp = client.get("/tasks/nope/graph")
         assert resp.status_code == 404
 
 

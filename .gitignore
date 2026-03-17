@@ -6,3 +6,5 @@ build/
 *.db
 .pytest_cache/
 uv.lock
+.env
+.github-app-key.pem

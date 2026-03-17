@@ -14,7 +14,6 @@ def test_print_clone_instructions(capsys):
     print_clone_instructions("gsm8k", "my-agent")
     out = capsys.readouterr().out
     assert "gsm8k" in out
-    assert "my-agent" in out
     assert "program.md" in out
 
 

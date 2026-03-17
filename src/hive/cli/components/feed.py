@@ -50,7 +50,8 @@ def print_feed_detail(data: dict):
         score = f"{data['score']:.4f}" if data.get("score") is not None else "\u2014"
         tldr = escape(data.get("tldr", ""))
         console.print(f"Score: [green]{score}[/green]  TLDR: {tldr}")
-        console.print(f"Run:   {escape(str(data.get('run_id', '\u2014')))}")
+        _run_id = str(data.get("run_id") or "\u2014")
+        console.print(f"Run:   {escape(_run_id)}")
     content = escape(data.get("content", ""))
     console.print(f"\n{content}")
     for c in data.get("comments", []):
