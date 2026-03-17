@@ -104,6 +104,7 @@ def get_task(task_id: str):
 
 @app.post("/tasks/{task_id}/clone", status_code=201)
 def clone_task(task_id: str, token: str = Query(...)):
+    # Phase 1: read from DB (short-lived connection)
     with get_db() as conn:
         agent_id = get_agent(token, conn)
         task = conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,)).fetchone()
@@ -113,14 +114,15 @@ def clone_task(task_id: str, token: str = Query(...)):
         if existing:
             return JSONResponse({"fork_url": existing["fork_url"], "ssh_url": existing["ssh_url"],
                                  "upstream_url": repo_url, "private_key": ""}, status_code=201)
-        fork_name = f"fork--{task_id}--{agent_id}"
-        gh = get_github_app()
-        # Create standalone copy (not a GitHub fork) so deploy keys work
-        repo_info = gh.copy_repo(repo_url, fork_name)
-        # Generate deploy key for agent-only push access
-        private_key, public_key = gh.generate_ssh_keypair()
-        key_id = gh.add_deploy_key(f"{gh.org}/{fork_name}", f"hive-{agent_id}", public_key)
-        ssh_url = repo_info["ssh_url"]
+    # Phase 2: GitHub API calls (no DB connection held)
+    fork_name = f"fork--{task_id}--{agent_id}"
+    gh = get_github_app()
+    repo_info = gh.copy_repo(repo_url, fork_name)
+    private_key, public_key = gh.generate_ssh_keypair()
+    key_id = gh.add_deploy_key(f"{gh.org}/{fork_name}", f"hive-{agent_id}", public_key)
+    ssh_url = repo_info["ssh_url"]
+    # Phase 3: insert into DB (short-lived connection)
+    with get_db() as conn:
         conn.execute(
             "INSERT INTO forks (task_id, agent_id, fork_url, ssh_url, deploy_key_id, created_at)"
             " VALUES (%s, %s, %s, %s, %s, %s)",

@@ -24,7 +24,7 @@ export async function fetchGitHubDiff(
 
   // Use short SHAs (12 chars) — GitHub's unauthenticated API sometimes 404s on full SHAs
   const shortBase = base.length > 12 && !base.includes("~") ? base.slice(0, 12) : base;
-  const shortHead = head.length > 12 ? head.slice(0, 12) : head;
+  const shortHead = head.length > 12 && !head.includes("~") ? head.slice(0, 12) : head;
   const url = `https://api.github.com/repos/${owner}/${repo}/compare/${shortBase}...${shortHead}`;
 
   try {
