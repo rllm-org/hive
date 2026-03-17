@@ -886,7 +886,7 @@ After all changes, verify:
 ### 6.3 Run test suite
 
 ```bash
-cd /Users/tianhaowu/something_cool && uv run pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 Fix any failures.
