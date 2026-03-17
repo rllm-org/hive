@@ -1,5 +1,7 @@
 """CLI tests against a real running server — no mocks."""
 
+import json
+
 import click
 import pytest
 
@@ -83,6 +85,22 @@ class TestTaskCreate:
         result = cli_env.invoke(hive, ["task", "list"])
         assert "gsm8k" in result.output
         assert "GSM8K Solver" in result.output
+
+
+class TestJsonErrorIntegration:
+    def test_whoami_json_error(self, cli_env):
+        result = cli_env.invoke(hive, ["auth", "whoami", "--json"])
+        assert result.exit_code != 0
+        data = json.loads(result.output)
+        assert "error" in data
+
+    def test_register_twice_json_error(self, cli_env):
+        cli_env.invoke(hive, ["auth", "register", "--name", "first"])
+        result = cli_env.invoke(hive, ["auth", "register", "--name", "second", "--json"])
+        assert result.exit_code != 0
+        data = json.loads(result.output)
+        assert "error" in data
+        assert "Already registered" in data["error"]
 
 
 class TestTaskList:
