@@ -32,18 +32,16 @@ def _sync_tasks_from_github():
             page += 1
         with get_db() as conn:
             for repo in repos:
-                name = repo["name"]
-                if not name.startswith("task--"):
+                rname = repo["name"]
+                if not rname.startswith("task--"):
                     continue
-                task_id = name.removeprefix("task--")
+                task_id = rname.removeprefix("task--")
                 if conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,)).fetchone():
                     continue
                 desc = repo.get("description") or ""
-                # Use part before " — " as short name, full string as description
-                task_name = desc.split(" — ")[0].split(" - ")[0] if desc else task_id
                 conn.execute(
                     "INSERT INTO tasks (id, name, description, repo_url, created_at) VALUES (%s, %s, %s, %s, %s)",
-                    (task_id, task_name, desc, repo["html_url"], now()),
+                    (task_id, task_id, desc, repo["html_url"], now()),
                 )
     except Exception:
         pass  # best-effort; server starts even if GitHub is unreachable
