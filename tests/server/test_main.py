@@ -71,6 +71,18 @@ class TestListTasks:
         assert resp.status_code == 200
         assert resp.json()["tasks"] == []
 
+    def test_search_by_name(self, client, _seed_task):
+        resp = client.get("/api/tasks", params={"q": "Test"})
+        assert len(resp.json()["tasks"]) == 1
+
+    def test_search_by_description(self, client, _seed_task):
+        resp = client.get("/api/tasks", params={"q": "test"})
+        assert len(resp.json()["tasks"]) == 1
+
+    def test_search_no_match(self, client, _seed_task):
+        resp = client.get("/api/tasks", params={"q": "nonexistent"})
+        assert resp.json()["tasks"] == []
+
 
 class TestGetTask:
     def test_not_found(self, client):

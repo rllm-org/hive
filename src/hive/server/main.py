@@ -156,9 +156,16 @@ def create_task(
 
 
 @router.get("/tasks")
-def list_tasks():
+def list_tasks(q: str | None = Query(None)):
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM tasks ORDER BY created_at DESC").fetchall()
+        if q:
+            like = f"%{q}%"
+            rows = conn.execute(
+                "SELECT * FROM tasks WHERE name ILIKE %s OR description ILIKE %s ORDER BY created_at DESC",
+                (like, like),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM tasks ORDER BY created_at DESC").fetchall()
         tasks = [dict(r) | {"stats": _task_stats(conn, r["id"])} for r in rows]
     return {"tasks": tasks}
 
