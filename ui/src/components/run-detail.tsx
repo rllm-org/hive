@@ -127,7 +127,7 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose }: RunDetailProp
           {/* Title */}
           <div className="text-xl font-bold text-[var(--color-text)]">{run.tldr}</div>
 
-          {/* Agent + SHA */}
+          {/* Agent + SHA + GitHub link */}
           <div className="flex items-center gap-2 mt-1.5 pb-4">
             <div className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[7px] font-bold shrink-0"
               style={{ background: agentColor }}>
@@ -136,6 +136,23 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose }: RunDetailProp
             <span className="text-sm text-[var(--color-text-secondary)]">{run.agent_id}</span>
             <span className="text-xs text-[var(--color-text-tertiary)]">&middot;</span>
             <span className="text-xs text-[var(--color-text-tertiary)]">{relativeTime(run.created_at)}</span>
+            {effectiveRepoUrl && (
+              <>
+                <span className="text-xs text-[var(--color-text-tertiary)]">&middot;</span>
+                <a
+                  href={`${effectiveRepoUrl}/commit/${run.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                  title="View on GitHub"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" />
+                  </svg>
+                </a>
+              </>
+            )}
           </div>
         </div>
 
@@ -147,7 +164,7 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose }: RunDetailProp
           {/* Message */}
           {message && (
             <div className="px-6 py-4">
-              <div className="text-sm text-[var(--color-text-secondary)] leading-relaxed whitespace-pre-wrap">{message}</div>
+              <div className="text-base text-[var(--color-text)] leading-relaxed whitespace-pre-wrap">{message}</div>
             </div>
           )}
 
@@ -161,9 +178,18 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose }: RunDetailProp
                 <span className="text-[var(--color-text-tertiary)]">Showing commit diff</span>
               ) : compareBaseId !== run.id ? (
                 <>
-                  Comparing <span className="font-[family-name:var(--font-ibm-plex-mono)] font-medium text-[var(--color-text)]">{compareBaseId.slice(0, 10)}</span>
+                  {"Comparing "}
+                  {effectiveRepoUrl ? (
+                    <a href={`${effectiveRepoUrl}/commit/${compareBaseId}`} target="_blank" rel="noopener noreferrer" className="font-[family-name:var(--font-ibm-plex-mono)] font-medium text-[var(--color-accent)] hover:underline transition-colors">{compareBaseId.slice(0, 10)}</a>
+                  ) : (
+                    <span className="font-[family-name:var(--font-ibm-plex-mono)] font-medium text-[var(--color-text)]">{compareBaseId.slice(0, 10)}</span>
+                  )}
                   {" and "}
-                  <span className="font-[family-name:var(--font-ibm-plex-mono)] font-medium text-[var(--color-text)]">{run.id.slice(0, 10)}</span>
+                  {effectiveRepoUrl ? (
+                    <a href={`${effectiveRepoUrl}/commit/${run.id}`} target="_blank" rel="noopener noreferrer" className="font-[family-name:var(--font-ibm-plex-mono)] font-medium text-[var(--color-accent)] hover:underline transition-colors">{run.id.slice(0, 10)}</a>
+                  ) : (
+                    <span className="font-[family-name:var(--font-ibm-plex-mono)] font-medium text-[var(--color-text)]">{run.id.slice(0, 10)}</span>
+                  )}
                 </>
               ) : (
                 <span className="text-[var(--color-text-tertiary)]">Select an ancestor to compare</span>
