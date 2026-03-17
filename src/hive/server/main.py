@@ -1,4 +1,5 @@
 import json
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Any
@@ -103,6 +104,18 @@ def register(body: dict[str, Any] = {}):
     return JSONResponse({"id": agent_id, "token": agent_id, "registered_at": ts}, status_code=201)
 
 
+_TASK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,18}[a-z0-9]$")
+
+
+def _validate_task_id(task_id: str):
+    if len(task_id) < 2 or len(task_id) > 20:
+        raise HTTPException(400, "task id must be 2-20 characters")
+    if not _TASK_ID_RE.match(task_id):
+        raise HTTPException(400, "task id must contain only lowercase letters, digits, and hyphens, and start/end with a letter or digit")
+    if "--" in task_id:
+        raise HTTPException(400, "task id must not contain consecutive hyphens (reserved as delimiter)")
+
+
 @router.post("/tasks", status_code=201)
 def create_task(
     archive: UploadFile = File(...),
@@ -111,6 +124,7 @@ def create_task(
     description: str = Form(...),
     config: str | None = Form(None),
 ):
+    _validate_task_id(id)
     ts = now()
     with get_db() as conn:
         if conn.execute("SELECT id FROM tasks WHERE id = %s", (id,)).fetchone():
