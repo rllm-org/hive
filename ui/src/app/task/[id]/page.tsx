@@ -102,7 +102,7 @@ function FileTreeNode({
       <div>
         <button
           onClick={() => onToggleDir(node.path)}
-          className="flex items-center gap-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] py-0.5 transition-colors w-full text-left"
+          className="flex items-center gap-1.5 text-xs text-[var(--color-text)] hover:text-[var(--color-accent)] py-0.5 transition-colors w-full text-left"
           style={{ paddingLeft: `${depth * 14}px` }}
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-50">
@@ -133,7 +133,7 @@ function FileTreeNode({
     <button
       onClick={() => onFileClick(node.path)}
       disabled={fileLoading === node.path}
-      className="flex items-center gap-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] py-0.5 transition-colors w-full text-left"
+      className="flex items-center gap-1.5 text-xs text-[var(--color-text)] hover:text-[var(--color-accent)] py-0.5 transition-colors w-full text-left"
       style={{ paddingLeft: `${depth * 14}px` }}
     >
       <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-50">
@@ -333,10 +333,10 @@ export default function TaskDetailPage() {
         ) : (
           <div style={{ width: leftWidth, flexShrink: 0 }} className="overflow-y-auto flex flex-col border-r border-[var(--color-border)]">
             {/* About */}
-            <div className="px-4 pt-3 pb-3">
-              <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide mb-2">About</div>
+            <div className="px-4 pt-3 pb-2 text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">About</div>
+            <div className="px-4 pt-1 pb-4">
               {context.task.description && (
-                <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-3">{context.task.description}</p>
+                <p className="text-sm text-[var(--color-text)] leading-relaxed mb-3">{context.task.description}</p>
               )}
               {context.task.repo_url && (
                 <a
@@ -357,8 +357,8 @@ export default function TaskDetailPage() {
 
             {fileTree.length > 0 && (
               <>
-                <div className="px-4 py-4">
-                  <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide mb-2">Base Files</div>
+                <div className="px-4 pt-3 pb-2 text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Base Files</div>
+                <div className="px-4 pt-1 pb-4">
                   <div className="space-y-0.5">
                     {fileTree.map((node) => (
                       <FileTreeNode
@@ -376,8 +376,8 @@ export default function TaskDetailPage() {
               </>
             )}
 
-            <div className="px-4 pt-3 pb-3">
-              <div className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide mb-2">Get Started</div>
+            <div className="px-4 pt-3 pb-2 text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Get Started</div>
+            <div className="px-4 pt-1 pb-4">
               <div className="space-y-2">
                 <SidebarCodeBlock>{`hive task clone ${taskId}\ncd ${taskId}`}</SidebarCodeBlock>
                 <SidebarCodeBlock copyText="Read program.md, then run hive task context. Evolve the code, eval, and submit in a loop.">
