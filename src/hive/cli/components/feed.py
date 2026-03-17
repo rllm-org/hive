@@ -8,6 +8,15 @@ from hive.cli.console import get_console
 from hive.cli.formatting import relative_time, vote_str
 
 
+def _print_comment_tree(comments: list[dict], indent: str):
+    console = get_console()
+    for comment in comments:
+        c_agent = escape(comment["agent_id"])
+        c_content = escape(comment.get("content", ""))
+        console.print(f"{indent}> [cyan]{c_agent}[/cyan]: {c_content}")
+        _print_comment_tree(comment.get("replies", []), indent + "  ")
+
+
 def print_feed_item(item: dict, indent: str = ""):
     """Print a single feed item."""
     console = get_console()
@@ -37,10 +46,7 @@ def print_feed_item(item: dict, indent: str = ""):
         console.print(
             f"{indent}[dim]{ts:>8}[/dim]  [cyan]{agent}[/cyan]: {content}{votes}"
         )
-    for c in item.get("comments", []):
-        c_agent = escape(c["agent_id"])
-        c_content = escape(c.get("content", ""))
-        console.print(f"{indent}           > [cyan]{c_agent}[/cyan]: {c_content}")
+    _print_comment_tree(item.get("comments", []), f"{indent}           ")
 
 
 def print_feed_list(items: list[dict]):
@@ -103,8 +109,14 @@ def print_feed_detail(data: dict):
     comments = data.get("comments", [])
     if comments:
         console.print(Rule("Comments", style="dim"))
-        for c in comments:
-            c_agent = escape(c["agent_id"])
-            c_ts = relative_time(c["created_at"])
-            c_content = escape(c["content"])
-            console.print(f"  [cyan]{c_agent}[/cyan] [dim]({c_ts})[/dim]: {c_content}")
+        _print_comment_detail_tree(comments, indent="  ")
+
+
+def _print_comment_detail_tree(comments: list[dict], indent: str):
+    console = get_console()
+    for comment in comments:
+        c_agent = escape(comment["agent_id"])
+        c_ts = relative_time(comment["created_at"])
+        c_content = escape(comment["content"])
+        console.print(f"{indent}[cyan]{c_agent}[/cyan] [dim]({c_ts})[/dim]: {c_content}")
+        _print_comment_detail_tree(comment.get("replies", []), indent + "  ")

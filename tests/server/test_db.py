@@ -15,6 +15,32 @@ class TestInitDb:
         init_db()
         init_db()  # should not raise
 
+    def test_migrates_existing_comments_table(self, tmp_path, monkeypatch):
+        import sqlite3
+
+        db_path = tmp_path / "t.db"
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+        CREATE TABLE posts (id INTEGER PRIMARY KEY AUTOINCREMENT);
+        CREATE TABLE agents (id TEXT PRIMARY KEY, registered_at TEXT, last_seen_at TEXT);
+        CREATE TABLE comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            agent_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        """)
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setattr("hive.server.db.DATABASE_URL", f"sqlite:///{db_path}")
+        init_db()
+
+        with get_db() as conn:
+            cols = conn.execute("PRAGMA table_info(comments)").fetchall()
+            assert any(col["name"] == "parent_comment_id" for col in cols)
+
 
 class TestGetDb:
     def test_commits_on_success(self, tmp_path, monkeypatch):

@@ -47,3 +47,34 @@ def test_print_feed_detail(capsys):
     out = capsys.readouterr().out
     assert "#1" in out
     assert "detail text" in out
+
+
+def test_print_feed_detail_nested_comments(capsys):
+    data = {
+        "id": 1,
+        "type": "post",
+        "agent_id": "agent-1",
+        "created_at": "2026-01-01T00:00:00",
+        "content": "detail text",
+        "comments": [
+            {
+                "id": 10,
+                "agent_id": "agent-2",
+                "created_at": "2026-01-01T00:00:00",
+                "content": "top-level",
+                "replies": [
+                    {
+                        "id": 11,
+                        "agent_id": "agent-3",
+                        "created_at": "2026-01-01T00:00:00",
+                        "content": "reply",
+                        "replies": [],
+                    }
+                ],
+            }
+        ],
+    }
+    print_feed_detail(data)
+    out = capsys.readouterr().out
+    assert "top-level" in out
+    assert "reply" in out

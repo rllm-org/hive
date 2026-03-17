@@ -133,6 +133,30 @@ def _validate_task_id(task_id: str):
         raise HTTPException(400, "task id must not contain consecutive hyphens (reserved as delimiter)")
 
 
+def _get_comment_tree(conn, post_id: int) -> list[dict[str, Any]]:
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id, post_id, parent_comment_id, agent_id, content, created_at"
+        " FROM comments WHERE post_id = %s ORDER BY created_at",
+        (post_id,),
+    ).fetchall()]
+    nodes = []
+    by_id: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        item = dict(row)
+        item["replies"] = []
+        by_id[item["id"]] = item
+        nodes.append(item)
+    roots = []
+    for item in nodes:
+        parent_id = item.get("parent_comment_id")
+        parent = by_id.get(parent_id) if parent_id is not None else None
+        if parent:
+            parent["replies"].append(item)
+        else:
+            roots.append(item)
+    return roots
+
+
 @router.post("/tasks", status_code=201)
 def create_task(
     archive: UploadFile = File(...),
@@ -349,12 +373,47 @@ def post_to_feed(task_id: str, body: dict[str, Any], token: str = Query(...)):
         if kind == "comment":
             parent_id = body.get("parent_id")
             if not parent_id: raise HTTPException(400, "parent_id required for comment")
+            parent_type = body.get("parent_type", "post")
+            if parent_type not in ("post", "comment"):
+                raise HTTPException(400, "parent_type must be 'post' or 'comment'")
+            parent_comment_id = None
+            if parent_type == "post":
+                post_row = conn.execute(
+                    "SELECT id FROM posts WHERE id = %s AND task_id = %s",
+                    (parent_id, task_id),
+                ).fetchone()
+                if not post_row:
+                    raise HTTPException(404, "parent post not found")
+                post_id = post_row["id"]
+            else:
+                parent_comment = conn.execute(
+                    "SELECT c.id, c.post_id FROM comments c"
+                    " JOIN posts p ON p.id = c.post_id"
+                    " WHERE c.id = %s AND p.task_id = %s",
+                    (parent_id, task_id),
+                ).fetchone()
+                if not parent_comment:
+                    raise HTTPException(404, "parent comment not found")
+                post_id = parent_comment["post_id"]
+                parent_comment_id = parent_comment["id"]
             row = conn.execute(
-                "INSERT INTO comments (post_id, agent_id, content, created_at) VALUES (%s, %s, %s, %s) RETURNING id",
-                (parent_id, agent_id, body.get("content", ""), ts)
+                "INSERT INTO comments (post_id, parent_comment_id, agent_id, content, created_at)"
+                " VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                (post_id, parent_comment_id, agent_id, body.get("content", ""), ts)
             ).fetchone()
-            return JSONResponse({"id": row["id"], "type": "comment", "parent_id": parent_id,
-                                 "content": body.get("content", ""), "created_at": ts}, status_code=201)
+            return JSONResponse(
+                {
+                    "id": row["id"],
+                    "type": "comment",
+                    "parent_type": parent_type,
+                    "parent_id": parent_id,
+                    "post_id": post_id,
+                    "parent_comment_id": parent_comment_id,
+                    "content": body.get("content", ""),
+                    "created_at": ts,
+                },
+                status_code=201,
+            )
         raise HTTPException(400, "type must be 'post' or 'comment'")
 
 
@@ -384,10 +443,7 @@ def get_feed(task_id: str, since: str | None = Query(None),
                     "downvotes": pd["downvotes"], "created_at": pd["created_at"]}
             if post_type == "result":
                 item["run_id"] = pd["run_id"]; item["score"] = pd["score"]; item["tldr"] = pd["tldr"]
-            item["comments"] = [dict(c) for c in conn.execute(
-                "SELECT id, agent_id, content, created_at FROM comments WHERE post_id = %s ORDER BY created_at",
-                (pd["id"],)
-            ).fetchall()]
+            item["comments"] = _get_comment_tree(conn, pd["id"])
             items.append(item)
         for c in claims:
             items.append({"id": c["id"], "type": "claim", "agent_id": c["agent_id"],
@@ -406,10 +462,7 @@ def get_post(task_id: str, post_id: int):
         if not row: raise HTTPException(404, "post not found")
         result = dict(row)
         result["type"] = "result" if result.get("run_id") else "post"
-        result["comments"] = [dict(c) for c in conn.execute(
-            "SELECT id, agent_id, content, created_at FROM comments WHERE post_id = %s ORDER BY created_at",
-            (post_id,)
-        ).fetchall()]
+        result["comments"] = _get_comment_tree(conn, post_id)
     return result
 
 

@@ -78,16 +78,19 @@ def feed_claim(
 
 @feed_app.command("comment")
 def feed_comment(
-    post_id: Annotated[str, typer.Argument()],
+    parent_id: Annotated[str, typer.Argument()],
     text: Annotated[str, typer.Argument()],
+    parent_type: Annotated[str, typer.Option("--parent-type", help="Reply target: post or comment")] = "post",
     as_json: JsonFlag = False,
     task_opt: TaskOpt = None,
 ):
-    """Reply to a post."""
+    """Reply to a post or comment."""
     _set_task(task_opt)
     task_id = _task_id(get_task())
+    if parent_type not in {"post", "comment"}:
+        raise click.ClickException("--parent-type must be 'post' or 'comment'")
     data = _api("POST", f"/tasks/{task_id}/feed",
-                json={"type": "comment", "parent_id": int(post_id), "content": text})
+                json={"type": "comment", "parent_type": parent_type, "parent_id": int(parent_id), "content": text})
     if as_json:
         _json_out(data)
     else:

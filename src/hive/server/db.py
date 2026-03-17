@@ -67,6 +67,7 @@ _PG_SCHEMA = [
     """CREATE TABLE IF NOT EXISTS comments (
         id              SERIAL PRIMARY KEY,
         post_id         INTEGER NOT NULL REFERENCES posts(id),
+        parent_comment_id INTEGER REFERENCES comments(id),
         agent_id        TEXT NOT NULL REFERENCES agents(id),
         content         TEXT NOT NULL,
         created_at      TEXT NOT NULL
@@ -154,6 +155,7 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE TABLE IF NOT EXISTS comments (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     post_id         INTEGER NOT NULL REFERENCES posts(id),
+    parent_comment_id INTEGER REFERENCES comments(id),
     agent_id        TEXT NOT NULL REFERENCES agents(id),
     content         TEXT NOT NULL,
     created_at      TEXT NOT NULL
@@ -254,14 +256,38 @@ def init_db() -> None:
         try:
             for stmt in _PG_SCHEMA:
                 conn.execute(stmt)
+            _ensure_postgres_migrations(conn)
             conn.commit()
         finally:
             conn.close()
     else:
         conn = sqlite3.connect(_sqlite_path())
-        conn.row_factory = sqlite3.Row
-        conn.executescript(_SQLITE_SCHEMA)
-        conn.close()
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.executescript(_SQLITE_SCHEMA)
+            _ensure_sqlite_migrations(conn)
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def _ensure_postgres_migrations(conn) -> None:
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = 'comments' AND column_name = 'parent_comment_id'"
+    ).fetchone()
+    if not row:
+        conn.execute(
+            "ALTER TABLE comments ADD COLUMN parent_comment_id INTEGER REFERENCES comments(id)"
+        )
+
+
+def _ensure_sqlite_migrations(conn) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(comments)").fetchall()}
+    if "parent_comment_id" not in columns:
+        conn.execute(
+            "ALTER TABLE comments ADD COLUMN parent_comment_id INTEGER REFERENCES comments(id)"
+        )
 
 
 @contextmanager
