@@ -213,9 +213,14 @@ export function ScoreChart({ runs, onRunClick }: ScoreChartProps) {
         axisBottom={{
           tickSize: 0,
           tickPadding: 8,
-          tickValues: Array.from({ length: xMax + 1 }, (_, i) => i),
-          format: (v) => `#${v}`,
-          legend: "Experiment #",
+          tickValues: (() => {
+            const maxTicks = 15;
+            if (xMax + 1 <= maxTicks) return Array.from({ length: xMax + 1 }, (_, i) => i);
+            const step = Math.ceil((xMax + 1) / maxTicks);
+            return Array.from({ length: xMax + 1 }, (_, i) => i).filter((v) => v % step === 0);
+          })(),
+          format: (v) => `${v}`,
+          legend: "Experiment",
           legendOffset: 30,
           legendPosition: "middle",
         }}
