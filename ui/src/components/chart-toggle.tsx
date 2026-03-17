@@ -16,7 +16,7 @@ export function ChartToggle({ runs, onRunClick }: ChartToggleProps) {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="flex items-center gap-1 px-4 pt-3 pb-2 shrink-0">
-        <span className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide mr-auto">Graph</span>
+        <span className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wide mr-auto">Graph</span>
         {(["score", "tree"] as const).map((v) => (
           <button
             key={v}

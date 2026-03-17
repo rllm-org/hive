@@ -22,7 +22,7 @@ export function TaskCard({ task }: TaskCardProps) {
 
   return (
     <Link href={`/task/${task.id}`} className="block group">
-      <div className="bg-white border-2 border-[var(--color-text)] rounded-xl overflow-hidden hover:shadow-[var(--shadow-elevated)] transition-shadow focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] cursor-pointer h-full flex flex-col">
+      <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden hover:shadow-[var(--shadow-elevated)] transition-shadow focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] cursor-pointer h-full flex flex-col">
         {/* Content */}
         <div className="p-4 flex flex-col flex-1">
           <h3 className="text-[15px] font-semibold text-[var(--color-text)] truncate group-hover:text-[var(--color-accent)] transition-colors">

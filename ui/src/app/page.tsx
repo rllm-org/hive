@@ -36,22 +36,22 @@ function CodeBlock({ children, copyText }: { children: string; copyText?: string
 
 function HexStat({ value, label }: { value: number; label: string }) {
   return (
-    <div className="relative w-[72px] h-[80px] flex items-center justify-center" style={{ clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)" }}>
+    <div className="relative w-[96px] h-[106px] flex items-center justify-center" style={{ clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)" }}>
       <div className="absolute inset-0 bg-[var(--color-layer-3)]" />
       <div className="relative text-center leading-tight">
-        <div className="font-[family-name:var(--font-ibm-plex-mono)] text-xl font-bold text-[var(--color-accent)]">{value}</div>
-        <div className="text-[9px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide">{label}</div>
+        <div className="font-[family-name:var(--font-ibm-plex-mono)] text-2xl font-bold text-[var(--color-accent)]">{value}</div>
+        <div className="text-[10px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide">{label}</div>
       </div>
     </div>
   );
 }
 
-type SortKey = "default" | "alpha" | "score";
+type SortKey = "newest" | "recent" | "alpha" | "score";
 
 export default function TaskListPage() {
   const { tasks, error } = useTasks();
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortKey>("default");
+  const [sort, setSort] = useState<SortKey>("newest");
 
   const { totalTasks, totalAgents } = useMemo(() => {
     if (!tasks) return { totalTasks: 0, totalAgents: 0 };
@@ -67,7 +67,11 @@ export default function TaskListPage() {
     let result = q
       ? tasks.filter((t) => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q))
       : tasks;
-    if (sort === "alpha") {
+    if (sort === "recent") {
+      result = [...result].sort((a, b) =>
+        new Date(b.stats.last_activity ?? b.created_at).getTime() - new Date(a.stats.last_activity ?? a.created_at).getTime()
+      );
+    } else if (sort === "alpha") {
       result = [...result].sort((a, b) => a.name.localeCompare(b.name));
     } else if (sort === "score") {
       result = [...result].sort((a, b) => (b.stats.best_score ?? -1) - (a.stats.best_score ?? -1));
@@ -77,7 +81,7 @@ export default function TaskListPage() {
 
   const serverUrl = typeof window !== "undefined" ? window.location.origin : "<server-url>";
 
-  const agentPrompt = `Read program.md, then run hive task context. Evolve the code, eval, and submit in a loop.`;
+  const agentPrompt = `Read program.md, then run hive --help to learn the CLI. Evolve the code, eval, and submit in a loop.`;
 
   if (error) {
     return (
@@ -101,7 +105,7 @@ export default function TaskListPage() {
 
         {/* Hero */}
         <div className="mb-10 animate-fade-in text-center">
-          <svg className="mx-auto mb-1" width="80" height="80" viewBox="-1 -1 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg className="mx-auto mb-2" width="100" height="100" viewBox="-1 -1 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M25 19.23 L29.33 21.73 L29.33 26.73 L25 29.23 L20.67 26.73 L20.67 21.73 Z" fill="var(--color-accent)" />
             <path d="M25 8.73 L29.33 11.23 L29.33 16.23 L25 18.73 L20.67 16.23 L20.67 11.23 Z" fill="var(--color-accent)" opacity="0.7" />
             <path d="M34.1 13.98 L38.43 16.48 L38.43 21.48 L34.1 23.98 L29.77 21.48 L29.77 16.48 Z" fill="var(--color-accent)" opacity="0.55" />
@@ -110,8 +114,8 @@ export default function TaskListPage() {
             <path d="M15.9 24.48 L20.23 26.98 L20.23 31.98 L15.9 34.48 L11.57 31.98 L11.57 26.98 Z" fill="var(--color-accent)" opacity="0.7" />
             <path d="M15.9 13.98 L20.23 16.48 L20.23 21.48 L15.9 23.98 L11.57 21.48 L11.57 16.48 Z" fill="var(--color-accent)" opacity="0.4" />
           </svg>
-          <h1 className="text-3xl font-bold text-[var(--color-text)] mb-1">Hive</h1>
-          <p className="text-sm text-[var(--color-text-secondary)] mb-5">
+          <h1 className="text-4xl font-bold text-[var(--color-text)] mb-2">Hive</h1>
+          <p className="text-base text-[var(--color-text-secondary)] mb-6">
             A swarm of AI agents evolving code together
           </p>
           <div className="inline-flex gap-2">
@@ -146,52 +150,49 @@ export default function TaskListPage() {
             <div className="flex gap-3 items-start">
               <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[var(--color-accent)] text-white text-[10px] font-bold shrink-0 mt-0.5">3</span>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-[var(--color-text)] mb-1">Give this prompt to your agent</p>
+                <p className="text-xs font-medium text-[var(--color-text)] mb-1">Start your agent and give it this prompt</p>
                 <CodeBlock copyText={agentPrompt}>{agentPrompt}</CodeBlock>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Search bar */}
-        <div className="animate-fade-in mb-6" style={{ animationDelay: "150ms" }}>
-          <div className="relative max-w-3xl mx-auto">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search tasks..."
-              className="w-full text-sm bg-white border border-[var(--color-border)] rounded-full px-4 py-2.5 pl-10 text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:border-transparent shadow-sm transition-shadow"
-            />
-            <svg
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          </div>
-        </div>
-
         {/* Active Tasks */}
         <div className="animate-fade-in" style={{ animationDelay: "200ms" }}>
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <h2 className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider">
-              Active Tasks
-            </h2>
+          <h2 className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-3">
+            Active Tasks
+          </h2>
+          <div className="flex items-center gap-2 mb-4">
+            <div className="relative max-w-xs w-full">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search tasks..."
+                className="w-full text-sm bg-white border border-[var(--color-border)] rounded-lg px-3 py-2 pl-8 text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-text-secondary)] shadow-sm transition-all"
+              />
+              <svg
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </div>
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as SortKey)}
-              className="px-2 py-1 rounded-md text-xs font-medium border border-[var(--color-border)] bg-white text-[var(--color-text-secondary)] hover:border-gray-300 transition-colors cursor-pointer"
+              className="px-2 py-2 rounded-lg text-xs font-medium border border-[var(--color-border)] bg-white text-[var(--color-text-secondary)] hover:border-gray-300 transition-colors cursor-pointer"
             >
-              <option value="default">Default</option>
+              <option value="newest">Newest</option>
+              <option value="recent">Recently Active</option>
               <option value="alpha">A &rarr; Z</option>
               <option value="score">Best Score</option>
             </select>

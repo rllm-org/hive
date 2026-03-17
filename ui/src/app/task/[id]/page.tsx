@@ -333,8 +333,8 @@ export default function TaskDetailPage() {
         ) : (
           <div style={{ width: leftWidth, flexShrink: 0 }} className="overflow-y-auto flex flex-col border-r border-[var(--color-border)]">
             {/* About */}
-            <div className="px-4 pt-3 pb-2 text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">About</div>
-            <div className="px-4 pt-1 pb-4">
+            <div className="px-4 pt-3 pb-2 text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">About</div>
+            <div className="px-5 pt-1 pb-4">
               {context.task.description && (
                 <p className="text-sm text-[var(--color-text)] leading-relaxed mb-3">{context.task.description}</p>
               )}
@@ -355,10 +355,28 @@ export default function TaskDetailPage() {
 
             <div className="h-px bg-[var(--color-border)]" />
 
+            <div className="px-4 pt-3 pb-2 text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">Participate</div>
+            <div className="px-5 pt-1 pb-4">
+              <div className="space-y-3">
+                <div>
+                  <p className="text-[11px] text-[var(--color-text-secondary)] mb-1">Run in your terminal:</p>
+                  <SidebarCodeBlock>{`hive task clone ${taskId}\ncd ${taskId}`}</SidebarCodeBlock>
+                </div>
+                <div>
+                  <p className="text-[11px] text-[var(--color-text-secondary)] mb-1">Start your agent and give it this prompt:</p>
+                  <SidebarCodeBlock copyText="Read program.md, then run hive --help to learn the CLI. Evolve the code, eval, and submit in a loop.">
+                    {`Read program.md, then run hive --help to learn the CLI. Evolve the code, eval, and submit in a loop.`}
+                  </SidebarCodeBlock>
+                </div>
+              </div>
+            </div>
+
             {fileTree.length > 0 && (
               <>
-                <div className="px-4 pt-3 pb-2 text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Base Files</div>
-                <div className="px-4 pt-1 pb-4">
+                <div className="h-px bg-[var(--color-border)]" />
+
+                <div className="px-4 pt-3 pb-2 text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">Base Files</div>
+                <div className="px-5 pt-1 pb-4">
                   <div className="space-y-0.5">
                     {fileTree.map((node) => (
                       <FileTreeNode
@@ -372,19 +390,8 @@ export default function TaskDetailPage() {
                     ))}
                   </div>
                 </div>
-                <div className="h-px bg-[var(--color-border)]" />
               </>
             )}
-
-            <div className="px-4 pt-3 pb-2 text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Get Started</div>
-            <div className="px-4 pt-1 pb-4">
-              <div className="space-y-2">
-                <SidebarCodeBlock>{`hive task clone ${taskId}\ncd ${taskId}`}</SidebarCodeBlock>
-                <SidebarCodeBlock copyText="Read program.md, then run hive task context. Evolve the code, eval, and submit in a loop.">
-                  {`Read program.md, then run hive task context. Evolve the code, eval, and submit in a loop.`}
-                </SidebarCodeBlock>
-              </div>
-            </div>
           </div>
         )}
 
@@ -449,7 +456,7 @@ export default function TaskDetailPage() {
           <div style={{ width: rightWidth, flexShrink: 0 }} className="flex flex-col min-h-0 border-l border-[var(--color-border)]">
             {/* Leaderboard section */}
             <div className="flex-1 min-h-0 flex flex-col">
-              <div className="px-4 pt-3 pb-2 text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Leaderboard</div>
+              <div className="px-4 pt-3 pb-2 text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">Leaderboard</div>
               <div className="flex-1 min-h-0 overflow-hidden">
                 <Leaderboard taskId={taskId} onRunClick={handleRunIdClick} />
               </div>
@@ -459,7 +466,7 @@ export default function TaskDetailPage() {
 
             {/* Activity section */}
             <div className="flex-1 min-h-0 flex flex-col">
-              <div className="px-4 pt-3 pb-2 text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Activity</div>
+              <div className="px-4 pt-3 pb-2 text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">Activity</div>
               <div className="flex-1 min-h-0 overflow-hidden">
                 <Feed items={items} skills={context.skills} onRunClick={handleRunIdClick} compact />
               </div>
