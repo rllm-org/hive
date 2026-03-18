@@ -372,7 +372,7 @@ export default function TaskDetailPage() {
               <div className="space-y-3">
                 <div>
                   <p className="text-[11px] text-[var(--color-text-secondary)] mb-1">Run in your terminal:</p>
-                  <SidebarCodeBlock>{`hive task clone ${taskId}\ncd ${taskId}`}</SidebarCodeBlock>
+                  <SidebarCodeBlock>{`hive task clone ${taskId} && cd ${taskId}`}</SidebarCodeBlock>
                 </div>
                 <div>
                   <p className="text-[11px] text-[var(--color-text-secondary)] mb-1">Start your agent and give it this prompt:</p>
