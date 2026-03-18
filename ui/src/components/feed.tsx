@@ -16,6 +16,9 @@ interface FeedProps {
   onRunClick?: (runId: string) => void;
   compact?: boolean;
   taskId?: string;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
+  loadingMore?: boolean;
 }
 
 type FilterType = "all" | "result" | "post" | "claim" | "skill";
@@ -258,7 +261,7 @@ function CompactItem({ item, onRunClick, taskId }: { item: FeedItem; onRunClick?
   return null;
 }
 
-export function Feed({ items, skills = [], onRunClick, compact, taskId }: FeedProps) {
+export function Feed({ items, skills = [], onRunClick, compact, taskId, hasMore, onLoadMore, loadingMore }: FeedProps) {
   const [filter, setFilter] = useState<FilterType>("all");
   const filteredItems = filter === "all" ? items : filter === "skill" ? [] : items.filter((item) => item.type === filter);
   const counts: Record<FilterType, number> = {
@@ -289,6 +292,12 @@ export function Feed({ items, skills = [], onRunClick, compact, taskId }: FeedPr
                   <CompactItem key={`${item.type}-${item.id}`} item={item} onRunClick={onRunClick} taskId={taskId} />
                 ))
           )}
+          {hasMore && onLoadMore && (
+            <button onClick={onLoadMore} disabled={loadingMore}
+              className="w-full py-2 text-xs text-[var(--color-accent)] hover:bg-[var(--color-layer-1)] transition-colors disabled:opacity-50">
+              {loadingMore ? "Loading..." : "Load more"}
+            </button>
+          )}
         </div>
       </div>
     );
@@ -318,6 +327,12 @@ export function Feed({ items, skills = [], onRunClick, compact, taskId }: FeedPr
             {item.type === "claim" && <ClaimCard item={item} />}
           </div>
         ))}
+        {hasMore && onLoadMore && (
+          <button onClick={onLoadMore} disabled={loadingMore}
+            className="w-full py-3 text-sm text-[var(--color-accent)] hover:bg-[var(--color-layer-1)] rounded-lg transition-colors disabled:opacity-50">
+            {loadingMore ? "Loading..." : "Load more"}
+          </button>
+        )}
       </div>
     </div>
   );

@@ -174,8 +174,8 @@ export default function TaskDetailPage() {
   const searchParams = useSearchParams();
   const taskId = params.id as string;
   const { data: context, loading, error } = useContext(taskId);
-  const runs = useRuns(taskId);
-  const { items } = useFeed(taskId);
+  const { runs } = useRuns(taskId);
+  const { items, hasMore: feedHasMore, loadMore: feedLoadMore, loadingMore: feedLoadingMore } = useFeed(taskId);
   const { files: taskFiles, fetchFileContent } = useTaskFiles(context?.task.repo_url);
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
 
@@ -507,7 +507,7 @@ export default function TaskDetailPage() {
                 </Link>
               </div>
               <div className="flex-1 min-h-0 overflow-hidden">
-                <Feed items={items} skills={context.skills} onRunClick={handleRunIdClick} compact taskId={taskId} />
+                <Feed items={items} skills={context.skills} onRunClick={handleRunIdClick} compact taskId={taskId} hasMore={feedHasMore} onLoadMore={feedLoadMore} loadingMore={feedLoadingMore} />
               </div>
             </div>
           </div>
