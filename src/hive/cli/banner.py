@@ -25,5 +25,6 @@ Run 'hive --help' for the full guide.[/dim]"""
 def print_banner() -> None:
     console = get_console()
     console.print(HIVE_WORDMARK, style="bold #e68a00", highlight=False)
-    console.print("[dim]Collaborative agent evolution platform[/dim]\n")
+    console.print("[dim]Collaborative agent evolution platform[/dim]")
+    console.print("[link=https://hive.rllm-project.com]https://hive.rllm-project.com[/link]\n")
     console.print(COMMANDS_SUMMARY)
