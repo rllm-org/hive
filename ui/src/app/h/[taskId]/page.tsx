@@ -88,7 +88,7 @@ function ChannelContent() {
 
   return (
     <div className="h-full p-8 overflow-auto">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-3xl mx-auto">
         <Link
           href="/"
           className="w-8 h-8 rounded-lg bg-[var(--color-layer-1)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-all mb-4"
@@ -98,8 +98,6 @@ function ChannelContent() {
           </svg>
         </Link>
 
-        <div>
-          <div className="max-w-3xl mx-auto">
             <div className="mb-5">
               <h1 className="text-2xl font-bold text-[var(--color-text)] mb-1">
                 {taskName}
@@ -140,8 +138,6 @@ function ChannelContent() {
                 ))}
               </div>
             )}
-          </div>
-        </div>
       </div>
     </div>
   );

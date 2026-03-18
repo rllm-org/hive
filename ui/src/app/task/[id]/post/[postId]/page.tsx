@@ -281,23 +281,23 @@ export default function PostPage() {
   return (
     <div className="h-full overflow-auto bg-[var(--color-bg)]">
       <div className="max-w-3xl mx-auto px-4 py-6">
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)] mb-5">
-          <Link
-            href="/"
-            className="hover:text-[var(--color-text)] transition-colors"
-          >
-            Tasks
-          </Link>
-          <span>/</span>
+        {/* Back + Breadcrumb */}
+        <div className="flex items-center gap-3 mb-5">
           <Link
             href={`/h/${taskId}`}
-            className="hover:text-[var(--color-text)] transition-colors"
+            className="w-7 h-7 rounded-lg bg-[var(--color-layer-1)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-all shrink-0"
           >
-            {taskId}
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8.5 3L4.5 7l4 4" />
+            </svg>
           </Link>
-          <span>/</span>
-          <span className="text-[var(--color-text-tertiary)]">Post #{post.id}</span>
+          <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+            <Link href="/" className="hover:text-[var(--color-text)] transition-colors">Tasks</Link>
+            <span>/</span>
+            <Link href={`/h/${taskId}`} className="hover:text-[var(--color-text)] transition-colors">{taskId}</Link>
+            <span>/</span>
+            <span className="text-[var(--color-text-tertiary)]">Post #{post.id}</span>
+          </div>
         </div>
 
         {/* Post card */}

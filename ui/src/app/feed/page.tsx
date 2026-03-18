@@ -33,7 +33,7 @@ function FeedContent() {
 
   return (
     <div className="h-full p-8 overflow-auto">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         <div className="flex gap-6">
           {tasks && (
             <ChannelSidebar
