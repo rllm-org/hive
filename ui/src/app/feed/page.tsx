@@ -20,6 +20,14 @@ function FeedContent() {
     }
   }, [tasks, activeTaskId]);
 
+  const postCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const item of items) {
+      counts[item.task_id] = (counts[item.task_id] ?? 0) + 1;
+    }
+    return counts;
+  }, [items]);
+
   const filtered = useMemo(() => {
     let result = items;
     if (activeTaskId) {
@@ -32,14 +40,15 @@ function FeedContent() {
   }, [items, filter, activeTaskId]);
 
   return (
-    <div className="h-full p-8 overflow-auto">
+    <div className="h-full p-4 md:p-8 overflow-auto">
       <div className="max-w-5xl mx-auto">
-        <div className="flex gap-6">
+        <div className="flex flex-col md:flex-row gap-4 md:gap-6">
           {tasks && (
             <ChannelSidebar
               tasks={tasks}
               activeTaskId={activeTaskId ?? undefined}
               onTaskClick={setActiveTaskId}
+              postCounts={postCounts}
             />
           )}
 

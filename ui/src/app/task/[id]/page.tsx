@@ -330,7 +330,7 @@ export default function TaskDetailPage() {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-[var(--color-bg)] relative">
       {/* Header bar */}
-      <header className="shrink-0 bg-[var(--color-surface)] border-b border-[var(--color-border)] px-5 py-3 flex items-center">
+      <header className="shrink-0 bg-[var(--color-surface)] border-b border-[var(--color-border)] px-3 md:px-5 py-3 flex items-center">
         <Link href="/" aria-label="Back to home" className="w-8 h-8 rounded-lg bg-[var(--color-layer-1)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-all mr-4">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M8.5 3L4.5 7l4 4" />
@@ -345,12 +345,12 @@ export default function TaskDetailPage() {
       </header>
 
       {/* Main content — fills remaining space */}
-      <main ref={containerRef} className="flex-1 min-h-0 flex bg-[var(--color-surface)] overflow-hidden">
-        {/* Left sidebar */}
+      <main ref={containerRef} className="flex-1 min-h-0 flex flex-col md:flex-row bg-[var(--color-surface)] overflow-hidden md:overflow-hidden overflow-y-auto">
+        {/* Left sidebar — hidden on mobile */}
         {isLeftCollapsed ? (
           <div
             onClick={toggleLeft}
-            className="flex items-start justify-center cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors border-r border-[var(--color-border)]"
+            className="hidden md:flex items-start justify-center cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors border-r border-[var(--color-border)]"
             style={{ width: 36, flexShrink: 0, paddingTop: 16 }}
           >
             <span
@@ -361,7 +361,7 @@ export default function TaskDetailPage() {
             </span>
           </div>
         ) : (
-          <div style={{ width: leftWidth, flexShrink: 0 }} className="overflow-y-auto flex flex-col border-r border-[var(--color-border)]">
+          <div style={{ width: leftWidth, flexShrink: 0 }} className="hidden md:flex overflow-y-auto flex-col border-r border-[var(--color-border)]">
             {/* About */}
             <div className="px-4 pt-3 pb-2 text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">About</div>
             <div className="px-5 pt-1 pb-4">
@@ -423,10 +423,10 @@ export default function TaskDetailPage() {
           </div>
         )}
 
-        {/* Left drag handle */}
+        {/* Left drag handle — hidden on mobile */}
         <div
           onMouseDown={() => handleMouseDown("left")}
-          className="shrink-0 group relative"
+          className="hidden md:block shrink-0 group relative"
           style={{ width: 8, marginLeft: -4, marginRight: -4, cursor: "col-resize", zIndex: 10 }}
         >
           <div className={`absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${isDragging === "left" ? "bg-[var(--color-accent)]" : "group-hover:bg-[var(--color-accent)] bg-transparent"}`} />
@@ -442,16 +442,16 @@ export default function TaskDetailPage() {
         </div>
 
         {/* Chart panel */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex-1 min-w-0 flex flex-col min-h-[300px] md:min-h-0">
           <div className="flex-1 min-h-0">
             <ChartToggle runs={runs} onRunClick={handleRunClick} />
           </div>
         </div>
 
-        {/* Right drag handle */}
+        {/* Right drag handle — hidden on mobile */}
         <div
           onMouseDown={() => handleMouseDown("right")}
-          className="shrink-0 group relative"
+          className="hidden md:block shrink-0 group relative"
           style={{ width: 8, marginLeft: -4, marginRight: -4, cursor: "col-resize", zIndex: 10 }}
         >
           <div className={`absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${isDragging === "right" ? "bg-[var(--color-accent)]" : "group-hover:bg-[var(--color-accent)] bg-transparent"}`} />
@@ -466,11 +466,11 @@ export default function TaskDetailPage() {
           </div>
         </div>
 
-        {/* Right column */}
+        {/* Right column — full width on mobile, collapsible on desktop */}
         {isRightCollapsed ? (
           <div
             onClick={toggleRight}
-            className="flex items-start justify-center cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors border-l border-[var(--color-border)]"
+            className="hidden md:flex items-start justify-center cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors border-l border-[var(--color-border)]"
             style={{ width: 36, flexShrink: 0, paddingTop: 16 }}
           >
             <span
@@ -481,7 +481,7 @@ export default function TaskDetailPage() {
             </span>
           </div>
         ) : (
-          <div style={{ width: rightWidth, flexShrink: 0 }} className="flex flex-col min-h-0 border-l border-[var(--color-border)]">
+          <div style={{ width: rightWidth, flexShrink: 0 }} className="hidden md:flex flex-col min-h-0 border-l border-[var(--color-border)]">
             {/* Leaderboard section */}
             <div className="flex-1 min-h-0 flex flex-col">
               <div className="px-4 pt-3 pb-2 flex items-center justify-between">
@@ -512,6 +512,36 @@ export default function TaskDetailPage() {
             </div>
           </div>
         )}
+
+        {/* Mobile: stacked leaderboard + activity */}
+        <div className="md:hidden w-full shrink-0">
+          <div className="border-t border-[var(--color-border)]">
+            <div className="px-4 pt-3 pb-2 flex items-center justify-between">
+              <span className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">Leaderboard</span>
+              <LeaderboardToggle view={leaderboardView} onChange={setLeaderboardView} />
+            </div>
+            <div className="max-h-[400px] overflow-y-auto">
+              <Leaderboard taskId={taskId} view={leaderboardView} onRunClick={handleRunIdClick} />
+            </div>
+          </div>
+
+          <div className="h-px bg-[var(--color-border)]" />
+
+          <div>
+            <div className="px-4 pt-3 pb-2 flex items-center justify-between">
+              <span className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">Activity</span>
+              <Link href={`/h/${taskId}`} className="flex items-center gap-1 text-[10px] font-medium text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] transition-colors group">
+                <span>View all</span>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="group-hover:translate-x-0.5 transition-transform">
+                  <path d="M4.5 2.5L8 6l-3.5 3.5" />
+                </svg>
+              </Link>
+            </div>
+            <div className="max-h-[500px] overflow-y-auto">
+              <Feed items={items} skills={context.skills} onRunClick={handleRunIdClick} compact taskId={taskId} />
+            </div>
+          </div>
+        </div>
       </main>
 
       {selectedRun && (

@@ -79,6 +79,14 @@ function FeedInline({ tasks }: { tasks: Task[] | null }) {
     }
   }, [tasks, activeTaskId]);
 
+  const postCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const item of items) {
+      counts[item.task_id] = (counts[item.task_id] ?? 0) + 1;
+    }
+    return counts;
+  }, [items]);
+
   const filtered = useMemo(() => {
     if (!activeTaskId) return items.slice(0, 5);
     return items
@@ -87,12 +95,13 @@ function FeedInline({ tasks }: { tasks: Task[] | null }) {
   }, [items, activeTaskId]);
 
   return (
-    <div className="flex gap-6">
+    <div className="flex flex-col md:flex-row gap-4 md:gap-6">
       {tasks && (
         <ChannelSidebar
           tasks={tasks}
           activeTaskId={activeTaskId ?? undefined}
           onTaskClick={setActiveTaskId}
+          postCounts={postCounts}
         />
       )}
       <div className="flex-1 min-w-0 max-w-3xl">
@@ -204,7 +213,7 @@ export default function TaskListPage() {
   }
 
   return (
-    <div ref={scrollRef} className="h-full p-8 overflow-auto relative">
+    <div ref={scrollRef} className="h-full p-4 md:p-8 overflow-auto relative">
       {/* Top-right nav buttons */}
       <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
         <a
@@ -230,7 +239,7 @@ export default function TaskListPage() {
       <div className="max-w-5xl mx-auto">
 
         {/* Hero */}
-        <div className="mb-10 mt-10 animate-fade-in text-center">
+        <div className="mb-8 md:mb-10 mt-6 md:mt-10 animate-fade-in text-center">
           <svg className="mx-auto mb-2" width="100" height="100" viewBox="-1 -1 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M25 19.23 L29.33 21.73 L29.33 26.73 L25 29.23 L20.67 26.73 L20.67 21.73 Z" fill="var(--color-accent)" />
             <path d="M25 8.73 L29.33 11.23 L29.33 16.23 L25 18.73 L20.67 16.23 L20.67 11.23 Z" fill="var(--color-accent)" opacity="0.7" />

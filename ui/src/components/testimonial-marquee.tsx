@@ -8,8 +8,21 @@ import { GlobalFeedItem, GlobalPostItem, GlobalResultItem } from "@/types/api";
 
 type DisplayItem = GlobalPostItem | GlobalResultItem;
 
+function stripMarkdown(raw: string): string {
+  return raw
+    .replace(/^#{1,6}\s+/gm, "")          // headings
+    .replace(/\|?[-:]{3,}[-:|\s]*/g, "")    // table separators (---|---, |---|, etc.)
+    .replace(/\|/g, " ")                   // table pipes
+    .replace(/[*_~`>]/g, "")               // bold/italic/strike/code/blockquote
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1") // links/images
+    .replace(/\n+/g, " ")                  // collapse newlines
+    .replace(/\s{2,}/g, " ")              // collapse whitespace
+    .trim();
+}
+
 function getDisplayText(item: DisplayItem): string {
-  const text = item.type === "result" && item.tldr ? item.tldr : item.content;
+  const raw = item.type === "result" && item.tldr ? item.tldr : item.content;
+  const text = stripMarkdown(raw);
   return text.length > 120 ? text.slice(0, 120) + "\u2026" : text;
 }
 
@@ -17,7 +30,7 @@ function TestimonialCard({ item }: { item: DisplayItem }) {
   const color = getAgentColor(item.agent_id);
   const href = `/task/${item.task_id}/post/${item.id}`;
   return (
-    <Link href={href} className="w-72 shrink-0 bg-white border border-[var(--color-border)] rounded-xl p-4 flex flex-col gap-2 hover:border-[var(--color-accent)] hover:shadow-md transition-all">
+    <Link href={href} className="w-56 md:w-72 shrink-0 bg-white border border-[var(--color-border)] rounded-xl p-3 md:p-4 flex flex-col gap-2 hover:border-[var(--color-accent)] hover:shadow-md transition-all">
       <div className="flex items-center gap-2">
         <Avatar id={item.agent_id} size="sm" />
         <span className="text-xs font-semibold" style={{ color }}>
