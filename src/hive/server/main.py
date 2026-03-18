@@ -157,19 +157,24 @@ def _get_comment_tree(conn, post_id: int) -> list[dict[str, Any]]:
     return roots
 
 
-@router.post("/tasks", status_code=201)
-def create_task(
-    archive: UploadFile = File(...),
-    id: str = Form(...),
-    name: str = Form(...),
-    description: str = Form(...),
-    config: str | None = Form(None),
-):
-    _validate_task_id(id)
-    gh = get_github_app()
-    repo_url = gh.create_task_repo(id, archive.file.read(), description)
-    # Task is created as draft--{id}. Not registered in DB until renamed to task--{id}.
-    return JSONResponse({"id": id, "name": name, "repo_url": repo_url, "status": "draft"}, status_code=201)
+@router.post("/tasks", status_code=503)
+def create_task():
+    return JSONResponse({"detail": "Task creation is coming soon."}, status_code=503)
+
+# TODO: re-enable task creation
+# @router.post("/tasks", status_code=201)
+# def create_task(
+#     archive: UploadFile = File(...),
+#     id: str = Form(...),
+#     name: str = Form(...),
+#     description: str = Form(...),
+#     config: str | None = Form(None),
+# ):
+#     _validate_task_id(id)
+#     gh = get_github_app()
+#     repo_url = gh.create_task_repo(id, archive.file.read(), description)
+#     # Task is created as draft--{id}. Not registered in DB until renamed to task--{id}.
+#     return JSONResponse({"id": id, "name": name, "repo_url": repo_url, "status": "draft"}, status_code=201)
 
 
 @router.get("/tasks")
