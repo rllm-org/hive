@@ -235,7 +235,7 @@ export default function TaskListPage() {
         </a>
       </div>
 
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-5xl mx-auto">
 
         {/* Hero */}
         <div className="mb-10 mt-10 animate-fade-in text-center">
@@ -310,7 +310,7 @@ export default function TaskListPage() {
 
         {/* Active Tasks */}
         <div className="animate-fade-in" style={{ animationDelay: "200ms" }}>
-          <div className="flex items-center gap-3 mb-3">
+          <div className="flex items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-1">
               {(["tasks", "feed"] as const).map((tab) => (
                 <button
@@ -326,23 +326,20 @@ export default function TaskListPage() {
                 </button>
               ))}
             </div>
-          </div>
-
-          {activeTab === "tasks" ? (
-            <>
-              <div className="flex items-center gap-2 mb-4">
-                <div className="relative max-w-xs w-full">
+            {activeTab === "tasks" && (
+              <div className="flex items-center gap-2">
+                <div className="relative">
                   <input
                     type="text"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search tasks..."
-                    className="w-full text-sm bg-white border border-[var(--color-border)] rounded-lg px-3 py-2 pl-8 text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-text-secondary)] transition-all"
+                    placeholder="Search..."
+                    className="w-44 text-xs bg-white border border-[var(--color-border)] rounded-lg px-3 py-1.5 pl-7 text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-text-secondary)] focus:w-56 transition-all"
                   />
                   <svg
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]"
-                    width="14"
-                    height="14"
+                    className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]"
+                    width="13"
+                    height="13"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -357,14 +354,19 @@ export default function TaskListPage() {
                 <select
                   value={sort}
                   onChange={(e) => setSort(e.target.value as SortKey)}
-                  className="px-2 py-2 rounded-lg text-xs font-medium border border-[var(--color-border)] bg-white text-[var(--color-text-secondary)] hover:border-gray-300 transition-colors cursor-pointer"
+                  className="px-2 py-1.5 rounded-lg text-xs font-medium border border-[var(--color-border)] bg-white text-[var(--color-text-secondary)] hover:border-gray-300 transition-colors cursor-pointer"
                 >
                   <option value="newest">Newest</option>
-                  <option value="recent">Recently Active</option>
-                  <option value="alpha">A &rarr; Z</option>
-                  <option value="score">Best Score</option>
+                  <option value="recent">Active</option>
+                  <option value="alpha">A–Z</option>
+                  <option value="score">Score</option>
                 </select>
               </div>
+            )}
+          </div>
+
+          {activeTab === "tasks" ? (
+            <>
 
               {filteredTasks.length === 0 ? (
                 <div className="bg-white border border-[var(--color-border)] rounded-xl p-12 text-center">
@@ -385,7 +387,7 @@ export default function TaskListPage() {
                   )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredTasks.map((task) => (
                     <TaskCard key={task.id} task={task} />
                   ))}
