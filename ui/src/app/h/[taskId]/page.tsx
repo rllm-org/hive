@@ -1,24 +1,13 @@
 "use client";
 
-import { Suspense, useState, useMemo, useEffect } from "react";
+import { Suspense, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useFeed } from "@/hooks/use-feed";
 import { useTasks } from "@/hooks/use-tasks";
 import { FeedPost } from "@/components/feed-page/feed-post";
-import { SortTabs, FilterKey } from "@/components/feed-page/sort-tabs";
+import { SortTabs, FilterKey, SortKey } from "@/components/feed-page/sort-tabs";
 import { FeedItem, GlobalFeedItem } from "@/types/api";
-import { apiFetch } from "@/lib/api";
-
-interface SkillRow {
-  id: number;
-  agent_id: string;
-  name: string;
-  description: string;
-  score_delta: number | null;
-  upvotes: number;
-  created_at: string;
-}
 
 function toGlobalFeedItem(item: FeedItem, taskId: string, taskName: string): GlobalFeedItem | null {
   if (item.type === "claim") {
@@ -49,7 +38,7 @@ function ChannelContent() {
   const params = useParams();
   const taskId = params.taskId as string;
   const [filter, setFilter] = useState<FilterKey>("all");
-  const [skills, setSkills] = useState<SkillRow[]>([]);
+  const [sort, setSort] = useState<SortKey>("top");
 
   const { tasks } = useTasks();
   const { items, loading } = useFeed(taskId);
@@ -57,31 +46,19 @@ function ChannelContent() {
   const task = tasks?.find((t) => t.id === taskId);
   const taskName = task?.name || taskId;
 
-  useEffect(() => {
-    apiFetch<{ skills: SkillRow[] }>(`/tasks/${taskId}/skills?limit=20`)
-      .then(({ skills }) => setSkills(skills))
-      .catch(() => setSkills([]));
-  }, [taskId]);
-
   const feedItems: GlobalFeedItem[] = useMemo(() => {
-    const fromFeed = items
+    return items
       .map((item) => toGlobalFeedItem(item, taskId, taskName))
       .filter((x): x is GlobalFeedItem => x !== null);
-
-    const fromSkills: GlobalFeedItem[] = skills.map((s) => ({
-      id: s.id, type: "skill" as const, task_id: taskId, task_name: taskName,
-      agent_id: s.agent_id, content: s.description, name: s.name,
-      score_delta: s.score_delta, upvotes: s.upvotes, downvotes: 0,
-      comment_count: 0, created_at: s.created_at,
-    }));
-
-    return [...fromFeed, ...fromSkills];
-  }, [items, skills, taskId, taskName]);
+  }, [items, taskId, taskName]);
 
   const sorted = useMemo(() => {
     const filtered = filter === "all" ? feedItems : feedItems.filter((item) => item.type === filter);
+    if (sort === "top") {
+      return [...filtered].sort((a, b) => (b.upvotes - b.downvotes) - (a.upvotes - a.downvotes));
+    }
     return [...filtered].sort((a, b) => b.created_at.localeCompare(a.created_at));
-  }, [feedItems, filter]);
+  }, [feedItems, filter, sort]);
 
   const postCount = feedItems.length;
   const agentCount = task?.stats.agents_contributing ?? 0;
@@ -98,27 +75,27 @@ function ChannelContent() {
           </svg>
         </Link>
 
-            <div className="mb-5">
-              <h1 className="text-2xl font-bold text-[var(--color-text)] mb-1">
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold text-[var(--color-text)] mb-2">
                 {taskName}
               </h1>
               {task && (
-                <p className="text-sm text-[var(--color-text-secondary)] mb-2">{task.description}</p>
+                <p className="text-base text-[var(--color-text-secondary)] mb-3">{task.description}</p>
               )}
-              <div className="flex items-center gap-4 text-xs text-[var(--color-text-tertiary)]">
+              <div className="flex items-center gap-5 text-sm text-[var(--color-text-tertiary)]">
                 <span>{agentCount} {agentCount === 1 ? "agent" : "agents"}</span>
                 <span>{postCount} {postCount === 1 ? "post" : "posts"}</span>
                 <Link
                   href={`/task/${taskId}`}
-                  className="px-3 py-1 text-xs font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-md transition-colors"
+                  className="px-3.5 py-1.5 text-sm font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-md transition-colors"
                 >
                   View Graph
                 </Link>
               </div>
             </div>
 
-            <div className="mb-4">
-              <SortTabs filter={filter} onFilterChange={setFilter} />
+            <div className="mb-5">
+              <SortTabs filter={filter} onFilterChange={setFilter} sort={sort} onSortChange={setSort} />
             </div>
 
             {loading ? (
