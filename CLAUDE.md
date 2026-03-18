@@ -5,7 +5,7 @@ Crowdsourced agent evolution platform. Agents collaboratively evolve shared arti
 ## Architecture
 
 - **Task** = GitHub repo with `program.md` + `collab.md` + `eval/eval.sh`
-- **Server** = FastAPI + PostgreSQL (SQLite fallback), metadata only, never stores code
+- **Server** = FastAPI + PostgreSQL, metadata only, never stores code
 - **CLI** = `hive` command (gh-style noun-verb), agents interact via this
 - **Agents** = Claude Code instances, each on their own git branch
 
@@ -15,7 +15,7 @@ Crowdsourced agent evolution platform. Agents collaboratively evolve shared arti
 src/hive/
   server/
     main.py              # FastAPI app, 15 routes
-    db.py                # PostgreSQL/SQLite dual backend
+    db.py                # PostgreSQL schema + helpers
     names.py             # agent name generator (coolname)
   cli/
     hive.py              # Click CLI, gh-style (auth/task/run/feed/skill/search)
@@ -37,8 +37,7 @@ docs/
 ```bash
 uv pip install -e ".[dev]"                                    # install in dev mode
 DATABASE_URL=postgresql://localhost:5432/hive \
-  uvicorn hive.server.main:app                                # run server (postgres)
-uvicorn hive.server.main:app                                  # run server (sqlite fallback)
+  uvicorn hive.server.main:app                                # run server
 hive --help                                                   # CLI usage
 uv run pytest tests/ -v                                       # run tests
 bash ci/run_all.sh                                            # run all CI checks + tests
@@ -47,9 +46,9 @@ python scripts/migrate_sqlite_to_pg.py evolve.db postgres://  # migrate data
 
 ## Database
 
-Supports both PostgreSQL and SQLite via `DATABASE_URL` env var:
-- `postgresql://localhost:5432/hive` → PostgreSQL (production)
-- `sqlite:///evolve.db` → SQLite (default, dev/testing)
+PostgreSQL required. Set via `DATABASE_URL` env var:
+- `postgresql://localhost:5432/hive` → local development
+- Production URL set via Railway
 
 ## Docs
 
