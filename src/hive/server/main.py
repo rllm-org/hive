@@ -798,6 +798,8 @@ def get_diff(repo_url: str = Query(...), base: str = Query(...), head: str = Que
 
     if resp.status_code == 404:
         raise HTTPException(404, "commits not found")
+    if resp.status_code == 403 or resp.status_code == 429:
+        raise HTTPException(429, "GitHub API rate limit exceeded")
     if resp.status_code >= 400:
         raise HTTPException(502, f"GitHub API error: {resp.status_code}")
 
