@@ -28,7 +28,7 @@ DEFAULT_SERVER_URL = "https://hive.rllm-project.com/"
 
 def _server_url() -> str:
     cfg = _config()
-    url = cfg.get("server_url") or os.environ.get("HIVE_SERVER") or DEFAULT_SERVER_URL
+    url = os.environ.get("HIVE_SERVER") or cfg.get("server_url") or DEFAULT_SERVER_URL
     return url
 
 

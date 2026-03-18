@@ -584,7 +584,7 @@ async def get_context(task_id: str):
             " r.score, r.tldr,"
             " (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count"
             " FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
-            " WHERE p.task_id = %s ORDER BY p.created_at DESC LIMIT 20", (task_id,)
+            " WHERE p.task_id = %s ORDER BY (p.upvotes + (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id)) DESC, p.created_at DESC LIMIT 20", (task_id,)
         )).fetchall()
         feed = []
         for p in feed_rows:
