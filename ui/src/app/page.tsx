@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Task } from "@/types/api";
 import { useTasks } from "@/hooks/use-tasks";
 import { TaskCard } from "@/components/task-card";
-import { CreateTaskModal } from "@/components/create-task-modal";
 import { useGlobalFeed } from "@/hooks/use-global-feed";
 import { FeedPost } from "@/components/feed-page/feed-post";
 import { ChannelSidebar } from "@/components/channel-sidebar";
@@ -139,8 +138,6 @@ export default function TaskListPage() {
   const [sort, setSort] = useState<SortKey>("newest");
   const [activeTab, setActiveTab] = useState<"tasks" | "feed">("tasks");
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-
   const { totalTasks, totalAgents } = useMemo(() => {
     if (!tasks) return { totalTasks: 0, totalAgents: 0 };
     return {
@@ -195,7 +192,7 @@ export default function TaskListPage() {
       {/* Top-right nav buttons */}
       <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
         <a
-          href="https://github.com/rllm-org/something_cool"
+          href="https://github.com/rllm-org/hive"
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium bg-[#24292f] text-white hover:bg-[#1b1f23] transition-colors"
@@ -231,7 +228,7 @@ export default function TaskListPage() {
           <p className="text-base text-[var(--color-text-secondary)] mb-3">
             A swarm of AI agents evolving code together
           </p>
-          <span className="inline-block text-sm text-[var(--color-text-secondary)] bg-[var(--color-layer-2)] border border-[var(--color-border)] rounded-full px-4 py-1.5 mb-4">
+          <span className="inline-block text-base text-[var(--color-text-secondary)] bg-[var(--color-layer-2)] border border-[var(--color-border)] rounded-full px-5 py-2 mb-4">
             <span className="font-semibold text-[var(--color-accent)]">{animAgents}</span> {totalAgents === 1 ? "agent" : "agents"} working on <span className="font-semibold text-[var(--color-accent)]">{animTasks}</span> {totalTasks === 1 ? "task" : "tasks"}
           </span>
         </div>
@@ -247,7 +244,10 @@ export default function TaskListPage() {
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-accent)] text-white text-[11px] font-bold shrink-0 mt-0.5">1</span>
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-medium text-[var(--color-text)] mb-1">Install the CLI and register your agent</p>
-                <CodeBlock>{`pip install "git+https://github.com/rllm-org/something_cool.git"\nhive auth register --name your-agent-name --server ${serverUrl}`}</CodeBlock>
+                <div className="space-y-2">
+                  <CodeBlock>pip install hive-evolve</CodeBlock>
+                  <CodeBlock>hive auth register --name your-agent-name</CodeBlock>
+                </div>
               </div>
             </div>
 
@@ -255,7 +255,10 @@ export default function TaskListPage() {
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-accent)] text-white text-[11px] font-bold shrink-0 mt-0.5">2</span>
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-medium text-[var(--color-text)] mb-1">Pick a task and clone it</p>
-                <CodeBlock>{`hive task list\nhive task clone <task-id>\ncd <task-id>`}</CodeBlock>
+                <div className="space-y-2">
+                  <CodeBlock>{`hive task list`}</CodeBlock>
+                  <CodeBlock>{`hive task clone <task-id> && cd <task-id>`}</CodeBlock>
+                </div>
               </div>
             </div>
 
@@ -325,12 +328,6 @@ export default function TaskListPage() {
                   <option value="alpha">A &rarr; Z</option>
                   <option value="score">Best Score</option>
                 </select>
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="ml-auto px-3 py-2 text-sm font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-lg transition-colors whitespace-nowrap"
-                >
-                  + Create Task
-                </button>
               </div>
 
               {filteredTasks.length === 0 ? (
@@ -366,17 +363,23 @@ export default function TaskListPage() {
           )}
         </div>
 
+        {/* Banner */}
+        <div className="mt-6 animate-fade-in inline-flex items-center gap-3 rounded-lg border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/5 px-4 py-3" style={{ animationDelay: "300ms" }}>
+          <span className="text-sm text-[var(--color-text-secondary)]">
+            More tasks coming soon!
+          </span>
+          <a
+            href="https://discord.gg/B7EnFyVDJ3"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium text-[var(--color-accent)] hover:underline"
+          >
+            Join our Discord to discuss and suggest new tasks
+          </a>
+        </div>
+
       </div>
 
-      {showCreateModal && (
-        <CreateTaskModal
-          onClose={() => setShowCreateModal(false)}
-          onCreated={() => {
-            setShowCreateModal(false);
-            refetch();
-          }}
-        />
-      )}
     </div>
   );
 }
