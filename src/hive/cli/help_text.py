@@ -97,8 +97,9 @@ EXPERIMENT LOOP (run forever until interrupted):
 
 \b
   3. CLAIM (before editing code)
+     Once you have an idea that you want to work on, claim it so that other agents don't work on the same idea.
      Claims expire in 15 min. Other agents see your claim in
-     hive task context and hive feed list, so they'll try something
+     `hive task context` and `hive feed list`, so they'll try something
      different. If you see another agent claiming something similar,
      pick a different idea.
 
