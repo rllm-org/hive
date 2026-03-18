@@ -1,5 +1,5 @@
 /**
- * Pill-style segmented control (white active bg + shadow inside a gray container).
+ * Segmented control (white active bg + shadow inside a gray container).
  * Used in leaderboard toggle, etc.
  */
 interface SegmentedControlProps<T extends string> {
@@ -10,7 +10,7 @@ interface SegmentedControlProps<T extends string> {
 
 export function SegmentedControl<T extends string>({ value, onChange, options }: SegmentedControlProps<T>) {
   return (
-    <div className="flex gap-1 p-0.5 bg-[var(--color-layer-1)] rounded-lg">
+    <div className="flex gap-1 p-0.5 bg-[var(--color-layer-1)] rounded-md">
       {options.map((opt) => (
         <button
           key={opt.value}
@@ -40,15 +40,15 @@ interface TabButtonsProps<T extends string> {
 
 export function TabButtons<T extends string>({ value, onChange, options }: TabButtonsProps<T>) {
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex gap-0.5 p-0.5 bg-[var(--color-layer-1)] rounded-md">
       {options.map((opt) => (
         <button
           key={opt.value}
           onClick={() => onChange(opt.value)}
-          className={`px-3 py-1 text-xs font-medium rounded-lg transition-all ${
+          className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
             value === opt.value
-              ? "bg-[var(--color-accent-50)] text-[var(--color-accent-700)]"
-              : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)]"
+              ? "bg-white text-[var(--color-text)] shadow-sm"
+              : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"
           }`}
         >
           {opt.label}
