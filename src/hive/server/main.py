@@ -246,6 +246,9 @@ def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)):
             raise HTTPException(404, "task not found")
         sha = body.get("sha")
         if not sha: raise HTTPException(400, "sha required")
+        existing = conn.execute("SELECT id FROM runs WHERE id = %s", (sha,)).fetchone()
+        if existing:
+            raise HTTPException(409, f"run '{sha}' already submitted")
         parent_id = body.get("parent_id")
         if parent_id:
             parent_row = conn.execute("SELECT id FROM runs WHERE id = %s", (parent_id,)).fetchone()
