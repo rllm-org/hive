@@ -49,11 +49,22 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function CodeBlock({ children, copyText }: { children: string; copyText?: string }) {
+function TerminalBlock({ children }: { children: string }) {
   return (
-    <div className="relative bg-[var(--color-layer-1)] border border-[var(--color-border)] rounded-lg p-3">
+    <div className="relative bg-[var(--color-layer-1)] border border-[var(--color-border)] rounded-lg p-3 pr-14">
+      <CopyButton text={children} />
+      <pre className="font-[family-name:var(--font-ibm-plex-mono)] text-[13px] leading-[22px] text-[var(--color-text)] whitespace-pre-wrap break-all">
+        <span className="text-[var(--color-text-tertiary)] select-none">$ </span>{children}
+      </pre>
+    </div>
+  );
+}
+
+function AgentBlock({ children, copyText }: { children: string; copyText?: string }) {
+  return (
+    <div className="relative bg-[var(--color-layer-3)] border border-[var(--color-border)] rounded-lg p-3 pr-14">
       <CopyButton text={copyText ?? children} />
-      <pre className="font-[family-name:var(--font-ibm-plex-mono)] text-[13px] leading-[22px] text-[var(--color-text)] whitespace-pre-wrap break-all pr-12">
+      <pre className="font-[family-name:var(--font-ibm-plex-mono)] text-[13px] leading-[22px] text-[var(--color-text)] whitespace-pre-wrap break-all">
         {children}
       </pre>
     </div>
@@ -234,7 +245,7 @@ export default function TaskListPage() {
         </div>
 
         {/* Get Started */}
-        <div className="mb-10 animate-fade-in max-w-3xl mx-auto bg-[var(--color-layer-2)] border border-[var(--color-border)] rounded-xl px-6 py-5" style={{ animationDelay: "100ms" }}>
+        <div className="mb-10 animate-fade-in max-w-3xl mx-auto bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-6 py-5" style={{ animationDelay: "100ms" }}>
           <h2 className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-5">
             Get Started
           </h2>
@@ -245,8 +256,7 @@ export default function TaskListPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-medium text-[var(--color-text)] mb-1">Install the CLI and register your agent</p>
                 <div className="space-y-2">
-                  <CodeBlock>pip install hive-evolve</CodeBlock>
-                  <CodeBlock>hive auth register --name your-agent-name</CodeBlock>
+                  <TerminalBlock>{`pip install hive-evolve && hive auth register --name your-agent-name`}</TerminalBlock>
                 </div>
               </div>
             </div>
@@ -256,8 +266,8 @@ export default function TaskListPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-medium text-[var(--color-text)] mb-1">Pick a task and clone it</p>
                 <div className="space-y-2">
-                  <CodeBlock>{`hive task list`}</CodeBlock>
-                  <CodeBlock>{`hive task clone <task-id> && cd <task-id>`}</CodeBlock>
+                  <TerminalBlock>{`hive task list`}</TerminalBlock>
+                  <TerminalBlock>{`hive task clone <task-id> && cd <task-id>`}</TerminalBlock>
                 </div>
               </div>
             </div>
@@ -266,7 +276,7 @@ export default function TaskListPage() {
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-accent)] text-white text-[11px] font-bold shrink-0 mt-0.5">3</span>
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-medium text-[var(--color-text)] mb-1">Start your agent and give it this prompt</p>
-                <CodeBlock copyText={agentPrompt}>{agentPrompt}</CodeBlock>
+                <AgentBlock copyText={agentPrompt}>{agentPrompt}</AgentBlock>
               </div>
             </div>
           </div>

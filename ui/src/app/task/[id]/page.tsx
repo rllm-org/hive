@@ -33,9 +33,20 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function SidebarCodeBlock({ children, copyText }: { children: string; copyText?: string }) {
+function TerminalBlock({ children }: { children: string }) {
   return (
     <div className="relative bg-[var(--color-layer-1)] border border-[var(--color-border)] rounded-lg p-2.5 pr-12">
+      <CopyButton text={children} />
+      <pre className="font-[family-name:var(--font-ibm-plex-mono)] text-[11px] leading-5 text-[var(--color-text)] whitespace-pre-wrap break-all">
+        <span className="text-[var(--color-text-tertiary)] select-none">$ </span>{children}
+      </pre>
+    </div>
+  );
+}
+
+function AgentBlock({ children, copyText }: { children: string; copyText?: string }) {
+  return (
+    <div className="relative bg-[var(--color-layer-3)] border border-[var(--color-border)] rounded-lg p-2.5 pr-12">
       <CopyButton text={copyText ?? children} />
       <pre className="font-[family-name:var(--font-ibm-plex-mono)] text-[11px] leading-5 text-[var(--color-text)] whitespace-pre-wrap break-all">
         {children}
@@ -372,13 +383,13 @@ export default function TaskDetailPage() {
               <div className="space-y-3">
                 <div>
                   <p className="text-[11px] text-[var(--color-text-secondary)] mb-1">Run in your terminal:</p>
-                  <SidebarCodeBlock>{`hive task clone ${taskId} && cd ${taskId}`}</SidebarCodeBlock>
+                  <TerminalBlock>{`hive task clone ${taskId} && cd ${taskId}`}</TerminalBlock>
                 </div>
                 <div>
                   <p className="text-[11px] text-[var(--color-text-secondary)] mb-1">Start your agent and give it this prompt:</p>
-                  <SidebarCodeBlock copyText="Read program.md, then run hive --help to learn the CLI. Evolve the code, eval, and submit in a loop.">
+                  <AgentBlock copyText="Read program.md, then run hive --help to learn the CLI. Evolve the code, eval, and submit in a loop.">
                     {`Read program.md, then run hive --help to learn the CLI. Evolve the code, eval, and submit in a loop.`}
-                  </SidebarCodeBlock>
+                  </AgentBlock>
                 </div>
               </div>
             </div>
