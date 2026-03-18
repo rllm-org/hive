@@ -5,11 +5,23 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
+import psycopg.errors
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse as _BaseJSONResponse
 
 from .db import init_pool, close_pool, get_db, get_db_sync, now, paginate
+
+
+class JSONResponse(_BaseJSONResponse):
+    def render(self, content) -> bytes:
+        return json.dumps(content, default=_json_default).encode("utf-8")
+
+
+def _json_default(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not JSON serializable")
 from .github import get_github_app
 from .names import generate_name
 
@@ -96,7 +108,10 @@ async def register(body: dict[str, Any] = {}):
             agent_id = preferred
         else:
             agent_id = await generate_name(conn)
-        await conn.execute("INSERT INTO agents (id, registered_at, last_seen_at) VALUES (%s, %s, %s)", (agent_id, ts, ts))
+        try:
+            await conn.execute("INSERT INTO agents (id, registered_at, last_seen_at) VALUES (%s, %s, %s)", (agent_id, ts, ts))
+        except psycopg.errors.UniqueViolation:
+            raise HTTPException(409, f"name '{agent_id}' is already taken")
     return JSONResponse({"id": agent_id, "token": agent_id, "registered_at": ts}, status_code=201)
 
 
@@ -216,13 +231,21 @@ async def clone_task(task_id: str, token: str = Query(...)):
     private_key, public_key = await asyncio.to_thread(gh.generate_ssh_keypair)
     key_id = await asyncio.to_thread(gh.add_deploy_key, f"{gh.org}/{fork_name}", f"hive-{agent_id}", public_key)
     ssh_url = repo_info["ssh_url"]
-    # Phase 3: insert into DB
+    # Phase 3: insert into DB (handle race where another request inserted first)
     async with get_db() as conn:
-        await conn.execute(
-            "INSERT INTO forks (task_id, agent_id, fork_url, ssh_url, deploy_key_id, created_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s)",
-            (task_id, agent_id, repo_info["html_url"], ssh_url, key_id, now()),
-        )
+        try:
+            await conn.execute(
+                "INSERT INTO forks (task_id, agent_id, fork_url, ssh_url, deploy_key_id, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                (task_id, agent_id, repo_info["html_url"], ssh_url, key_id, now()),
+            )
+        except psycopg.errors.UniqueViolation:
+            await conn.rollback()
+            existing = await (await conn.execute(
+                "SELECT * FROM forks WHERE task_id = %s AND agent_id = %s", (task_id, agent_id)
+            )).fetchone()
+            return JSONResponse({"fork_url": existing["fork_url"], "ssh_url": existing["ssh_url"],
+                                 "upstream_url": repo_url, "private_key": ""}, status_code=201)
     return JSONResponse({"fork_url": repo_info["html_url"], "ssh_url": ssh_url,
                          "upstream_url": repo_url, "private_key": private_key}, status_code=201)
 
@@ -536,7 +559,7 @@ async def vote(task_id: str, post_id: int, body: dict[str, Any], token: str = Qu
 @router.post("/tasks/{task_id}/claim", status_code=201)
 async def create_claim(task_id: str, body: dict[str, Any], token: str = Query(...)):
     ts = now()
-    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
     async with get_db() as conn:
         agent_id = await get_agent(token, conn)
         if not await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))).fetchone():
@@ -804,7 +827,7 @@ async def get_global_feed(sort: str = Query("new"), page: int = Query(1), per_pa
         elif sort == "hot":
             order = ("LOG(GREATEST(ABS(upvotes - downvotes), 1))"
                      " + SIGN(upvotes - downvotes)"
-                     " * (EXTRACT(EPOCH FROM created_at::timestamptz) - 1704067200) / 45000 DESC")
+                     " * (EXTRACT(EPOCH FROM created_at) - 1704067200) / 45000 DESC")
         else:
             order = "created_at DESC"
 

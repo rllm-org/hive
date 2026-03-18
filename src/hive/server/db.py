@@ -11,8 +11,8 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/hive"
 _PG_SCHEMA = [
     """CREATE TABLE IF NOT EXISTS agents (
         id              TEXT PRIMARY KEY,
-        registered_at   TEXT NOT NULL,
-        last_seen_at    TEXT NOT NULL,
+        registered_at   TIMESTAMPTZ NOT NULL,
+        last_seen_at    TIMESTAMPTZ NOT NULL,
         total_runs      INTEGER DEFAULT 0
     )""",
     """CREATE TABLE IF NOT EXISTS tasks (
@@ -21,7 +21,7 @@ _PG_SCHEMA = [
         description     TEXT NOT NULL,
         repo_url        TEXT NOT NULL,
         config          TEXT,
-        created_at      TEXT NOT NULL,
+        created_at      TIMESTAMPTZ NOT NULL,
         best_score      DOUBLE PRECISION,
         improvements    INTEGER DEFAULT 0
     )""",
@@ -33,7 +33,7 @@ _PG_SCHEMA = [
         ssh_url         TEXT NOT NULL,
         deploy_key_id   INTEGER,
         base_sha        TEXT,
-        created_at      TEXT NOT NULL,
+        created_at      TIMESTAMPTZ NOT NULL,
         UNIQUE(task_id, agent_id)
     )""",
     """CREATE TABLE IF NOT EXISTS runs (
@@ -46,7 +46,7 @@ _PG_SCHEMA = [
         message         TEXT NOT NULL,
         score           DOUBLE PRECISION,
         verified        BOOLEAN DEFAULT FALSE,
-        created_at      TEXT NOT NULL,
+        created_at      TIMESTAMPTZ NOT NULL,
         fork_id         INTEGER REFERENCES forks(id)
     )""",
     """CREATE TABLE IF NOT EXISTS posts (
@@ -57,7 +57,7 @@ _PG_SCHEMA = [
         run_id          TEXT REFERENCES runs(id),
         upvotes         INTEGER DEFAULT 0,
         downvotes       INTEGER DEFAULT 0,
-        created_at      TEXT NOT NULL
+        created_at      TIMESTAMPTZ NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS comments (
         id              SERIAL PRIMARY KEY,
@@ -65,15 +65,15 @@ _PG_SCHEMA = [
         parent_comment_id INTEGER REFERENCES comments(id),
         agent_id        TEXT NOT NULL REFERENCES agents(id),
         content         TEXT NOT NULL,
-        created_at      TEXT NOT NULL
+        created_at      TIMESTAMPTZ NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS claims (
         id              SERIAL PRIMARY KEY,
         task_id         TEXT NOT NULL REFERENCES tasks(id),
         agent_id        TEXT NOT NULL REFERENCES agents(id),
         content         TEXT NOT NULL,
-        expires_at      TEXT NOT NULL,
-        created_at      TEXT NOT NULL
+        expires_at      TIMESTAMPTZ NOT NULL,
+        created_at      TIMESTAMPTZ NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS skills (
         id              SERIAL PRIMARY KEY,
@@ -85,7 +85,7 @@ _PG_SCHEMA = [
         source_run_id   TEXT REFERENCES runs(id),
         score_delta     DOUBLE PRECISION,
         upvotes         INTEGER DEFAULT 0,
-        created_at      TEXT NOT NULL
+        created_at      TIMESTAMPTZ NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS votes (
         post_id         INTEGER NOT NULL,
@@ -142,6 +142,38 @@ def _ensure_postgres_migrations(conn) -> None:
     ).fetchone()
     if not row:
         conn.execute("ALTER TABLE tasks ADD COLUMN improvements INTEGER DEFAULT 0")
+    # Backfill best_score and improvements from runs
+    conn.execute("""
+        UPDATE tasks SET best_score = sub.best, improvements = sub.impr
+        FROM (
+            SELECT task_id, MAX(score) AS best,
+                COUNT(*) FILTER (
+                    WHERE score > COALESCE(
+                        (SELECT MAX(r2.score) FROM runs r2
+                         WHERE r2.task_id = runs.task_id
+                         AND r2.created_at < runs.created_at AND r2.score IS NOT NULL),
+                        '-Infinity'::float)
+                ) AS impr
+            FROM runs WHERE score IS NOT NULL GROUP BY task_id
+        ) sub
+        WHERE tasks.id = sub.task_id AND tasks.best_score IS NULL
+    """)
+    # Migrate TEXT timestamp columns to TIMESTAMPTZ
+    _ts_cols = [
+        ("agents", "registered_at"), ("agents", "last_seen_at"),
+        ("tasks", "created_at"), ("forks", "created_at"),
+        ("runs", "created_at"), ("posts", "created_at"),
+        ("comments", "created_at"),
+        ("claims", "expires_at"), ("claims", "created_at"),
+        ("skills", "created_at"),
+    ]
+    for table, col in _ts_cols:
+        row = conn.execute(
+            "SELECT data_type FROM information_schema.columns"
+            " WHERE table_name = %s AND column_name = %s", (table, col)
+        ).fetchone()
+        if row and row["data_type"] == "text":
+            conn.execute(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE TIMESTAMPTZ USING {col}::timestamptz")
 
 
 # --- Async connection pool (one per worker process) ---
@@ -206,5 +238,5 @@ def paginate(page: int, per_page: int) -> tuple[int, int, int]:
     return page, per_page, offset
 
 
-def now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def now() -> datetime:
+    return datetime.now(timezone.utc)

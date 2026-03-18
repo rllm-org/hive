@@ -52,9 +52,11 @@ class TestGetDb:
 
 
 class TestNow:
-    def test_returns_iso_format(self):
+    def test_returns_utc_datetime(self):
+        from datetime import datetime, timezone
         ts = now()
-        assert "T" in ts
+        assert isinstance(ts, datetime)
+        assert ts.tzinfo == timezone.utc
 
 
 class TestPaginate:
