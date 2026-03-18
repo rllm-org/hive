@@ -1,6 +1,10 @@
 import os
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
+
+import psycopg
+from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/hive")
 
@@ -93,8 +97,7 @@ _PG_SCHEMA = [
 
 
 def init_db() -> None:
-    import psycopg
-    from psycopg.rows import dict_row
+    """Run DDL and migrations. Call once before workers start (sync)."""
     conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     try:
         for stmt in _PG_SCHEMA:
@@ -141,10 +144,49 @@ def _ensure_postgres_migrations(conn) -> None:
         conn.execute("ALTER TABLE tasks ADD COLUMN improvements INTEGER DEFAULT 0")
 
 
+# --- Async connection pool (one per worker process) ---
+
+_pool: AsyncConnectionPool | None = None
+
+
+async def init_pool(min_size: int = 2, max_size: int = 5) -> None:
+    """Create the per-worker connection pool. Call from lifespan (post-fork)."""
+    global _pool
+    _pool = AsyncConnectionPool(
+        DATABASE_URL,
+        kwargs={"row_factory": dict_row},
+        min_size=min_size,
+        max_size=max_size,
+        open=False,
+    )
+    await _pool.open()
+
+
+async def close_pool() -> None:
+    """Drain the per-worker pool. Call from lifespan shutdown."""
+    global _pool
+    if _pool:
+        await _pool.close()
+        _pool = None
+
+
+@asynccontextmanager
+async def get_db():
+    """Async context manager: borrow a connection from the pool."""
+    async with _pool.connection() as conn:
+        try:
+            yield conn
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+
+
+# --- Sync access (for init_db, scripts, test fixtures) ---
+
 @contextmanager
-def get_db():
-    import psycopg
-    from psycopg.rows import dict_row
+def get_db_sync():
+    """Sync context manager: opens a standalone connection (not pooled)."""
     conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     try:
         yield conn

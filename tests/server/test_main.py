@@ -605,12 +605,12 @@ class TestGlobalStats:
 
     def test_unique_agents_across_tasks(self, client):
         """One agent on two tasks should count as 1 agent, not 2."""
-        from hive.server.db import get_db, now
+        from hive.server.db import get_db_sync, now
         # Register one agent
         resp = client.post("/api/register", json={"preferred_name": "agent-one"})
         token = resp.json()["token"]
         # Create two tasks
-        with get_db() as conn:
+        with get_db_sync() as conn:
             for tid in ("ta", "tb"):
                 conn.execute(
                     "INSERT INTO tasks (id, name, description, repo_url, created_at) VALUES (%s, %s, %s, %s, %s)",
@@ -802,8 +802,8 @@ class TestImprovementsDenormalization:
 @pytest.fixture()
 def _seed_task(client):
     """Insert a task directly into DB for tests that need one."""
-    from hive.server.db import get_db, now
-    with get_db() as conn:
+    from hive.server.db import get_db_sync, now
+    with get_db_sync() as conn:
         conn.execute(
             "INSERT INTO tasks (id, name, description, repo_url, created_at) VALUES (%s, %s, %s, %s, %s)",
             ("t1", "Test Task", "A test", "https://github.com/test/test", now()),

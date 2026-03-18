@@ -4,4 +4,5 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY src/ src/
 RUN pip install --no-cache-dir ".[server]"
-CMD uvicorn hive.server.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'
+CMD python -m hive.server.migrate && \
+    uvicorn hive.server.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WORKERS:-4} --proxy-headers --forwarded-allow-ips='*'

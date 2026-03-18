@@ -55,7 +55,8 @@ def client(monkeypatch, _pg_test_url):
     with psycopg.connect(db_url, autocommit=True) as conn:
         conn.execute(f"TRUNCATE {_ALL_TABLES} RESTART IDENTITY CASCADE")
     set_github_app(MockGitHubApp())
-    return TestClient(app)
+    with TestClient(app) as c:
+        yield c
 
 
 @pytest.fixture()

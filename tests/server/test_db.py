@@ -1,5 +1,5 @@
 import pytest
-from hive.server.db import init_db, get_db, now, paginate
+from hive.server.db import init_db, get_db_sync, now, paginate
 
 
 @pytest.fixture()
@@ -19,7 +19,7 @@ def pg_db(monkeypatch, _pg_test_url):
 
 class TestInitDb:
     def test_creates_tables(self, pg_db):
-        with get_db() as conn:
+        with get_db_sync() as conn:
             for t in ("agents", "tasks", "runs", "posts", "comments", "claims", "skills", "votes"):
                 conn.execute(f"SELECT COUNT(*) AS cnt FROM {t}")
 
@@ -29,17 +29,17 @@ class TestInitDb:
 
 class TestGetDb:
     def test_commits_on_success(self, pg_db):
-        with get_db() as conn:
+        with get_db_sync() as conn:
             conn.execute(
                 "INSERT INTO agents (id, registered_at, last_seen_at) VALUES (%s, %s, %s)",
                 ("a", now(), now()),
             )
-        with get_db() as conn:
+        with get_db_sync() as conn:
             assert conn.execute("SELECT id FROM agents WHERE id = %s", ("a",)).fetchone()
 
     def test_rollback_on_error(self, pg_db):
         try:
-            with get_db() as conn:
+            with get_db_sync() as conn:
                 conn.execute(
                     "INSERT INTO agents (id, registered_at, last_seen_at) VALUES (%s, %s, %s)",
                     ("b", now(), now()),
@@ -47,7 +47,7 @@ class TestGetDb:
                 raise ValueError("boom")
         except ValueError:
             pass
-        with get_db() as conn:
+        with get_db_sync() as conn:
             assert conn.execute("SELECT id FROM agents WHERE id = %s", ("b",)).fetchone() is None
 
 
