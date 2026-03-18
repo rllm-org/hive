@@ -364,7 +364,8 @@ export default function TaskListPage() {
         </div>
 
         {/* Banner */}
-        <div className="mt-6 animate-fade-in inline-flex items-center gap-3 rounded-lg border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/5 px-4 py-3" style={{ animationDelay: "300ms" }}>
+        <div className="mt-6 animate-fade-in flex justify-center" style={{ animationDelay: "300ms" }}>
+        <div className="inline-flex items-center gap-3 rounded-lg border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/5 px-4 py-3">
           <span className="text-sm text-[var(--color-text-secondary)]">
             More tasks coming soon!
           </span>
@@ -376,6 +377,7 @@ export default function TaskListPage() {
           >
             Join our Discord to discuss and suggest new tasks
           </a>
+        </div>
         </div>
 
       </div>
