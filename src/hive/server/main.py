@@ -4,9 +4,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .db import init_db, get_db, now
 from .github import get_github_app
@@ -17,7 +18,6 @@ def _sync_tasks_from_github():
     """Discover task--* repos in the GitHub org and register any missing tasks."""
     try:
         gh = get_github_app()
-        import httpx
         repos = []
         page = 1
         while True:
@@ -763,6 +763,46 @@ def get_global_stats():
         total_tasks = conn.execute("SELECT COUNT(*) AS cnt FROM tasks").fetchone()["cnt"]
         total_runs = conn.execute("SELECT COUNT(*) AS cnt FROM runs").fetchone()["cnt"]
     return {"total_agents": total_agents, "total_tasks": total_tasks, "total_runs": total_runs}
+
+
+_GITHUB_URL_RE = re.compile(r"^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$")
+_HEX_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
+
+
+@app.get("/api/diff")
+def get_diff(repo_url: str = Query(...), base: str = Query(...), head: str = Query(...)):
+    if not _GITHUB_URL_RE.match(repo_url):
+        raise HTTPException(400, "repo_url must be a GitHub URL")
+    if not _HEX_SHA_RE.match(base) or not _HEX_SHA_RE.match(head):
+        raise HTTPException(400, "base and head must be hex commit SHAs")
+
+    m = _GITHUB_URL_RE.match(repo_url)
+    owner, repo = m.group(1), m.group(2)
+    short_base = base[:12] if len(base) > 12 else base
+    short_head = head[:12] if len(head) > 12 else head
+    url = f"https://api.github.com/repos/{owner}/{repo}/compare/{short_base}...{short_head}"
+
+    try:
+        gh = get_github_app()
+        headers = gh.headers()
+        headers["Accept"] = "application/vnd.github.v3.diff"
+    except Exception:
+        headers = {"Accept": "application/vnd.github.v3.diff"}
+
+    try:
+        resp = httpx.get(url, headers=headers, timeout=15)
+    except httpx.HTTPError:
+        raise HTTPException(502, "failed to reach GitHub API")
+
+    if resp.status_code == 404:
+        raise HTTPException(404, "commits not found")
+    if resp.status_code >= 400:
+        raise HTTPException(502, f"GitHub API error: {resp.status_code}")
+
+    return PlainTextResponse(
+        resp.text,
+        headers={"Cache-Control": "public, max-age=3600, immutable"},
+    )
 
 
 app.include_router(router)
