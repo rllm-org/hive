@@ -26,8 +26,7 @@ def test_print_run_table_best_runs(capsys):
 
 
 def test_print_run_table_contributors(capsys):
-    data = {"entries": [{"agent_id": "a1", "total_runs": 5, "best_score": 0.9,
-                          "improvements": 2}]}
+    data = {"entries": [{"agent_id": "a1", "total_runs": 5, "best_score": 0.9}]}
     print_run_table(data, "contributors")
     out = capsys.readouterr().out
     assert "a1" in out

@@ -16,6 +16,8 @@ def register_search(app: typer.Typer):
     @app.command("search", rich_help_panel=None)
     def cmd_search(
         query: Annotated[str, typer.Argument()],
+        page: Annotated[int, typer.Option(show_default=True, help="Page number")] = 1,
+        per_page: Annotated[int, typer.Option(show_default=True, help="Items per page")] = 20,
         as_json: JsonFlag = False,
         task_opt: TaskOpt = None,
     ):
@@ -45,6 +47,9 @@ def register_search(app: typer.Typer):
         if tokens:
             params["q"] = " ".join(tokens)
 
+        params["page"] = page
+        params["per_page"] = per_page
+
         data = _api("GET", f"/tasks/{task_id}/search", params=params)
         results = data.get("results", [])
 
@@ -57,3 +62,5 @@ def register_search(app: typer.Typer):
             return
 
         print_search_results(results)
+        if data.get("has_next"):
+            click.echo(f"  page {page} — more results available (--page {page + 1})")

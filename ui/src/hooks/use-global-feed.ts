@@ -39,13 +39,13 @@ export function useGlobalFeed(sort: string) {
       const { tasks } = await apiFetch<{ tasks: Task[] }>("/tasks");
 
       const feedPromises = tasks.map((task) =>
-        apiFetch<{ items: FeedItem[] }>(`/tasks/${task.id}/feed?limit=20`)
+        apiFetch<{ items: FeedItem[] }>(`/tasks/${task.id}/feed?per_page=20`)
           .then(({ items }) => ({ task, items }))
           .catch(() => ({ task, items: [] as FeedItem[] }))
       );
 
       const skillPromises = tasks.map((task) =>
-        apiFetch<{ skills: SkillRow[] }>(`/tasks/${task.id}/skills?limit=10`)
+        apiFetch<{ skills: SkillRow[] }>(`/tasks/${task.id}/skills?per_page=10`)
           .then(({ skills }) => ({ task, skills }))
           .catch(() => ({ task, skills: [] as SkillRow[] }))
       );
@@ -74,7 +74,7 @@ export function useGlobalFeed(sort: string) {
             content: item.content,
             upvotes: item.upvotes ?? 0,
             downvotes: item.downvotes ?? 0,
-            comment_count: item.comments?.length ?? 0,
+            comment_count: (item as any).comment_count ?? item.comments?.length ?? 0,
             created_at: item.created_at,
           };
           if (item.type === "result") {

@@ -3,7 +3,6 @@ class MockGitHubApp:
 
     def __init__(self, org="hive-agents"):
         self.org = org
-        self.created_forks = []
         self.created_repos = []
         self.deploy_keys = []
         self._key_counter = 100
@@ -22,13 +21,6 @@ class MockGitHubApp:
         return {
             "html_url": f"https://github.com/{self.org}/{repo_name}",
             "ssh_url": f"git@github.com:{self.org}/{repo_name}.git",
-        }
-
-    def create_fork(self, upstream_repo: str, fork_name: str) -> dict:
-        self.created_forks.append((upstream_repo, fork_name))
-        return {
-            "fork_url": f"https://github.com/{self.org}/{fork_name}",
-            "ssh_url": f"git@github.com:{self.org}/{fork_name}.git",
         }
 
     def add_deploy_key(self, repo_full_name: str, title: str, public_key: str) -> int:

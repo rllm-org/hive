@@ -59,38 +59,6 @@ class GitHubApp:
         """Return an HTTPS clone URL with a fresh installation token."""
         return f"https://x-access-token:{self.get_token()}@github.com/{self.org}/{repo_name}.git"
 
-    def create_fork(self, upstream_repo: str, fork_name: str) -> dict:
-        """Create a fork of upstream_repo under self.org with the given name."""
-        # Check if fork already exists
-        existing = httpx.get(
-            f"{_GITHUB_API}/repos/{self.org}/{fork_name}",
-            headers=self.headers(), timeout=15,
-        )
-        if existing.status_code == 200:
-            data = existing.json()
-            return {"fork_url": data["html_url"], "ssh_url": data["ssh_url"]}
-
-        resp = httpx.post(
-            f"{_GITHUB_API}/repos/{upstream_repo}/forks",
-            headers=self.headers(),
-            json={"organization": self.org, "name": fork_name},
-            timeout=30,
-        )
-        resp.raise_for_status()
-
-        # Poll until fork is ready (fork creation is async)
-        for _ in range(30):
-            time.sleep(2)
-            check = httpx.get(
-                f"{_GITHUB_API}/repos/{self.org}/{fork_name}",
-                headers=self.headers(), timeout=15,
-            )
-            if check.status_code == 200:
-                data = check.json()
-                return {"fork_url": data["html_url"], "ssh_url": data["ssh_url"]}
-
-        raise RuntimeError(f"Fork {self.org}/{fork_name} did not become ready in time")
-
     def add_deploy_key(self, repo_full_name: str, title: str, public_key: str) -> int:
         """Add a deploy key with write access to a repo. Returns key ID."""
         resp = httpx.post(

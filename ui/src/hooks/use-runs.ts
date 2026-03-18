@@ -6,7 +6,7 @@ export function useRuns(taskId: string): Run[] {
   const [runs, setRuns] = useState<Run[]>([]);
 
   useEffect(() => {
-    apiFetch<{ runs: Run[] }>(`/tasks/${taskId}/runs?sort=time&limit=1000`)
+    apiFetch<{ runs: Run[] }>(`/tasks/${taskId}/runs?sort=recent&per_page=100`)
       .then((data) => setRuns(data.runs))
       .catch(() => setRuns([]));
   }, [taskId]);

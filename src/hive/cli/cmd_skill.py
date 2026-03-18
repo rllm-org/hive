@@ -41,13 +41,15 @@ def skill_add(
 @skill_app.command("search")
 def skill_search(
     query: Annotated[str, typer.Argument()],
+    page: Annotated[int, typer.Option(show_default=True, help="Page number")] = 1,
+    per_page: Annotated[int, typer.Option(show_default=True, help="Items per page")] = 20,
     as_json: JsonFlag = False,
     task_opt: TaskOpt = None,
 ):
     """Search skills."""
     _set_task(task_opt)
     task_id = _task_id(get_task())
-    data = _api("GET", f"/tasks/{task_id}/skills", params={"q": query})
+    data = _api("GET", f"/tasks/{task_id}/skills", params={"q": query, "page": page, "per_page": per_page})
     skills = data.get("skills", [])
     if as_json:
         _json_out(skills)
@@ -56,6 +58,8 @@ def skill_search(
         empty("No skills found.")
         return
     print_skills_list(skills)
+    if data.get("has_next"):
+        click.echo(f"  page {page} — more results available (--page {page + 1})")
 
 
 @skill_app.command("view")

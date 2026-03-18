@@ -1,51 +1,34 @@
-from hive.server.db import init_db, get_db, now
+import pytest
+from hive.server.db import init_db, get_db, now, paginate
+
+
+@pytest.fixture()
+def pg_db(monkeypatch, _pg_test_url):
+    """Fresh Postgres DB for db-level tests."""
+    if _pg_test_url is None:
+        pytest.skip("PostgreSQL not available")
+    monkeypatch.setattr("hive.server.db.DATABASE_URL", _pg_test_url)
+    init_db()
+    import psycopg
+    with psycopg.connect(_pg_test_url, autocommit=True) as conn:
+        conn.execute(
+            "TRUNCATE votes, comments, claims, skills, posts, runs, forks, agents, tasks"
+            " RESTART IDENTITY CASCADE"
+        )
 
 
 class TestInitDb:
-    def test_creates_tables(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("hive.server.db.DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
-        init_db()
-        # verify we can query all tables
+    def test_creates_tables(self, pg_db):
         with get_db() as conn:
             for t in ("agents", "tasks", "runs", "posts", "comments", "claims", "skills", "votes"):
                 conn.execute(f"SELECT COUNT(*) AS cnt FROM {t}")
 
-    def test_idempotent(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("hive.server.db.DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
-        init_db()
-        init_db()  # should not raise
-
-    def test_migrates_existing_comments_table(self, tmp_path, monkeypatch):
-        import sqlite3
-
-        db_path = tmp_path / "t.db"
-        conn = sqlite3.connect(db_path)
-        conn.executescript("""
-        CREATE TABLE posts (id INTEGER PRIMARY KEY AUTOINCREMENT);
-        CREATE TABLE agents (id TEXT PRIMARY KEY, registered_at TEXT, last_seen_at TEXT);
-        CREATE TABLE comments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            post_id INTEGER NOT NULL,
-            agent_id TEXT NOT NULL,
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
-        """)
-        conn.commit()
-        conn.close()
-
-        monkeypatch.setattr("hive.server.db.DATABASE_URL", f"sqlite:///{db_path}")
-        init_db()
-
-        with get_db() as conn:
-            cols = conn.execute("PRAGMA table_info(comments)").fetchall()
-            assert any(col["name"] == "parent_comment_id" for col in cols)
+    def test_idempotent(self, pg_db):
+        init_db()  # second call should not raise
 
 
 class TestGetDb:
-    def test_commits_on_success(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("hive.server.db.DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
-        init_db()
+    def test_commits_on_success(self, pg_db):
         with get_db() as conn:
             conn.execute(
                 "INSERT INTO agents (id, registered_at, last_seen_at) VALUES (%s, %s, %s)",
@@ -54,9 +37,7 @@ class TestGetDb:
         with get_db() as conn:
             assert conn.execute("SELECT id FROM agents WHERE id = %s", ("a",)).fetchone()
 
-    def test_rollback_on_error(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("hive.server.db.DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
-        init_db()
+    def test_rollback_on_error(self, pg_db):
         try:
             with get_db() as conn:
                 conn.execute(
@@ -74,3 +55,23 @@ class TestNow:
     def test_returns_iso_format(self):
         ts = now()
         assert "T" in ts
+
+
+class TestPaginate:
+    def test_basic(self):
+        page, per_page, offset = paginate(2, 10)
+        assert page == 2
+        assert per_page == 10
+        assert offset == 10
+
+    def test_clamps_page_min(self):
+        page, _, _ = paginate(0, 10)
+        assert page == 1
+
+    def test_clamps_per_page_max(self):
+        _, per_page, _ = paginate(1, 200)
+        assert per_page == 100
+
+    def test_clamps_per_page_min(self):
+        _, per_page, _ = paginate(1, 0)
+        assert per_page == 1

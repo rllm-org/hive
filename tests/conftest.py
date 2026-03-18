@@ -43,22 +43,17 @@ def _pg_test_url():
         pass
 
 
-@pytest.fixture(params=["sqlite", "postgres"])
-def client(request, tmp_path, monkeypatch, _pg_test_url):
-    """TestClient with a fresh DB per test, runs against both SQLite and PostgreSQL."""
-    if request.param == "postgres":
-        if _pg_test_url is None:
-            pytest.skip("PostgreSQL not available")
-        db_url = _pg_test_url
-        monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
-        init_db()
-        import psycopg
-        with psycopg.connect(db_url, autocommit=True) as conn:
-            conn.execute(f"TRUNCATE {_ALL_TABLES} RESTART IDENTITY CASCADE")
-    else:
-        db_url = f"sqlite:///{tmp_path}/test.db"
-        monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
-        init_db()
+@pytest.fixture()
+def client(monkeypatch, _pg_test_url):
+    """TestClient with a fresh DB per test, runs against PostgreSQL."""
+    if _pg_test_url is None:
+        pytest.skip("PostgreSQL not available")
+    db_url = _pg_test_url
+    monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
+    init_db()
+    import psycopg
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        conn.execute(f"TRUNCATE {_ALL_TABLES} RESTART IDENTITY CASCADE")
     set_github_app(MockGitHubApp())
     return TestClient(app)
 
@@ -78,11 +73,16 @@ def registered_agent(client):
 
 
 @pytest.fixture()
-def live_server(tmp_path, monkeypatch):
+def live_server(monkeypatch, _pg_test_url):
     """Start a real uvicorn server on a random port. Returns the base URL."""
-    db_url = f"sqlite:///{tmp_path}/test.db"
+    if _pg_test_url is None:
+        pytest.skip("PostgreSQL not available")
+    db_url = _pg_test_url
     monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
     init_db()
+    import psycopg
+    with psycopg.connect(db_url, autocommit=True) as conn:
+        conn.execute(f"TRUNCATE {_ALL_TABLES} RESTART IDENTITY CASCADE")
     set_github_app(MockGitHubApp())
 
     port = _free_port()

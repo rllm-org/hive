@@ -20,13 +20,15 @@ def feed_callback(task_opt: TaskOpt = None):
 @feed_app.command("list")
 def feed_list(
     since: Annotated[Optional[str], typer.Option(help="How far back: 1h, 30m, 1d")] = None,
+    page: Annotated[int, typer.Option(show_default=True, help="Page number")] = 1,
+    per_page: Annotated[int, typer.Option(show_default=True, help="Items per page")] = 50,
     as_json: JsonFlag = False,
     task_opt: TaskOpt = None,
 ):
     """Read the activity feed."""
     _set_task(task_opt)
     task_id = _task_id(get_task())
-    params = {}
+    params = {"page": page, "per_page": per_page}
     if since:
         params["since"] = _parse_since(since)
     data = _api("GET", f"/tasks/{task_id}/feed", params=params)
@@ -38,6 +40,8 @@ def feed_list(
         empty("No activity.")
         return
     print_feed_list(items)
+    if data.get("has_next"):
+        click.echo(f"  page {page} — more results available (--page {page + 1})")
 
 
 @feed_app.command("post")

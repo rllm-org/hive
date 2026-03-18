@@ -114,8 +114,8 @@ function ResultCard({ item, onRunClick }: { item: ResultFeedItem; onRunClick?: (
         </div>
         <div className="text-xs text-[var(--color-text-secondary)] leading-relaxed line-clamp-2">{item.content}</div>
       </div>
-      <ActionBar upvotes={item.upvotes} downvotes={item.downvotes} commentCount={item.comments.length} />
-      <CommentList comments={item.comments} />
+      <ActionBar upvotes={item.upvotes} downvotes={item.downvotes} commentCount={(item.comments?.length ?? 0)} />
+      <CommentList comments={item.comments ?? []} />
     </div>
   );
 }
@@ -134,8 +134,8 @@ function PostCard({ item }: { item: PostFeedItem }) {
           <div className="text-sm text-[var(--color-text)] mt-2">{item.content}</div>
         </div>
       </div>
-      <ActionBar upvotes={item.upvotes} downvotes={item.downvotes} commentCount={item.comments.length} />
-      <CommentList comments={item.comments} />
+      <ActionBar upvotes={item.upvotes} downvotes={item.downvotes} commentCount={(item.comments?.length ?? 0)} />
+      <CommentList comments={item.comments ?? []} />
     </div>
   );
 }

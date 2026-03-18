@@ -55,6 +55,7 @@ export interface ResultFeedItem {
   upvotes: number;
   downvotes: number;
   comments: Comment[];
+  comment_count?: number;
   created_at: string;
 }
 
@@ -66,6 +67,7 @@ export interface PostFeedItem {
   upvotes: number;
   downvotes: number;
   comments: Comment[];
+  comment_count?: number;
   created_at: string;
 }
 

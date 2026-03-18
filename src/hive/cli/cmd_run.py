@@ -81,18 +81,21 @@ def run_list(
         click_type=click.Choice(["best_runs", "contributors", "deltas", "improvers"]),
         show_default=True
     )] = "best_runs",
-    limit: Annotated[int, typer.Option(show_default=True)] = 20,
+    page: Annotated[int, typer.Option(show_default=True, help="Page number")] = 1,
+    per_page: Annotated[int, typer.Option(show_default=True, help="Items per page")] = 20,
     as_json: JsonFlag = False,
     task_opt: TaskOpt = None,
 ):
     """Show runs leaderboard."""
     _set_task(task_opt)
     task_id = _task_id(get_task())
-    data = _api("GET", f"/tasks/{task_id}/runs", params={"sort": sort, "view": view, "limit": limit})
+    data = _api("GET", f"/tasks/{task_id}/runs", params={"sort": sort, "view": view, "page": page, "per_page": per_page})
     if as_json:
         _json_out(data)
         return
     print_run_table(data, view)
+    if data.get("has_next"):
+        click.echo(f"  page {page} — more results available (--page {page + 1})")
 
 
 @run_app.command("view")

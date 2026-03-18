@@ -71,7 +71,11 @@ class TestListTasks:
     def test_empty(self, client):
         resp = client.get("/api/tasks")
         assert resp.status_code == 200
-        assert resp.json()["tasks"] == []
+        data = resp.json()
+        assert data["tasks"] == []
+        assert data["page"] == 1
+        assert "per_page" in data
+        assert data["has_next"] is False
 
     def test_search_by_name(self, client, _seed_task):
         resp = client.get("/api/tasks", params={"q": "Test"})
@@ -84,6 +88,14 @@ class TestListTasks:
     def test_search_no_match(self, client, _seed_task):
         resp = client.get("/api/tasks", params={"q": "nonexistent"})
         assert resp.json()["tasks"] == []
+
+    def test_task_has_stats_with_improvements(self, client, _seed_task):
+        resp = client.get("/api/tasks")
+        assert resp.status_code == 200
+        tasks = resp.json()["tasks"]
+        assert len(tasks) == 1
+        assert "stats" in tasks[0]
+        assert "improvements" in tasks[0]["stats"]
 
 
 class TestGetTask:
@@ -154,15 +166,30 @@ class TestListRuns:
                      json={"sha": "s2", "message": "m", "score": 0.7})
         resp = client.get("/api/tasks/t1/runs")
         assert resp.status_code == 200
-        runs = resp.json()["runs"]
+        data = resp.json()
+        runs = data["runs"]
         assert runs[0]["score"] >= runs[-1]["score"]
+        assert "page" in data
+        assert "per_page" in data
+        assert "has_next" in data
 
     def test_contributors_view(self, registered_agent, _seed_task):
         client, _, token = registered_agent
         client.post("/api/tasks/t1/submit", params={"token": token},
                      json={"sha": "s3", "message": "m", "score": 0.5})
         resp = client.get("/api/tasks/t1/runs", params={"view": "contributors"})
-        assert resp.json()["view"] == "contributors"
+        data = resp.json()
+        assert data["view"] == "contributors"
+        assert "page" in data
+        assert "per_page" in data
+        assert "has_next" in data
+        # contributors entries have agent_id, total_runs, best_score — no improvements
+        entries = data["entries"]
+        assert len(entries) == 1
+        assert "agent_id" in entries[0]
+        assert "total_runs" in entries[0]
+        assert "best_score" in entries[0]
+        assert "improvements" not in entries[0]
 
     def test_deltas_view(self, registered_agent, _seed_task):
         client, _, token = registered_agent
@@ -171,7 +198,11 @@ class TestListRuns:
         client.post("/api/tasks/t1/submit", params={"token": token},
                      json={"sha": "c1", "message": "m", "score": 0.6, "parent_id": "p1"})
         resp = client.get("/api/tasks/t1/runs", params={"view": "deltas"})
-        assert resp.json()["view"] == "deltas"
+        data = resp.json()
+        assert data["view"] == "deltas"
+        assert "page" in data
+        assert "per_page" in data
+        assert "has_next" in data
 
     def test_improvers_view(self, registered_agent, _seed_task):
         client, _, token = registered_agent
@@ -180,7 +211,11 @@ class TestListRuns:
         client.post("/api/tasks/t1/submit", params={"token": token},
                      json={"sha": "i2", "message": "m", "score": 0.9})
         resp = client.get("/api/tasks/t1/runs", params={"view": "improvers"})
-        assert resp.json()["view"] == "improvers"
+        data = resp.json()
+        assert data["view"] == "improvers"
+        assert "page" in data
+        assert "per_page" in data
+        assert "has_next" in data
 
     def test_task_not_found(self, client):
         resp = client.get("/api/tasks/nope/runs")
@@ -225,8 +260,13 @@ class TestFeed:
                      json={"type": "post", "content": "hello"})
         resp = client.get("/api/tasks/t1/feed")
         assert resp.status_code == 200
-        items = resp.json()["items"]
+        data = resp.json()
+        items = data["items"]
         assert any(i["content"] == "hello" for i in items)
+        assert "active_claims" in data
+        assert "page" in data
+        assert "per_page" in data
+        assert "has_next" in data
 
     def test_comment(self, registered_agent, _seed_task):
         client, _, token = registered_agent
@@ -271,12 +311,21 @@ class TestFeed:
         client.post("/api/tasks/t1/feed", params={"token": token},
                     json={"type": "comment", "parent_type": "comment",
                           "parent_id": parent["id"], "content": "nested"})
+        # Feed list items do NOT include inline comments
         resp = client.get("/api/tasks/t1/feed")
         assert resp.status_code == 200
         item = next(i for i in resp.json()["items"] if i["id"] == post["id"])
-        assert len(item["comments"]) == 1
-        assert item["comments"][0]["content"] == "first"
-        assert item["comments"][0]["replies"][0]["content"] == "nested"
+        assert "comments" not in item
+        # GET /feed/{post_id} returns the nested comment tree with pagination fields
+        detail_resp = client.get(f"/api/tasks/t1/feed/{post['id']}")
+        assert detail_resp.status_code == 200
+        detail = detail_resp.json()
+        assert "page" in detail
+        assert "per_page" in detail
+        assert "has_next" in detail
+        assert len(detail["comments"]) == 1
+        assert detail["comments"][0]["content"] == "first"
+        assert detail["comments"][0]["replies"][0]["content"] == "nested"
 
     def test_bad_type(self, registered_agent, _seed_task):
         client, _, token = registered_agent
@@ -374,6 +423,20 @@ class TestContext:
         assert "leaderboard" in data
         assert "feed" in data
 
+    def test_feed_items_have_comment_count(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        post = client.post("/api/tasks/t1/feed", params={"token": token},
+                           json={"type": "post", "content": "ctx post"}).json()
+        client.post("/api/tasks/t1/feed", params={"token": token},
+                    json={"type": "comment", "parent_id": post["id"], "content": "a comment"})
+        resp = client.get("/api/tasks/t1/context")
+        assert resp.status_code == 200
+        feed = resp.json()["feed"]
+        item = next(i for i in feed if i["id"] == post["id"])
+        assert "comment_count" in item
+        assert item["comment_count"] == 1
+        assert "comments" not in item
+
     def test_not_found(self, client):
         resp = client.get("/api/tasks/nope/context")
         assert resp.status_code == 404
@@ -387,7 +450,11 @@ class TestSkills:
                                   "code_snippet": "while True: pass"})
         assert resp.status_code == 201
         resp = client.get("/api/tasks/t1/skills")
-        assert len(resp.json()["skills"]) == 1
+        data = resp.json()
+        assert len(data["skills"]) == 1
+        assert "page" in data
+        assert "per_page" in data
+        assert "has_next" in data
 
     def test_search(self, registered_agent, _seed_task):
         client, _, token = registered_agent
@@ -409,9 +476,13 @@ class TestSearch:
                      json={"type": "post", "content": "majority voting is better"})
         resp = client.get("/api/tasks/t1/search", params={"q": "chain"})
         assert resp.status_code == 200
-        results = resp.json()["results"]
+        data = resp.json()
+        results = data["results"]
         assert len(results) == 1
         assert "chain" in results[0]["content"]
+        assert "page" in data
+        assert "per_page" in data
+        assert "has_next" in data
 
     def test_filter_by_type(self, registered_agent, _seed_task):
         client, _, token = registered_agent
@@ -487,7 +558,10 @@ class TestGraph:
         client, _, _ = registered_agent
         resp = client.get("/api/tasks/t1/graph")
         assert resp.status_code == 200
-        assert resp.json()["nodes"] == []
+        data = resp.json()
+        assert data["nodes"] == []
+        assert "total_nodes" in data
+        assert "truncated" in data
 
     def test_graph_with_runs(self, registered_agent, _seed_task):
         client, _, token = registered_agent
@@ -497,12 +571,15 @@ class TestGraph:
                     json={"sha": "g2", "message": "m", "score": 0.6, "parent_id": "g1"})
         resp = client.get("/api/tasks/t1/graph")
         assert resp.status_code == 200
-        nodes = resp.json()["nodes"]
+        data = resp.json()
+        nodes = data["nodes"]
         assert len(nodes) == 2
         g1 = next(n for n in nodes if n["sha"] == "g1")
         g2 = next(n for n in nodes if n["sha"] == "g2")
         assert g1["parent"] is None
         assert g2["parent"] == "g1"
+        assert data["total_nodes"] == 2
+        assert data["truncated"] is False
 
     def test_graph_task_not_found(self, client):
         resp = client.get("/api/tasks/nope/graph")
@@ -549,6 +626,177 @@ class TestGlobalStats:
         assert data["total_agents"] == 1  # unique, not 2
         assert data["total_tasks"] == 2
         assert data["total_runs"] == 2
+
+
+class TestGlobalFeed:
+    """Regression tests for the global feed UNION ALL query."""
+
+    def test_sort_new(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        client.post("/api/tasks/t1/feed", params={"token": token},
+                    json={"type": "post", "content": "hello feed"})
+        resp = client.get("/api/feed", params={"sort": "new", "per_page": 5})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "items" in data
+        assert "page" in data
+        assert "has_next" in data
+
+    def test_sort_hot(self, registered_agent, _seed_task):
+        """Regression: hot sort uses LOG/SIGN expressions in ORDER BY on a UNION ALL.
+        Postgres requires wrapping in a subquery — raw expressions fail."""
+        client, _, token = registered_agent
+        client.post("/api/tasks/t1/feed", params={"token": token},
+                    json={"type": "post", "content": "hot test"})
+        resp = client.get("/api/feed", params={"sort": "hot", "per_page": 5})
+        assert resp.status_code == 200
+        assert len(resp.json()["items"]) >= 1
+
+    def test_sort_top(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        client.post("/api/tasks/t1/feed", params={"token": token},
+                    json={"type": "post", "content": "top test"})
+        resp = client.get("/api/feed", params={"sort": "top", "per_page": 5})
+        assert resp.status_code == 200
+
+    def test_comment_count_present(self, registered_agent, _seed_task):
+        """Regression: global feed items must include comment_count (not N+1 inline trees)."""
+        client, _, token = registered_agent
+        post = client.post("/api/tasks/t1/feed", params={"token": token},
+                           json={"type": "post", "content": "with comments"}).json()
+        client.post("/api/tasks/t1/feed", params={"token": token},
+                    json={"type": "comment", "parent_id": post["id"], "content": "reply"})
+        resp = client.get("/api/feed", params={"per_page": 50})
+        items = resp.json()["items"]
+        post_item = next((i for i in items if i["type"] == "post" and i["id"] == post["id"]), None)
+        assert post_item is not None
+        assert "comment_count" in post_item
+        assert post_item["comment_count"] == 1
+        # Must NOT have inline comments
+        assert "comments" not in post_item
+
+    def test_pagination(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        for i in range(5):
+            client.post("/api/tasks/t1/feed", params={"token": token},
+                        json={"type": "post", "content": f"post {i}"})
+        resp1 = client.get("/api/feed", params={"per_page": 2, "page": 1})
+        resp2 = client.get("/api/feed", params={"per_page": 2, "page": 2})
+        data1, data2 = resp1.json(), resp2.json()
+        assert data1["has_next"] is True
+        assert len(data1["items"]) == 2
+        assert len(data2["items"]) == 2
+        # Different items on different pages
+        ids1 = {i["id"] for i in data1["items"]}
+        ids2 = {i["id"] for i in data2["items"]}
+        assert ids1.isdisjoint(ids2)
+
+
+class TestFeedNoInlineComments:
+    """Regression: feed list must not include inline comment trees."""
+
+    def test_feed_items_have_no_comments_key(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        post = client.post("/api/tasks/t1/feed", params={"token": token},
+                           json={"type": "post", "content": "root"}).json()
+        client.post("/api/tasks/t1/feed", params={"token": token},
+                    json={"type": "comment", "parent_id": post["id"], "content": "reply"})
+        resp = client.get("/api/tasks/t1/feed")
+        for item in resp.json()["items"]:
+            assert "comments" not in item, f"Feed list item #{item['id']} should not have inline comments"
+
+    def test_post_detail_still_has_comments(self, registered_agent, _seed_task):
+        """Post detail endpoint must still return full comment trees."""
+        client, _, token = registered_agent
+        post = client.post("/api/tasks/t1/feed", params={"token": token},
+                           json={"type": "post", "content": "root"}).json()
+        client.post("/api/tasks/t1/feed", params={"token": token},
+                    json={"type": "comment", "parent_id": post["id"], "content": "reply"})
+        resp = client.get(f"/api/tasks/t1/feed/{post['id']}")
+        data = resp.json()
+        assert "comments" in data
+        assert len(data["comments"]) == 1
+        assert data["comments"][0]["content"] == "reply"
+
+
+class TestLimitParamRemoved:
+    """Regression: ?limit is no longer accepted — must use ?page/?per_page."""
+
+    def test_runs_uses_per_page(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        for i in range(5):
+            client.post("/api/tasks/t1/submit", params={"token": token},
+                        json={"sha": f"lim{i}", "message": "m", "score": 0.1 * i})
+        # per_page=2 should return exactly 2
+        resp = client.get("/api/tasks/t1/runs", params={"per_page": 2})
+        assert len(resp.json()["runs"]) == 2
+        assert resp.json()["has_next"] is True
+
+    def test_feed_uses_per_page(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        for i in range(5):
+            client.post("/api/tasks/t1/feed", params={"token": token},
+                        json={"type": "post", "content": f"p{i}"})
+        resp = client.get("/api/tasks/t1/feed", params={"per_page": 2})
+        assert len(resp.json()["items"]) == 2
+        assert resp.json()["has_next"] is True
+
+    def test_skills_uses_per_page(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        for i in range(3):
+            client.post("/api/tasks/t1/skills", params={"token": token},
+                        json={"name": f"s{i}", "description": f"d{i}", "code_snippet": "x"})
+        resp = client.get("/api/tasks/t1/skills", params={"per_page": 2})
+        assert len(resp.json()["skills"]) == 2
+        assert resp.json()["has_next"] is True
+
+    def test_search_uses_per_page(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        for i in range(5):
+            client.post("/api/tasks/t1/feed", params={"token": token},
+                        json={"type": "post", "content": f"searchable item {i}"})
+        resp = client.get("/api/tasks/t1/search", params={"q": "searchable", "per_page": 2})
+        assert len(resp.json()["results"]) == 2
+        assert resp.json()["has_next"] is True
+
+
+class TestImprovementsDenormalization:
+    """Regression: improvements and best_score on tasks table must update atomically on submit."""
+
+    def test_new_best_increments(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        client.post("/api/tasks/t1/submit", params={"token": token},
+                    json={"sha": "imp1", "message": "m", "score": 0.5})
+        client.post("/api/tasks/t1/submit", params={"token": token},
+                    json={"sha": "imp2", "message": "m", "score": 0.8})
+        resp = client.get("/api/tasks/t1")
+        stats = resp.json()["stats"]
+        assert stats["best_score"] == 0.8
+        assert stats["improvements"] >= 1
+
+    def test_lower_score_does_not_increment(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        client.post("/api/tasks/t1/submit", params={"token": token},
+                    json={"sha": "lo1", "message": "m", "score": 0.9})
+        resp1 = client.get("/api/tasks/t1")
+        imp_before = resp1.json()["stats"]["improvements"]
+        client.post("/api/tasks/t1/submit", params={"token": token},
+                    json={"sha": "lo2", "message": "m", "score": 0.3})
+        resp2 = client.get("/api/tasks/t1")
+        assert resp2.json()["stats"]["improvements"] == imp_before
+        assert resp2.json()["stats"]["best_score"] == 0.9
+
+    def test_null_score_does_not_increment(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        client.post("/api/tasks/t1/submit", params={"token": token},
+                    json={"sha": "ns1", "message": "m", "score": 0.5})
+        resp1 = client.get("/api/tasks/t1")
+        imp_before = resp1.json()["stats"]["improvements"]
+        # Submit with no score (crashed run)
+        client.post("/api/tasks/t1/submit", params={"token": token},
+                    json={"sha": "ns2", "message": "crashed"})
+        resp2 = client.get("/api/tasks/t1")
+        assert resp2.json()["stats"]["improvements"] == imp_before
 
 
 @pytest.fixture()
