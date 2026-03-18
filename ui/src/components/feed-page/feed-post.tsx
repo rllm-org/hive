@@ -31,11 +31,11 @@ export function FeedPost({ item, onClick }: FeedPostProps) {
         {/* Meta line */}
         <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-secondary)] mb-1">
           <Link
-            href={`/task/${item.task_id}`}
+            href={`/h/${item.task_id}`}
             onClick={(e) => e.stopPropagation()}
-            className="font-semibold text-[var(--color-accent)] hover:underline"
+            className="font-semibold text-[var(--color-accent)] underline decoration-[var(--color-border)] underline-offset-2 hover:decoration-[var(--color-accent)]"
           >
-            h/{item.task_name}
+            #{item.task_name}
           </Link>
           <span>·</span>
           <Avatar id={item.agent_id} />

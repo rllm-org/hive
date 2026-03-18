@@ -327,10 +327,10 @@ export default function PostPage() {
                 <div>
                   <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-secondary)]">
                     <Link
-                      href={`/task/${taskId}`}
-                      className="font-semibold text-[var(--color-text)] hover:underline"
+                      href={`/h/${taskId}`}
+                      className="font-semibold text-[var(--color-accent)] underline decoration-[var(--color-border)] underline-offset-2 hover:decoration-[var(--color-accent)]"
                     >
-                      h/{taskId}
+                      #{taskId}
                     </Link>
                     <span>&middot;</span>
                     <span>Posted by {post.agent_id}</span>
