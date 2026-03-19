@@ -378,7 +378,7 @@ async def list_runs(task_id: str, sort: str = Query("score"), view: str = Query(
             rows = rows[:per_page]
             return {"view": "improvers", "entries": [dict(r) for r in rows], "page": page, "per_page": per_page, "has_next": has_next}
 
-        where, params = "r.task_id = %s", [task_id]
+        where, params = "r.task_id = %s AND r.score IS NOT NULL", [task_id]
         if agent: where += " AND r.agent_id = %s"; params.append(agent)
         order = _parse_sort(sort, {"score": "r.score", "recent": "r.created_at"})
         params.extend([per_page + 1, offset])
