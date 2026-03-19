@@ -8,6 +8,7 @@ import click
 import httpx
 
 CONFIG_PATH = Path.home() / ".hive" / "config.json"
+AGENTS_DIR = Path.home() / ".hive" / "agents"
 
 
 def _config() -> dict:
@@ -23,6 +24,61 @@ def _save_config(data: dict):
         json.dump(data, f, indent=2)
 
 
+def _migrate_config():
+    cfg = _config()
+    if not cfg.get("agent_id"):
+        return
+    AGENTS_DIR.mkdir(parents=True, exist_ok=True)
+    agent_file = AGENTS_DIR / f"{cfg['agent_id']}.json"
+    if not agent_file.exists():
+        with open(agent_file, "w") as f:
+            json.dump({"agent_id": cfg["agent_id"], "token": cfg["token"]}, f, indent=2)
+    cfg["default_agent"] = cfg.pop("agent_id")
+    cfg.pop("token", None)
+    _save_config(cfg)
+
+
+def _save_agent(agent_id: str, token: str):
+    AGENTS_DIR.mkdir(parents=True, exist_ok=True)
+    with open(AGENTS_DIR / f"{agent_id}.json", "w") as f:
+        json.dump({"agent_id": agent_id, "token": token}, f, indent=2)
+
+
+def _load_agent(name: str) -> dict:
+    p = AGENTS_DIR / f"{name}.json"
+    if not p.exists():
+        raise click.ClickException(f"Agent '{name}' not found. Run: hive auth status")
+    with open(p) as f:
+        return json.load(f)
+
+
+def _list_agents() -> list[dict]:
+    if not AGENTS_DIR.exists():
+        return []
+    return [json.loads(p.read_text()) for p in sorted(AGENTS_DIR.glob("*.json"))]
+
+
+def _resolve_agent_name() -> str:
+    cwd = Path.cwd()
+    for directory in [cwd, *cwd.parents]:
+        agent_file = directory / ".hive" / "agent"
+        if agent_file.exists():
+            return agent_file.read_text().strip()
+    cfg = _config()
+    if cfg.get("default_agent"):
+        return cfg["default_agent"]
+    raise click.ClickException("No agent configured. Run: hive auth login --name <name>")
+
+
+def _active_agent() -> dict:
+    _migrate_config()
+    return _load_agent(_resolve_agent_name())
+
+
+def _agent_id() -> str:
+    return _active_agent()["agent_id"]
+
+
 DEFAULT_SERVER_URL = "https://hive.rllm-project.com/"
 
 
@@ -33,17 +89,17 @@ def _server_url() -> str:
 
 
 def _token() -> str:
-    token = _config().get("token")
-    if not token:
-        raise click.ClickException("Not registered. Run: hive auth register --name <name>")
-    return token
+    return _active_agent()["token"]
 
 
 def _api(method: str, path: str, **kwargs):
     url = _server_url().rstrip("/") + "/api" + path
-    cfg = _config()
     params = kwargs.pop("params", {}) or {}
-    params["token"] = cfg.get("token", "")
+    if "token" not in params:
+        try:
+            params["token"] = _active_agent().get("token", "")
+        except click.ClickException:
+            params["token"] = ""
     try:
         headers = kwargs.pop("headers", {})
         headers["ngrok-skip-browser-warning"] = "1"

@@ -53,11 +53,11 @@ class TestAuthRegister:
         assert result.exit_code == 0
         assert "my-agent" in result.output
 
-    def test_register_twice_errors(self, cli_env):
-        cli_env.invoke(hive, ["auth", "register", "--name", "first"])
-        result = cli_env.invoke(hive, ["auth", "register", "--name", "second"])
-        assert result.exit_code != 0
-        assert "Already registered" in result.output
+    def test_register_multiple_agents(self, cli_env):
+        result1 = cli_env.invoke(hive, ["auth", "register", "--name", "first"])
+        assert result1.exit_code == 0
+        result2 = cli_env.invoke(hive, ["auth", "register", "--name", "second"])
+        assert result2.exit_code == 0
 
 
 class TestTaskCreate:
@@ -94,13 +94,58 @@ class TestJsonErrorIntegration:
         data = json.loads(result.output)
         assert "error" in data
 
-    def test_register_twice_json_error(self, cli_env):
+    def test_register_multiple_json(self, cli_env):
         cli_env.invoke(hive, ["auth", "register", "--name", "first"])
         result = cli_env.invoke(hive, ["auth", "register", "--name", "second", "--json"])
-        assert result.exit_code != 0
+        assert result.exit_code == 0
         data = json.loads(result.output)
-        assert "error" in data
-        assert "Already registered" in data["error"]
+        assert data["id"] == "second"
+
+
+class TestAuthStatus:
+    def test_status_shows_agents(self, cli_env):
+        cli_env.invoke(hive, ["auth", "login", "--name", "agent-a"])
+        cli_env.invoke(hive, ["auth", "login", "--name", "agent-b"])
+        result = cli_env.invoke(hive, ["auth", "status"])
+        assert result.exit_code == 0
+        assert "agent-a" in result.output
+        assert "agent-b" in result.output
+
+    def test_status_marks_active(self, cli_env):
+        cli_env.invoke(hive, ["auth", "login", "--name", "agent-a"])
+        result = cli_env.invoke(hive, ["auth", "status"])
+        assert "agent-a *" in result.output
+
+
+class TestAuthSwitch:
+    def test_switch_default(self, cli_env):
+        cli_env.invoke(hive, ["auth", "login", "--name", "agent-a"])
+        cli_env.invoke(hive, ["auth", "login", "--name", "agent-b"])
+        cli_env.invoke(hive, ["auth", "switch", "agent-b"])
+        result = cli_env.invoke(hive, ["auth", "whoami"])
+        assert result.output.strip() == "agent-b"
+
+    def test_switch_nonexistent_errors(self, cli_env):
+        result = cli_env.invoke(hive, ["auth", "switch", "nope"])
+        assert result.exit_code != 0
+
+
+class TestAuthLogout:
+    def test_logout(self, cli_env):
+        cli_env.invoke(hive, ["auth", "login", "--name", "agent-a"])
+        cli_env.invoke(hive, ["auth", "login", "--name", "agent-b"])
+        result = cli_env.invoke(hive, ["auth", "logout", "agent-a"])
+        assert result.exit_code == 0
+        status = cli_env.invoke(hive, ["auth", "status"])
+        assert "agent-a" not in status.output
+        assert "agent-b" in status.output
+
+
+class TestAuthLogin:
+    def test_login_alias(self, cli_env):
+        result = cli_env.invoke(hive, ["auth", "login", "--name", "my-agent"])
+        assert result.exit_code == 0
+        assert "my-agent" in result.output
 
 
 class TestTaskList:

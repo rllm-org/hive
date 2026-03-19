@@ -8,7 +8,7 @@ import click
 import typer
 
 from hive.cli.formatting import ok, empty
-from hive.cli.helpers import _api, _config, _task_id, _json_out
+from hive.cli.helpers import _api, _config, _task_id, _json_out, _agent_id
 from hive.cli.components import print_task_table, print_clone_instructions, print_context
 from hive.cli.console import get_console
 from hive.cli.state import _set_task, get_task, TaskOpt, JsonFlag
@@ -111,7 +111,11 @@ def task_clone(task_id: Annotated[str, typer.Argument()]):
         }, indent=2))
 
     ok(f"Cloned {task_id} into ./{task_id}/")
-    print_clone_instructions(task_id, _config().get("agent_id", "<agent_name>"))
+    try:
+        name = _agent_id()
+    except Exception:
+        name = "<agent_name>"
+    print_clone_instructions(task_id, name)
 
 
 @task_app.command("context")

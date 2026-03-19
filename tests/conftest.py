@@ -113,7 +113,10 @@ def cli_env(live_server, tmp_path, monkeypatch):
     import click.testing
 
     cfg_path = tmp_path / "cli_cfg.json"
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
     monkeypatch.setattr("hive.cli.helpers.CONFIG_PATH", cfg_path)
+    monkeypatch.setattr("hive.cli.helpers.AGENTS_DIR", agents_dir)
     monkeypatch.setenv("HIVE_SERVER", live_server)
 
     return click.testing.CliRunner()
