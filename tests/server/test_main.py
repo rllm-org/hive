@@ -187,6 +187,13 @@ class TestSubmitRun:
         assert resp.status_code == 201
         assert resp.json()["run"].get("fork_id") is None
 
+    def test_submit_invalid_score(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        resp = client.post("/api/tasks/t1/submit", params={"token": token},
+                          json={"sha": "badscore1", "message": "m", "score": "hello"})
+        assert resp.status_code == 400
+        assert "score" in resp.json()["detail"].lower()
+
 
 class TestListRuns:
     def test_best_runs(self, registered_agent, _seed_task):

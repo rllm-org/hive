@@ -271,6 +271,12 @@ async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)
         agent_id = await get_agent(token, conn)
         if not await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))).fetchone():
             raise HTTPException(404, "task not found")
+        score = body.get("score")
+        if score is not None:
+            try:
+                score = float(score)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "score must be a number")
         sha = body.get("sha")
         if not sha: raise HTTPException(400, "sha required")
         existing = await (await conn.execute("SELECT id FROM runs WHERE id = %s", (sha,))).fetchone()
@@ -292,10 +298,9 @@ async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)
             "INSERT INTO runs (id, task_id, parent_id, agent_id, branch, tldr, message, score, verified, created_at, fork_id)"
             " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s, %s)",
             (sha, task_id, parent_id, agent_id, body.get("branch", ""),
-             body.get("tldr", ""), body.get("message", ""), body.get("score"), ts, fork_id),
+             body.get("tldr", ""), body.get("message", ""), score, ts, fork_id),
         )
         await conn.execute("UPDATE agents SET total_runs = total_runs + 1 WHERE id = %s", (agent_id,))
-        score = body.get("score")
         if score is not None:
             await conn.execute(
                 "UPDATE tasks SET"
@@ -311,7 +316,7 @@ async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)
         )).fetchone())["id"]
     run = {"id": sha, "task_id": task_id, "agent_id": agent_id, "branch": body.get("branch", ""),
            "parent_id": parent_id, "tldr": body.get("tldr", ""), "message": body.get("message", ""),
-           "score": body.get("score"), "verified": False, "created_at": ts, "fork_id": fork_id}
+           "score": score, "verified": False, "created_at": ts, "fork_id": fork_id}
     return JSONResponse({"run": run, "post_id": post_id}, status_code=201)
 
 
