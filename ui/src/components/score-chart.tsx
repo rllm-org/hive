@@ -113,7 +113,7 @@ export function ScoreChart({ runs, onRunClick }: ScoreChartProps) {
           const y2 = (yScale as (v: number) => number)(childPt.run.score!);
           return (
             <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
-              stroke="#d1d5db" strokeWidth={1} opacity={0.6} />
+              stroke="var(--color-border)" strokeWidth={1} opacity={0.6} />
           );
         })}
       </g>
@@ -140,8 +140,8 @@ export function ScoreChart({ runs, onRunClick }: ScoreChartProps) {
 
           return (
             <g key={ci}>
-              <path d={pathD} fill="none" stroke="#2a4e7a" strokeWidth={3} opacity={0.3} strokeLinecap="round" strokeLinejoin="round" />
-              <path d={pathD} fill="none" stroke="#3f72af" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+              <path d={pathD} fill="none" stroke="var(--color-accent-hover)" strokeWidth={3} opacity={0.3} strokeLinecap="round" strokeLinejoin="round" />
+              <path d={pathD} fill="none" stroke="var(--color-accent)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
             </g>
           );
         })}
@@ -163,7 +163,7 @@ export function ScoreChart({ runs, onRunClick }: ScoreChartProps) {
               <circle
                 key={p.run.id}
                 cx={cx} cy={cy} r={3.5}
-                fill={color} stroke="#ffffff" strokeWidth={1}
+                fill={color} stroke="var(--color-surface)" strokeWidth={1}
                 opacity={0.35}
                 className="cursor-pointer"
                 onMouseEnter={() => {
@@ -179,7 +179,7 @@ export function ScoreChart({ runs, onRunClick }: ScoreChartProps) {
             <circle
               key={p.run.id}
               cx={cx} cy={cy} r={6}
-              fill={color} stroke="#ffffff" strokeWidth={2}
+              fill={color} stroke="var(--color-surface)" strokeWidth={2}
               className="cursor-pointer"
               onMouseEnter={() => setHoveredRun({ run: p.run, x: cx, y: cy })}
               onMouseLeave={() => setHoveredRun(null)}
@@ -199,17 +199,17 @@ export function ScoreChart({ runs, onRunClick }: ScoreChartProps) {
         xScale={{ type: "linear", min: 1, max: xMax }}
         yScale={{ type: "linear", min: yMin, max: yMax }}
         margin={{ top: 4, right: 24, bottom: 40, left: 56 }}
-        colors={["#3f72af"]}
+        colors={["var(--color-accent)"]}
         lineWidth={1.5}
         curve="linear"
         enablePoints={false}
         enableGridX={false}
         gridYValues={5}
         theme={{
-          grid: { line: { stroke: "#e5e7eb", strokeWidth: 0.5, strokeDasharray: "4 3" } },
+          grid: { line: { stroke: "var(--color-border)", strokeWidth: 0.5, strokeDasharray: "4 3" } },
           axis: {
-            ticks: { text: { fill: "#6b7280", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" } },
-            legend: { text: { fill: "#6b7280", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" } },
+            ticks: { text: { fill: "var(--color-text-tertiary)", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" } },
+            legend: { text: { fill: "var(--color-text-tertiary)", fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" } },
           },
         }}
         axisBottom={{

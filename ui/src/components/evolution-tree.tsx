@@ -293,6 +293,24 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
     tryFit();
   }, [fitGraph]);
 
+  // Resolve CSS vars for canvas rendering
+  const cssVars = useMemo(() => {
+    if (typeof document === "undefined") return { surface: "#ffffff", bg: "#fafbfc", border: "#e5e7eb", layer3: "#d1d5db", text: "#111827", textTertiary: "#6b7280", accent: "#3f72af", muted: "#94a3b8", artifactBorder: "#cbd5e1" };
+    const s = getComputedStyle(document.documentElement);
+    const g = (v: string) => s.getPropertyValue(v).trim();
+    return {
+      surface: g("--color-surface") || "#ffffff",
+      bg: g("--color-bg") || "#fafbfc",
+      border: g("--color-border") || "#e5e7eb",
+      layer3: g("--color-layer-3") || "#d1d5db",
+      text: g("--color-text") || "#111827",
+      textTertiary: g("--color-text-tertiary") || "#6b7280",
+      accent: g("--color-accent") || "#3f72af",
+      muted: g("--color-text-secondary") || "#94a3b8",
+      artifactBorder: g("--color-border-light") || "#cbd5e1",
+    };
+  }, []);
+
   // Custom node rendering on Canvas
   const paintNode = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const gn = node as GraphNode;
@@ -304,7 +322,7 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
       const size = 16;
       const half = size / 2;
       ctx.save();
-      ctx.fillStyle = "#d1d5db";
+      ctx.fillStyle = cssVars.layer3;
       ctx.beginPath();
       ctx.roundRect(x - half, y - half, size, size, 3);
       ctx.fill();
@@ -337,7 +355,7 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
     ctx.fill();
     ctx.stroke();
     ctx.restore();
-  }, []);
+  }, [cssVars]);
 
   // Custom link rendering on Canvas
   const paintLink = useCallback((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -357,13 +375,13 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
     const baseWidth = Math.min(0.6 + gl.siblingCount * 0.5, 4);
 
     if (gl.isFromArtifact) {
-      ctx.strokeStyle = "#cbd5e1";
+      ctx.strokeStyle = cssVars.artifactBorder;
       ctx.lineWidth = Math.min(0.5 + gl.siblingCount * 0.3, 3);
       ctx.globalAlpha = 0.6;
       ctx.setLineDash([3, 2]);
     } else if (gl.inLineage) {
       const mx = (x1 + x2) / 2;
-      const lineageColor = gl.declined ? "#b9605a" : "#3f72af";
+      const lineageColor = gl.declined ? "#b9605a" : cssVars.accent;
 
       // Base stroke — solid, subtle
       ctx.strokeStyle = lineageColor;
@@ -411,7 +429,7 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
       ctx.restore();
       return;
     } else {
-      ctx.strokeStyle = gl.declined ? "#c27070" : "#94a3b8";
+      ctx.strokeStyle = gl.declined ? "#c27070" : cssVars.muted;
       ctx.lineWidth = baseWidth;
       ctx.globalAlpha = 0.3 + Math.min(gl.siblingCount * 0.05, 0.2);
     }
@@ -423,7 +441,7 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
     ctx.bezierCurveTo(mx, y1, mx, y2, x2, y2);
     ctx.stroke();
     ctx.restore();
-  }, []);
+  }, [cssVars]);
 
   const handleNodeHover = useCallback((node: any) => {
     if (node && !(node as GraphNode).isArtifact) {
@@ -447,7 +465,7 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
           graphData={graphData}
           width={dimensions.width}
           height={dimensions.height}
-          backgroundColor="#ffffff"
+          backgroundColor="transparent"
           nodeCanvasObject={paintNode}
           nodeCanvasObjectMode={() => "replace"}
           linkCanvasObject={paintLink}
@@ -464,16 +482,16 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
             const gn = node as GraphNode;
             if (gn.isArtifact) return "";
             const scoreHtml = gn.run.score !== null
-              ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;color:#111827">${gn.run.score.toFixed(3)}</div>`
+              ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;color:var(--color-text)">${gn.run.score.toFixed(3)}</div>`
               : "";
-            return `<div style="font-family:'DM Sans',sans-serif;background:#ffffff;padding:12px;border-radius:12px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04);max-width:280px;width:max-content;line-height:1.5">
+            return `<div style="font-family:'DM Sans',sans-serif;background:var(--color-surface);padding:12px;border-radius:12px;border:1px solid var(--color-border);box-shadow:0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04);max-width:280px;width:max-content;line-height:1.5">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
                 <div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${gn.color}"></div>
-                <span style="font-size:14px;font-weight:600;color:#111827">${gn.run.agent_id}</span>
-                <span style="font-size:11px;color:#6b7280">${timeAgo(gn.run.created_at)}</span>
+                <span style="font-size:14px;font-weight:600;color:var(--color-text)">${gn.run.agent_id}</span>
+                <span style="font-size:11px;color:var(--color-text-tertiary)">${timeAgo(gn.run.created_at)}</span>
               </div>
               ${scoreHtml}
-              <div style="font-size:12px;color:#6b7280;margin-top:2px">${gn.run.tldr}</div>
+              <div style="font-size:12px;color:var(--color-text-tertiary);margin-top:2px">${gn.run.tldr}</div>
             </div>`;
           }}
           onNodeClick={handleNodeClick}
