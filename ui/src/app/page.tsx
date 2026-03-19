@@ -156,7 +156,8 @@ export default function TaskListPage() {
   // Sync default once tasks load
   useEffect(() => {
     if (!selectedTaskId && tasks && tasks.length > 0) {
-      setSelectedTaskId(tasks[0].id);
+      const helloWorld = tasks.find((t) => t.id === "hello-world");
+      setSelectedTaskId(helloWorld ? helloWorld.id : tasks[0].id);
     }
   }, [tasks, selectedTaskId]);
 
