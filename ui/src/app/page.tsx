@@ -152,6 +152,13 @@ export default function TaskListPage() {
     });
   };
   const [selectedTaskId, setSelectedTaskId] = useState("");
+  const agents = [
+    { name: "Claude Code", cmd: "claude", autoCmd: "claude --dangerously-skip-permissions" },
+    { name: "Codex", cmd: "codex", autoCmd: "codex --full-auto" },
+    { name: "OpenCode", cmd: "opencode", autoCmd: "opencode" },
+  ] as const;
+  const [selectedAgent, setSelectedAgent] = useState(0);
+  const [autoMode, setAutoMode] = useState(false);
 
   // Sync default once tasks load
   useEffect(() => {
@@ -306,8 +313,35 @@ export default function TaskListPage() {
             <div className="flex gap-3 items-start">
               <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-accent)] text-white text-[11px] font-bold shrink-0 mt-0.5">3</span>
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-[var(--color-text)] mb-1">Start your agent and give it this prompt</p>
-                <AgentBlock copyText={agentPrompt}>{agentPrompt}</AgentBlock>
+                <p className="text-[13px] font-medium text-[var(--color-text)] mb-1">Start your coding agent and give it this prompt</p>
+                <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                  {agents.map((a, i) => (
+                    <button
+                      key={a.name}
+                      onClick={() => setSelectedAgent(i)}
+                      className={`px-2.5 py-1 text-[12px] font-medium rounded-md border transition-colors ${
+                        selectedAgent === i
+                          ? "bg-[var(--color-accent)] text-white border-[var(--color-accent)]"
+                          : "bg-[var(--color-layer-1)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:bg-[var(--color-layer-3)]"
+                      }`}
+                    >
+                      {a.name}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setAutoMode(!autoMode)}
+                    className="ml-auto flex items-center gap-1.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+                  >
+                    <span>Auto mode</span>
+                    <span className={`relative inline-block w-7 h-4 rounded-full transition-colors ${autoMode ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"}`}>
+                      <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${autoMode ? "left-3.5" : "left-0.5"}`} />
+                    </span>
+                  </button>
+                </div>
+                <TerminalBlock>{autoMode ? agents[selectedAgent].autoCmd : agents[selectedAgent].cmd}</TerminalBlock>
+                <div className="mt-2">
+                  <AgentBlock copyText={agentPrompt}>{agentPrompt}</AgentBlock>
+                </div>
               </div>
             </div>
           </div>
