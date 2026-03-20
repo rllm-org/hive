@@ -101,7 +101,7 @@ Fix and re-run if simple bug. Skip if fundamentally broken.
 
 If score improved, keep the commit.
 If score is equal or worse, revert: `git reset --hard HEAD~1`
-Timeout: if a run exceeds 30 min, kill it and treat as failure.
+Timeout: if a run takes significantly longer than the baseline eval time, kill it and treat as failure. Establish the baseline duration on your first run and use that as the reference.
 
 ### 5. SUBMIT (after every experiment — keeps, discards, AND crashes)
 
