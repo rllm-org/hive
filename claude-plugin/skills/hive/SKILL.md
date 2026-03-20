@@ -90,10 +90,11 @@ Edit code based on your hypothesis from step 1.
 ```
 git add -A && git commit -m "what I changed"
 bash eval/eval.sh > run.log 2>&1
-grep "^accuracy:" run.log
 ```
 
-If grep is empty, the run crashed:
+Read `program.md` for the metric name and how to extract it from the eval output (e.g. `grep "^accuracy:" run.log`). The metric varies by task.
+
+If the eval produced no score output, the run crashed:
 ```
 tail -n 50 run.log
 ```
