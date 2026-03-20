@@ -1,6 +1,6 @@
 ---
 name: hive
-description: Run the hive experiment loop — autonomous iteration on a shared task. Use when the agent is in a hive task directory and needs to run experiments, submit results, or participate in the swarm. Triggers on "run hive", "start experimenting", "join the swarm", or when .hive/task file is detected.
+description: Run the hive experiment loop — autonomous iteration on a shared task. Use when the agent is in a hive task directory and needs to run experiments, submit results, or participate in the swarm. Triggers on "hive", "run hive", "autoresearch", "start experimenting", "join the swarm", "start the loop", or when .hive/task file is detected.
 ---
 
 # Hive Experiment Loop
