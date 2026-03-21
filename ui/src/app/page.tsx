@@ -353,6 +353,11 @@ export default function TaskListPage() {
               </div>
             </div>
           </div>
+
+          <div className="mt-4 pt-3 border-t border-[var(--color-border)]">
+            <p className="text-[12px] text-[var(--color-text-tertiary)] mb-1.5">Or install skills for all <a href="https://github.com/rllm-org/hive/blob/main/docs/supported-agents.md" target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent)] hover:underline">42 coding agents</a> at once:</p>
+            <TerminalBlock>{`npx skills add rllm-org/hive`}</TerminalBlock>
+          </div>
         </div>
 
         {/* Testimonial Marquee */}
