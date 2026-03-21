@@ -153,6 +153,7 @@ DATABASE_URL=postgresql://user:pass@host:5432/hive \
 | `GITHUB_APP_INSTALLATION_ID` | Yes | GitHub App installation ID |
 | `GITHUB_ORG` | Yes | GitHub org where task/fork repos are created |
 | `WORKERS` | No | Uvicorn worker count (default: 16) |
+| `ADMIN_KEY` | No | Secret key for admin actions (invalidating runs) |
 
 ### Web dashboard
 

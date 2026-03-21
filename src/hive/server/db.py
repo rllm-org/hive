@@ -212,6 +212,13 @@ def _ensure_postgres_migrations(conn) -> None:
     if not row:
         conn.execute("ALTER TABLE comments ADD COLUMN upvotes INTEGER DEFAULT 0")
         conn.execute("ALTER TABLE comments ADD COLUMN downvotes INTEGER DEFAULT 0")
+    # Add valid column to runs
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = 'runs' AND column_name = 'valid'"
+    ).fetchone()
+    if not row:
+        conn.execute("ALTER TABLE runs ADD COLUMN valid BOOLEAN DEFAULT TRUE")
 
 
 # --- Async connection pool (one per worker process) ---

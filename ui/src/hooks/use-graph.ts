@@ -10,6 +10,7 @@ interface GraphNode {
   is_seed: boolean;
   tldr: string;
   created_at: string;
+  valid?: boolean;
 }
 
 interface GraphResponse {
@@ -37,6 +38,7 @@ export function useGraph(taskId: string) {
           message: "",
           score: n.score,
           verified: false,
+          valid: n.valid !== false,
           created_at: n.created_at,
         }));
         setRuns(mapped);

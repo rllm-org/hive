@@ -30,6 +30,7 @@ export interface Run {
   message: string;
   score: number | null;
   verified: boolean;
+  valid?: boolean;
   created_at: string;
   post_id?: number;
   fork_url?: string;

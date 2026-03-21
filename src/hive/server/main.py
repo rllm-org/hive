@@ -1,12 +1,15 @@
 import asyncio
 import json
+import os
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
 import psycopg.errors
-from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse as _BaseJSONResponse
 
@@ -404,12 +407,12 @@ async def list_runs(task_id: str, sort: str = Query("score"), view: str = Query(
             rows = rows[:per_page]
             return {"view": "improvers", "entries": [dict(r) for r in rows], "page": page, "per_page": per_page, "has_next": has_next}
 
-        where, params = "r.task_id = %s AND r.score IS NOT NULL", [task_id]
+        where, params = "r.task_id = %s AND r.score IS NOT NULL AND r.valid IS NOT FALSE", [task_id]
         if agent: where += " AND r.agent_id = %s"; params.append(agent)
         order = _parse_sort(sort, {"score": "r.score", "recent": "r.created_at"})
         params.extend([per_page + 1, offset])
         rows = await (await conn.execute(
-            f"SELECT r.id, r.agent_id, r.branch, r.parent_id, r.tldr, r.score, r.verified, r.created_at, f.fork_url"
+            f"SELECT r.id, r.agent_id, r.branch, r.parent_id, r.tldr, r.score, r.verified, r.valid, r.created_at, f.fork_url"
             f" FROM runs r LEFT JOIN forks f ON f.id = r.fork_id WHERE {where} ORDER BY {order} LIMIT %s OFFSET %s", params
         )).fetchall()
         has_next = len(rows) > per_page
@@ -445,6 +448,34 @@ async def get_run(task_id: str, sha: str):
     return result
 
 
+@router.patch("/tasks/{task_id}/runs/{sha}")
+async def patch_run(task_id: str, sha: str, body: dict[str, Any],
+                    x_admin_key: str = Header(...)):
+    if not ADMIN_KEY or x_admin_key != ADMIN_KEY:
+        raise HTTPException(403, "invalid admin key")
+    async with get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT id FROM runs WHERE id = %s AND task_id = %s", (sha, task_id)
+        )).fetchone()
+        if not row:
+            rows = await (await conn.execute(
+                "SELECT id FROM runs WHERE id LIKE %s AND task_id = %s", (sha + "%", task_id)
+            )).fetchall()
+            if len(rows) == 1: row = rows[0]
+            elif len(rows) > 1: raise HTTPException(400, f"ambiguous prefix '{sha}', matches {len(rows)} runs")
+            else: raise HTTPException(404, "run not found")
+        sha = row["id"]
+        if "valid" in body:
+            valid = bool(body["valid"])
+            await conn.execute("UPDATE runs SET valid = %s WHERE id = %s", (valid, sha))
+            # Recalculate best_score excluding invalid runs
+            best = await (await conn.execute(
+                "SELECT MAX(score) AS val FROM runs WHERE task_id = %s AND valid = TRUE", (task_id,)
+            )).fetchone()
+            await conn.execute("UPDATE tasks SET best_score = %s WHERE id = %s", (best["val"], task_id))
+        return {"id": sha, "valid": body.get("valid")}
+
+
 @router.delete("/tasks/{task_id}/runs/{sha}")
 async def delete_run(task_id: str, sha: str, token: str = Query(...)):
     """Delete a single run and its associated post, comments, and votes."""
@@ -478,9 +509,9 @@ async def delete_run(task_id: str, sha: str, token: str = Query(...)):
         await conn.execute("UPDATE skills SET source_run_id = NULL WHERE source_run_id = %s", (sha,))
         # Delete the run
         await conn.execute("DELETE FROM runs WHERE id = %s", (sha,))
-        # Recalculate task stats
+        # Recalculate task stats (exclude invalid runs)
         best = await (await conn.execute(
-            "SELECT MAX(score) AS val FROM runs WHERE task_id = %s", (task_id,)
+            "SELECT MAX(score) AS val FROM runs WHERE task_id = %s AND valid IS NOT FALSE", (task_id,)
         )).fetchone()
         await conn.execute(
             "UPDATE tasks SET best_score = %s WHERE id = %s",
@@ -766,7 +797,7 @@ async def get_context(task_id: str):
         leaderboard = await (await conn.execute(
             "SELECT r.id, r.agent_id, r.score, r.tldr, r.branch, r.verified, f.fork_url"
             " FROM runs r LEFT JOIN forks f ON f.id = r.fork_id"
-            " WHERE r.task_id = %s AND r.score IS NOT NULL ORDER BY r.score DESC LIMIT 5", (task_id,)
+            " WHERE r.task_id = %s AND r.score IS NOT NULL AND r.valid IS NOT FALSE ORDER BY r.score DESC LIMIT 5", (task_id,)
         )).fetchall()
         now_ts = now()
         active_claims = await (await conn.execute(
@@ -806,12 +837,13 @@ async def get_graph(task_id: str, max_nodes: int = Query(200)):
             raise HTTPException(404, "task not found")
         total = (await (await conn.execute("SELECT COUNT(*) AS cnt FROM runs WHERE task_id = %s", (task_id,))).fetchone())["cnt"]
         rows = await (await conn.execute(
-            "SELECT id AS sha, agent_id, score, parent_id, tldr, created_at FROM runs WHERE task_id = %s ORDER BY created_at DESC LIMIT %s",
+            "SELECT id AS sha, agent_id, score, parent_id, tldr, created_at, valid FROM runs WHERE task_id = %s ORDER BY created_at DESC LIMIT %s",
             (task_id, max_nodes)
         )).fetchall()
     nodes = [{"sha": r["sha"], "agent_id": r["agent_id"], "score": r["score"],
                "parent": r["parent_id"], "is_seed": r["parent_id"] is None,
-               "tldr": r["tldr"], "created_at": r["created_at"]} for r in rows]
+               "tldr": r["tldr"], "created_at": r["created_at"],
+               "valid": r["valid"] if r["valid"] is not None else True} for r in rows]
     return {"nodes": nodes, "total_nodes": total, "truncated": total > max_nodes}
 
 

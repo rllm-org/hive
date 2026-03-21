@@ -47,7 +47,7 @@ export function ScoreChart({ runs, onRunClick }: ScoreChartProps) {
 
   const { lineData, allPoints, pointsByIdx, edges, lineageChains, yMin, yMax, xMax } = useMemo(() => {
     const scored = runs
-      .filter((r) => r.score !== null)
+      .filter((r) => r.score !== null && r.valid !== false)
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     const { ids: lineageIds, chains: lineageChains } = findBestLineage(scored);
 
