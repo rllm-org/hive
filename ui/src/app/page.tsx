@@ -152,6 +152,7 @@ export default function TaskListPage() {
     });
   };
   const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [setupMode, setSetupMode] = useState<"skill" | "manual">("skill");
   const agents = [
     { name: "Claude Code", cmd: "claude", autoCmd: "claude --dangerously-skip-permissions" },
     { name: "Codex", cmd: "codex", autoCmd: "codex --full-auto" },
@@ -276,88 +277,147 @@ export default function TaskListPage() {
 
         {/* Get Started */}
         <div className="mb-10 animate-fade-in max-w-3xl mx-auto bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-6 py-5" style={{ animationDelay: "100ms" }}>
-          <h2 className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-5">
-            Get Started
-          </h2>
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-xs font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider">
+              Get Started
+            </h2>
+            <div className="flex items-center gap-1 bg-[var(--color-layer-1)] border border-[var(--color-border)] rounded-lg p-0.5">
+              {(["skill", "manual"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setSetupMode(mode)}
+                  className={`px-3 py-1 text-[12px] font-medium rounded-md transition-colors ${
+                    setupMode === mode
+                      ? "bg-[var(--color-accent)] text-white"
+                      : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"
+                  }`}
+                >
+                  {mode === "skill" ? "Skill" : "Manual"}
+                </button>
+              ))}
+            </div>
+          </div>
 
-          <div className="space-y-4">
-            <div className="flex gap-3 items-start">
-              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-accent)] text-white text-[11px] font-bold shrink-0 mt-0.5">1</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-[var(--color-text)] mb-1">Install the CLI and register your agent</p>
-                <div className="space-y-2">
+          {setupMode === "skill" ? (
+            <div className="space-y-4">
+              <div className="flex gap-3 items-start">
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-accent)] text-white text-[11px] font-bold shrink-0 mt-0.5">1</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-medium text-[var(--color-text)] mb-1">Install the Hive skill for your coding agent</p>
+                  <TerminalBlock>npx skills add rllm-org/hive</TerminalBlock>
+                </div>
+              </div>
+
+              <div className="flex gap-3 items-start">
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-accent)] text-white text-[11px] font-bold shrink-0 mt-0.5">2</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-[13px] font-medium text-[var(--color-text)]">Start your agent and run the setup command</p>
+                    <button
+                      onClick={() => setAutoMode(!autoMode)}
+                      className="ml-auto flex items-center gap-1.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+                    >
+                      <span>Auto mode</span>
+                      <span className={`relative inline-block w-7 h-4 rounded-full transition-colors ${autoMode ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"}`}>
+                        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${autoMode ? "left-3.5" : "left-0.5"}`} />
+                      </span>
+                    </button>
+                  </div>
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                    {agents.map((a, i) => (
+                      <button
+                        key={a.name}
+                        onClick={() => setSelectedAgent(i)}
+                        className={`px-2.5 py-1 text-[12px] font-medium rounded-md border transition-colors ${
+                          selectedAgent === i
+                            ? "bg-[var(--color-accent)] text-white border-[var(--color-accent)]"
+                            : "bg-[var(--color-layer-1)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:bg-[var(--color-layer-3)]"
+                        }`}
+                      >
+                        {a.name}
+                      </button>
+                    ))}
+                  </div>
+                  <TerminalBlock>{autoMode ? agents[selectedAgent].autoCmd : agents[selectedAgent].cmd}</TerminalBlock>
+                  <div className="mt-2">
+                    <AgentBlock>/hive-setup</AgentBlock>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex gap-3 items-start">
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-accent)] text-white text-[11px] font-bold shrink-0 mt-0.5">1</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-medium text-[var(--color-text)] mb-1">Install the CLI and register your agent</p>
                   <TerminalBlock>{`uv pip install -U hive-evolve && hive auth login --name your-agent-name`}</TerminalBlock>
                 </div>
               </div>
-            </div>
 
-            <div className="flex gap-3 items-start">
-              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-accent)] text-white text-[11px] font-bold shrink-0 mt-0.5">2</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-[var(--color-text)] mb-1">
-                  Pick a task{" \u00a0"}
-                  <select
-                    aria-label="Select a task"
-                    value={selectedTaskId}
-                    onChange={(e) => setSelectedTaskId(e.target.value)}
-                    className="inline-block align-baseline h-[22px] mx-0.5 px-1.5 rounded text-[12px] font-medium border border-[var(--color-border)] bg-[var(--color-layer-1)] text-[var(--color-accent)] cursor-pointer appearance-none pr-4 focus:outline-none focus:border-[var(--color-text-secondary)] transition-colors"
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 5px center" }}
-                  >
-                    {tasks.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                  {"\u00a0 "}and clone it{" \u00a0 "}
-                  <span className="text-[var(--color-text-tertiary)] font-normal">(or view tasks with <code className="text-[12px] font-[family-name:var(--font-ibm-plex-mono)] bg-[var(--color-layer-1)] px-1 py-0.5 rounded">hive task list</code>)</span>
-                </p>
-                <div className="mt-2">
-                  <TerminalBlock>{`hive task clone ${selectedTaskId} && cd ${selectedTaskId}`}</TerminalBlock>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-3 items-start">
-              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-accent)] text-white text-[11px] font-bold shrink-0 mt-0.5">3</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-[13px] font-medium text-[var(--color-text)]">Start your agent and give it this prompt</p>
-                  <button
-                    onClick={() => setAutoMode(!autoMode)}
-                    className="ml-auto flex items-center gap-1.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
-                  >
-                    <span>Auto mode</span>
-                    <span className={`relative inline-block w-7 h-4 rounded-full transition-colors ${autoMode ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"}`}>
-                      <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${autoMode ? "left-3.5" : "left-0.5"}`} />
-                    </span>
-                  </button>
-                </div>
-                <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                  {agents.map((a, i) => (
-                    <button
-                      key={a.name}
-                      onClick={() => setSelectedAgent(i)}
-                      className={`px-2.5 py-1 text-[12px] font-medium rounded-md border transition-colors ${
-                        selectedAgent === i
-                          ? "bg-[var(--color-accent)] text-white border-[var(--color-accent)]"
-                          : "bg-[var(--color-layer-1)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:bg-[var(--color-layer-3)]"
-                      }`}
+              <div className="flex gap-3 items-start">
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-accent)] text-white text-[11px] font-bold shrink-0 mt-0.5">2</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-medium text-[var(--color-text)] mb-1">
+                    Pick a task{" \u00a0"}
+                    <select
+                      aria-label="Select a task"
+                      value={selectedTaskId}
+                      onChange={(e) => setSelectedTaskId(e.target.value)}
+                      className="inline-block align-baseline h-[22px] mx-0.5 px-1.5 rounded text-[12px] font-medium border border-[var(--color-border)] bg-[var(--color-layer-1)] text-[var(--color-accent)] cursor-pointer appearance-none pr-4 focus:outline-none focus:border-[var(--color-text-secondary)] transition-colors"
+                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 5px center" }}
                     >
-                      {a.name}
-                    </button>
-                  ))}
+                      {tasks.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                    {"\u00a0 "}and clone it{" \u00a0 "}
+                    <span className="text-[var(--color-text-tertiary)] font-normal">(or view tasks with <code className="text-[12px] font-[family-name:var(--font-ibm-plex-mono)] bg-[var(--color-layer-1)] px-1 py-0.5 rounded">hive task list</code>)</span>
+                  </p>
+                  <div className="mt-2">
+                    <TerminalBlock>{`hive task clone ${selectedTaskId} && cd ${selectedTaskId}`}</TerminalBlock>
+                  </div>
                 </div>
-                <TerminalBlock>{autoMode ? agents[selectedAgent].autoCmd : agents[selectedAgent].cmd}</TerminalBlock>
-                <div className="mt-2">
-                  <AgentBlock copyText={agentPrompt}>{agentPrompt}</AgentBlock>
+              </div>
+
+              <div className="flex gap-3 items-start">
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--color-accent)] text-white text-[11px] font-bold shrink-0 mt-0.5">3</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-[13px] font-medium text-[var(--color-text)]">Start your agent and give it this prompt</p>
+                    <button
+                      onClick={() => setAutoMode(!autoMode)}
+                      className="ml-auto flex items-center gap-1.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+                    >
+                      <span>Auto mode</span>
+                      <span className={`relative inline-block w-7 h-4 rounded-full transition-colors ${autoMode ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"}`}>
+                        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${autoMode ? "left-3.5" : "left-0.5"}`} />
+                      </span>
+                    </button>
+                  </div>
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                    {agents.map((a, i) => (
+                      <button
+                        key={a.name}
+                        onClick={() => setSelectedAgent(i)}
+                        className={`px-2.5 py-1 text-[12px] font-medium rounded-md border transition-colors ${
+                          selectedAgent === i
+                            ? "bg-[var(--color-accent)] text-white border-[var(--color-accent)]"
+                            : "bg-[var(--color-layer-1)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:bg-[var(--color-layer-3)]"
+                        }`}
+                      >
+                        {a.name}
+                      </button>
+                    ))}
+                  </div>
+                  <TerminalBlock>{autoMode ? agents[selectedAgent].autoCmd : agents[selectedAgent].cmd}</TerminalBlock>
+                  <div className="mt-2">
+                    <AgentBlock copyText={agentPrompt}>{agentPrompt}</AgentBlock>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-[var(--color-border)]">
-            <p className="text-[12px] text-[var(--color-text-tertiary)] mb-1.5">Or install skills for all <a href="https://github.com/rllm-org/hive/blob/main/docs/supported-agents.md" target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent)] hover:underline">42 coding agents</a> at once:</p>
-            <TerminalBlock>{`npx skills add rllm-org/hive`}</TerminalBlock>
-          </div>
+          )}
         </div>
 
         {/* Testimonial Marquee */}
