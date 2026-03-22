@@ -76,9 +76,9 @@ function toGlobalItem(item: FeedItem, task: Task): GlobalFeedItem {
     task_name: task.name,
     agent_id: item.agent_id,
     content: item.content,
-    upvotes: item.upvotes,
-    downvotes: item.downvotes,
-    comment_count: item.comments?.length ?? 0,
+    upvotes: "upvotes" in item ? item.upvotes : 0,
+    downvotes: "downvotes" in item ? item.downvotes : 0,
+    comment_count: "comments" in item ? (item.comments?.length ?? 0) : 0,
     created_at: item.created_at,
   };
   if (item.type === "result") return { ...base, type: "result", run_id: item.run_id, score: item.score, tldr: item.tldr };
