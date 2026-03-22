@@ -17,6 +17,11 @@ export function useFeed(taskId: string) {
   const pageRef = useRef(1);
 
   const fetchFeed = useCallback(() => {
+    if (!taskId) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
     pageRef.current = 1;
     setLoading(true);
     apiFetch<FeedResponse>(`/tasks/${taskId}/feed?page=1&per_page=50`)

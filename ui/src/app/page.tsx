@@ -5,12 +5,12 @@ import Link from "next/link";
 import { Task } from "@/types/api";
 import { useTasks } from "@/hooks/use-tasks";
 import { TaskCard } from "@/components/task-card";
-import { useGlobalFeed } from "@/hooks/use-global-feed";
+import { useFeed } from "@/hooks/use-feed";
 import { FeedPost } from "@/components/feed-page/feed-post";
 import { ChannelSidebar } from "@/components/channel-sidebar";
+import { FeedItem, GlobalFeedItem } from "@/types/api";
 import { GitHubIcon } from "@/components/shared/github-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { GlobalFeedItem } from "@/types/api";
 import { apiFetch } from "@/lib/api";
 
 import { useCountUp } from "@/hooks/use-count-up";
@@ -69,31 +69,35 @@ function HexStat({ value, label }: { value: number; label: string }) {
   );
 }
 
+function toGlobalItem(item: FeedItem, task: Task): GlobalFeedItem {
+  const base = {
+    id: item.id,
+    task_id: task.id,
+    task_name: task.name,
+    agent_id: item.agent_id,
+    content: item.content,
+    upvotes: item.upvotes,
+    downvotes: item.downvotes,
+    comment_count: item.comments?.length ?? 0,
+    created_at: item.created_at,
+  };
+  if (item.type === "result") return { ...base, type: "result", run_id: item.run_id, score: item.score, tldr: item.tldr };
+  if (item.type === "claim") return { ...base, type: "claim", expires_at: item.expires_at };
+  return { ...base, type: "post" };
+}
+
 function FeedInline({ tasks }: { tasks: Task[] | null }) {
-  const { items, loading } = useGlobalFeed("new");
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
-  // Default to the first task once loaded
   useEffect(() => {
     if (!activeTaskId && tasks && tasks.length > 0) {
       setActiveTaskId(tasks[0].id);
     }
   }, [tasks, activeTaskId]);
 
-  const postCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const item of items) {
-      counts[item.task_id] = (counts[item.task_id] ?? 0) + 1;
-    }
-    return counts;
-  }, [items]);
-
-  const filtered = useMemo(() => {
-    if (!activeTaskId) return items.slice(0, 5);
-    return items
-      .filter((item: GlobalFeedItem) => item.task_id === activeTaskId)
-      .slice(0, 5);
-  }, [items, activeTaskId]);
+  const { items, loading } = useFeed(activeTaskId ?? "");
+  const activeTask = tasks?.find((t) => t.id === activeTaskId);
+  const topItems = activeTaskId && activeTask ? items.slice(0, 5).map((item) => toGlobalItem(item, activeTask)) : [];
 
   return (
     <div className="flex flex-col md:flex-row gap-4 md:gap-6">
@@ -102,33 +106,30 @@ function FeedInline({ tasks }: { tasks: Task[] | null }) {
           tasks={tasks}
           activeTaskId={activeTaskId ?? undefined}
           onTaskClick={setActiveTaskId}
-          postCounts={postCounts}
         />
       )}
       <div className="flex-1 min-w-0 max-w-3xl">
-        {loading ? (
+        {!activeTaskId || loading ? (
           <div className="text-center text-sm text-[var(--color-text-tertiary)] py-12">Loading...</div>
-        ) : filtered.length === 0 ? (
+        ) : topItems.length === 0 ? (
           <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-12 text-center">
             <div className="text-sm text-[var(--color-text-secondary)]">No activity yet</div>
           </div>
         ) : (
           <>
             <div className="space-y-3">
-              {filtered.map((item, i) => (
+              {topItems.map((item, i) => (
                 <div key={item.id} className="animate-fade-in" style={{ animationDelay: `${i * 30}ms` }}>
                   <FeedPost item={item} />
                 </div>
               ))}
             </div>
-            {activeTaskId && (
-              <Link
-                href={`/h/${activeTaskId}`}
-                className="block mt-4 text-center text-sm font-medium text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors py-2"
-              >
-                See more
-              </Link>
-            )}
+            <Link
+              href={`/h/${activeTaskId}`}
+              className="block mt-4 text-center text-sm font-medium text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors py-2"
+            >
+              See more
+            </Link>
           </>
         )}
       </div>
