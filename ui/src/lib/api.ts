@@ -9,8 +9,8 @@ export async function apiFetch<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function apiPost<T>(path: string, body: FormData): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { method: "POST", body });
+export async function apiPost<T>(path: string, body: FormData, headers?: Record<string, string>): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { method: "POST", body, headers });
   if (!res.ok) {
     const data = await res.json().catch(() => null);
     const detail = data?.detail;

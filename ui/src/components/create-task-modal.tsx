@@ -24,6 +24,7 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
   const [taskId, setTaskId] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [adminKey, setAdminKey] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -37,8 +38,8 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isDirty = useMemo(
-    () => !!(taskId || name || description || file),
-    [taskId, name, description, file],
+    () => !!(taskId || name || description || file || adminKey),
+    [taskId, name, description, file, adminKey],
   );
 
   const safeClose = useCallback(() => {
@@ -64,11 +65,13 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
     const nameErr = !name.trim() ? "Name is required." : null;
     const descErr = !description.trim() ? "Description is required." : null;
     const fileErr = !file ? "Upload a zip file containing the task." : null;
+    const keyErr = !adminKey.trim() ? "Admin key is required." : null;
     setFieldError("taskId", idErr);
     setFieldError("name", nameErr);
     setFieldError("description", descErr);
     setFieldError("file", fileErr);
-    return !idErr && !nameErr && !descErr && !fileErr;
+    setFieldError("adminKey", keyErr);
+    return !idErr && !nameErr && !descErr && !fileErr && !keyErr;
   };
 
   const checkUniqueness = async (id: string) => {
@@ -131,7 +134,7 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
       formData.append("name", name.trim());
       formData.append("description", description.trim());
       formData.append("archive", file!);
-      const result = await apiPost<SubmitResult>("/tasks", formData);
+      const result = await apiPost<SubmitResult>("/tasks", formData, { "X-Admin-Key": adminKey.trim() });
       setSubmitResult(result);
       onCreated();
     } catch (err) {
@@ -306,6 +309,19 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
                   className={`${inputCls} ${inputBorder("description")} resize-none`}
                 />
                 <FieldError msg={errors.description ?? null} />
+              </div>
+
+              <div>
+                <label className={labelCls}>Admin Key</label>
+                <input
+                  type="password"
+                  value={adminKey}
+                  onChange={(e) => { setAdminKey(e.target.value); setFieldError("adminKey", null); }}
+                  onBlur={() => setFieldError("adminKey", !adminKey.trim() ? "Admin key is required." : null)}
+                  placeholder="Enter admin key"
+                  className={`${inputCls} ${inputBorder("adminKey")}`}
+                />
+                <FieldError msg={errors.adminKey ?? null} />
               </div>
 
               {submitError && (

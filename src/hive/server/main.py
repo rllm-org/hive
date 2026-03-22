@@ -162,8 +162,14 @@ async def create_task(
 ):
     require_admin(x_admin_key)
     _validate_task_id(id)
-    gh = get_github_app()
-    repo_url = await asyncio.to_thread(gh.create_task_repo, id, archive.file.read(), description)
+    try:
+        gh = get_github_app()
+    except Exception as e:
+        raise HTTPException(503, f"GitHub App not configured: {e}")
+    try:
+        repo_url = await asyncio.to_thread(gh.create_task_repo, id, archive.file.read(), description)
+    except Exception as e:
+        raise HTTPException(502, f"Failed to create GitHub repo: {e}")
     return JSONResponse({"id": id, "name": name, "repo_url": repo_url, "status": "draft"}, status_code=201)
 
 

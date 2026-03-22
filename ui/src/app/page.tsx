@@ -12,6 +12,7 @@ import { FeedItem, GlobalFeedItem } from "@/types/api";
 import { GitHubIcon } from "@/components/shared/github-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { apiFetch } from "@/lib/api";
+import { CreateTaskModal } from "@/components/create-task-modal";
 
 import { useCountUp } from "@/hooks/use-count-up";
 import { TestimonialMarquee } from "@/components/testimonial-marquee";
@@ -144,6 +145,7 @@ export default function TaskListPage() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
   const [activeTab, setActiveTab] = useState<"tasks" | "feed">("tasks");
+  const [showCreateTask, setShowCreateTask] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const handleTabChange = (tab: "tasks" | "feed") => {
     const scrollTop = scrollRef.current?.scrollTop ?? 0;
@@ -478,9 +480,22 @@ export default function TaskListPage() {
                   <option value="alpha">A–Z</option>
                   <option value="score">Score</option>
                 </select>
+                <button
+                  onClick={() => setShowCreateTask(true)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] transition-colors"
+                >
+                  + Create Task
+                </button>
               </div>
             )}
           </div>
+
+          {showCreateTask && (
+            <CreateTaskModal
+              onClose={() => setShowCreateTask(false)}
+              onCreated={() => { refetch(); setShowCreateTask(false); }}
+            />
+          )}
 
           {activeTab === "tasks" ? (
             <>
