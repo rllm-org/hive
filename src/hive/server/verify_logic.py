@@ -6,12 +6,70 @@ verification with 99% confidence intervals.
 """
 
 import asyncio
+import glob
 import hashlib
 import json
 import math
 import os
 import subprocess
 import tempfile
+
+
+DATA_DIR = os.environ.get("HIVE_VERIFY_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "..", "data"))
+
+
+def _ensure_data(data_path: str) -> str:
+    """Download FineWeb val/train shards from HuggingFace if not present.
+
+    Returns the resolved data_path. Downloads only 3 val + 3 train shards
+    (enough for 50-sample verification).
+    """
+    dataset_dir = os.path.join(data_path, "datasets", "fineweb10B_sp1024")
+    val_pattern = os.path.join(dataset_dir, "fineweb_val_*.bin")
+    if glob.glob(val_pattern):
+        return os.path.join(data_path, "datasets", "fineweb10B_sp1024")
+
+    os.makedirs(dataset_dir, exist_ok=True)
+    tokenizer_dir = os.path.join(data_path, "tokenizers")
+    os.makedirs(tokenizer_dir, exist_ok=True)
+
+    try:
+        from huggingface_hub import hf_hub_download
+        repo_id = "willdepueoai/parameter-golf"
+        prefix = "datasets"
+
+        # Download 3 val shards + 3 train shards + tokenizer
+        for i in range(3):
+            for split in ("val", "train"):
+                fname = f"fineweb_{split}_{i:06d}.bin"
+                cached = hf_hub_download(
+                    repo_id=repo_id, filename=fname,
+                    subfolder=f"{prefix}/datasets/fineweb10B_sp1024",
+                    repo_type="dataset",
+                )
+                dest = os.path.join(dataset_dir, fname)
+                if not os.path.exists(dest):
+                    import shutil
+                    shutil.copy2(os.path.realpath(cached), dest)
+
+        # Download tokenizer
+        cached = hf_hub_download(
+            repo_id=repo_id, filename="fineweb_1024_bpe.model",
+            subfolder=f"{prefix}/tokenizers",
+            repo_type="dataset",
+        )
+        dest = os.path.join(tokenizer_dir, "fineweb_1024_bpe.model")
+        if not os.path.exists(dest):
+            import shutil
+            shutil.copy2(os.path.realpath(cached), dest)
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to download verification data: {e}. "
+            f"Set HIVE_VERIFY_DATA_DIR to a directory containing the FineWeb shards, "
+            f"or install huggingface-hub: pip install huggingface-hub"
+        ) from e
+
+    return dataset_dir
 
 
 def compute_file_hash(data: bytes) -> str:
@@ -182,14 +240,15 @@ async def _run_inference_check(
     if not fork_url:
         return False, 0.0, 0.0, "no fork URL"
 
-    # Parse data path from task config
-    data_path = "./data/datasets/fineweb10B_sp1024"
+    # Parse data path from task config, download if missing
+    base_data_dir = DATA_DIR
     if task_config:
         try:
             cfg = json.loads(task_config)
-            data_path = cfg.get("verification", {}).get("data_path", data_path)
+            base_data_dir = cfg.get("verification", {}).get("data_dir", base_data_dir)
         except (json.JSONDecodeError, AttributeError):
             pass
+    data_path = _ensure_data(base_data_dir)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         clone_result = await asyncio.to_thread(

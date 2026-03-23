@@ -90,6 +90,8 @@ def _sync_tasks_from_github():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from .db import init_db
+    await asyncio.to_thread(init_db)
     await init_pool()
     yield
     await close_pool()
