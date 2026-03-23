@@ -1,0 +1,11 @@
+data/*
+!data/cached_challenge_fineweb.py
+run.log
+train.log
+results.tsv
+.hive/
+__pycache__/
+*.pyc
+*.pt
+*.ptz
+logs/
