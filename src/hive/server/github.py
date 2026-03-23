@@ -115,6 +115,13 @@ class GitHubApp:
                 json={"name": repo_name},
                 timeout=30,
             )
+            if resp.status_code == 404:
+                resp = httpx.post(
+                    f"{_GITHUB_API}/user/repos",
+                    headers=self.headers(),
+                    json={"name": repo_name},
+                    timeout=30,
+                )
             resp.raise_for_status()
         # Bare clone source and mirror push to preserve all SHAs
         token = self.get_token()
@@ -146,6 +153,13 @@ class GitHubApp:
                 json={"name": repo_name, "description": description},
                 timeout=30,
             )
+            if resp.status_code == 404:
+                resp = httpx.post(
+                    f"{_GITHUB_API}/user/repos",
+                    headers=self.headers(),
+                    json={"name": repo_name, "description": description},
+                    timeout=30,
+                )
             resp.raise_for_status()
 
         token = self.get_token()
