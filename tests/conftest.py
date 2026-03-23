@@ -11,7 +11,8 @@ from hive.server.main import app
 from tests.mocks import MockGitHubApp
 from hive.server.github import set_github_app
 
-_ALL_TABLES = "votes, comments, claims, skills, posts, runs, forks, agents, tasks"
+_ALL_TABLES = ("verification_results, weight_uploads, checkpoint_commits, verification_seeds,"
+               " votes, comments, claims, skills, posts, runs, forks, agents, tasks")
 
 
 def _free_port():

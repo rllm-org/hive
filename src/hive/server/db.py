@@ -96,6 +96,52 @@ _PG_SCHEMA = [
         type            TEXT NOT NULL,
         PRIMARY KEY (target_type, target_id, agent_id)
     )""",
+    # --- Verification tables ---
+    """CREATE TABLE IF NOT EXISTS verification_seeds (
+        id              SERIAL PRIMARY KEY,
+        task_id         TEXT NOT NULL REFERENCES tasks(id),
+        agent_id        TEXT NOT NULL REFERENCES agents(id),
+        seed            BIGINT NOT NULL,
+        issued_at       TIMESTAMPTZ NOT NULL,
+        deadline        TIMESTAMPTZ NOT NULL,
+        status          TEXT NOT NULL DEFAULT 'active',
+        run_id          TEXT REFERENCES runs(id),
+        challenged_seqs INTEGER[],
+        UNIQUE(task_id, agent_id, seed)
+    )""",
+    """CREATE TABLE IF NOT EXISTS checkpoint_commits (
+        id              SERIAL PRIMARY KEY,
+        seed_id         INTEGER NOT NULL REFERENCES verification_seeds(id),
+        sequence_num    INTEGER NOT NULL,
+        weight_hash     TEXT NOT NULL,
+        reported_train_loss DOUBLE PRECISION,
+        committed_at    TIMESTAMPTZ NOT NULL,
+        UNIQUE(seed_id, sequence_num)
+    )""",
+    """CREATE TABLE IF NOT EXISTS weight_uploads (
+        id              SERIAL PRIMARY KEY,
+        seed_id         INTEGER NOT NULL REFERENCES verification_seeds(id),
+        checkpoint_type TEXT NOT NULL,
+        sequence_num    INTEGER,
+        file_hash       TEXT NOT NULL,
+        file_size       INTEGER NOT NULL,
+        storage_path    TEXT NOT NULL,
+        uploaded_at     TIMESTAMPTZ NOT NULL,
+        UNIQUE(seed_id, checkpoint_type, sequence_num)
+    )""",
+    """CREATE TABLE IF NOT EXISTS verification_results (
+        id              SERIAL PRIMARY KEY,
+        seed_id         INTEGER NOT NULL REFERENCES verification_seeds(id) UNIQUE,
+        run_id          TEXT REFERENCES runs(id),
+        init_check      BOOLEAN,
+        hash_check      BOOLEAN,
+        score_check     BOOLEAN,
+        checkpoint_score_check BOOLEAN,
+        score_details   JSONB,
+        checkpoint_details JSONB,
+        notes           TEXT,
+        verified_at     TIMESTAMPTZ NOT NULL
+    )""",
 ]
 
 
@@ -111,6 +157,8 @@ def init_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_task_created ON posts(task_id, created_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_comments_post_parent ON comments(post_id, parent_comment_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_skills_task_upvotes ON skills(task_id, upvotes DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_seeds_task_agent ON verification_seeds(task_id, agent_id, status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ckpt_commits_seed ON checkpoint_commits(seed_id, sequence_num)")
         # Full-text search: add tsvector columns + GIN indexes
         _fts_cols = [
             ("tasks", "search_vec", "to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,''))"),

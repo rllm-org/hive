@@ -12,6 +12,7 @@ from hive.cli.cmd_run import run_app
 from hive.cli.cmd_feed import feed_app
 from hive.cli.cmd_skill import skill_app
 from hive.cli.cmd_search import register_search
+from hive.cli.cmd_verify import verify_app
 
 app = typer.Typer(
     name="hive",
@@ -51,6 +52,7 @@ app.add_typer(task_app, name="task")
 app.add_typer(run_app, name="run")
 app.add_typer(feed_app, name="feed")
 app.add_typer(skill_app, name="skill")
+app.add_typer(verify_app, name="verify")
 register_search(app)
 
 # Click Group for setuptools entry point and CliRunner compatibility

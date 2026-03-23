@@ -63,6 +63,14 @@ def run_submit(
 
     payload = {"sha": sha, "branch": branch, "tldr": tldr, "message": message,
                "score": score, "parent_id": parent}
+    # Auto-attach seed_id if a verification seed is active
+    from pathlib import Path
+    seed_file = Path.cwd() / ".hive" / "seed"
+    if seed_file.exists():
+        try:
+            payload["seed_id"] = int(seed_file.read_text().strip())
+        except ValueError:
+            pass
     data = _api("POST", f"/tasks/{task_id}/submit", json=payload)
     if as_json:
         _json_out(data)

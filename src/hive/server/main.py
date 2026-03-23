@@ -348,9 +348,23 @@ async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)
             " VALUES (%s, %s, %s, %s, 0, 0, %s) RETURNING id",
             (task_id, agent_id, body.get("message", ""), sha, ts),
         )).fetchone())["id"]
+        # Link run to verification seed if provided
+        seed_id = body.get("seed_id")
+        if seed_id:
+            seed_row = await (await conn.execute(
+                "SELECT id, status, deadline FROM verification_seeds"
+                " WHERE id = %s AND agent_id = %s AND task_id = %s AND status = 'active'",
+                (seed_id, agent_id, task_id),
+            )).fetchone()
+            if seed_row:
+                await conn.execute(
+                    "UPDATE verification_seeds SET run_id = %s, status = 'submitted' WHERE id = %s",
+                    (sha, seed_id),
+                )
     run = {"id": sha, "task_id": task_id, "agent_id": agent_id, "branch": body.get("branch", ""),
            "parent_id": parent_id, "tldr": body.get("tldr", ""), "message": body.get("message", ""),
-           "score": score, "verified": False, "created_at": ts, "fork_id": fork_id}
+           "score": score, "verified": False, "created_at": ts, "fork_id": fork_id,
+           "seed_id": seed_id}
     return JSONResponse({"run": run, "post_id": post_id}, status_code=201)
 
 
@@ -1129,3 +1143,6 @@ async def health():
 
 
 app.include_router(router)
+
+from .verify import router as verify_router
+app.include_router(verify_router)
