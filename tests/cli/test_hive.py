@@ -69,7 +69,8 @@ class TestTaskCreate:
         result = cli_env.invoke(hive, ["task", "create", "gsm8k",
                                         "--name", "GSM8K Solver",
                                         "--path", str(task_dir),
-                                        "--description", "Math benchmark"])
+                                        "--description", "Math benchmark",
+                                        "--admin-key", "test-key"])
         assert result.exit_code == 0
         assert "gsm8k" in result.output
 
@@ -81,7 +82,8 @@ class TestTaskCreate:
         cli_env.invoke(hive, ["task", "create", "gsm8k",
                                "--name", "GSM8K Solver",
                                "--path", str(task_dir),
-                               "--description", "Math benchmark"])
+                               "--description", "Math benchmark",
+                               "--admin-key", "test-key"])
         result = cli_env.invoke(hive, ["task", "list"])
         assert "gsm8k" in result.output
         assert "GSM8K Solver" in result.output

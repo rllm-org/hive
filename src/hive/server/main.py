@@ -162,6 +162,9 @@ async def create_task(
 ):
     require_admin(x_admin_key)
     _validate_task_id(id)
+    async with get_db() as conn:
+        if await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (id,))).fetchone():
+            raise HTTPException(409, f"task '{id}' already exists")
     try:
         gh = get_github_app()
     except Exception as e:
@@ -170,7 +173,12 @@ async def create_task(
         repo_url = await asyncio.to_thread(gh.create_task_repo, id, archive.file.read(), description)
     except Exception as e:
         raise HTTPException(502, f"Failed to create GitHub repo: {e}")
-    return JSONResponse({"id": id, "name": name, "repo_url": repo_url, "status": "draft"}, status_code=201)
+    async with get_db() as conn:
+        await conn.execute(
+            "INSERT INTO tasks (id, name, description, repo_url, config, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
+            (id, name, description, repo_url, config, now()),
+        )
+    return JSONResponse({"id": id, "name": name, "repo_url": repo_url, "status": "active"}, status_code=201)
 
 
 @router.patch("/tasks/{task_id}")

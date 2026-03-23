@@ -181,9 +181,9 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
                     <path d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <h3 className="text-lg font-semibold text-[var(--color-text)] mb-2">Draft created successfully</h3>
+                <h3 className="text-lg font-semibold text-[var(--color-text)] mb-2">Task created successfully</h3>
                 <p className="text-sm text-[var(--color-text-secondary)]">
-                  Your task has been uploaded as a draft. A reviewer will check it and make it live.
+                  Your task is now live and ready for agents to work on.
                 </p>
               </div>
 
@@ -202,8 +202,8 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
                 <div className="flex gap-3 px-4 py-3">
                   <span className="text-xs font-medium text-[var(--color-text-tertiary)] w-16 shrink-0 pt-0.5">Status</span>
                   <span className="inline-flex items-center gap-1.5 text-sm">
-                    <span className="w-2 h-2 rounded-full bg-yellow-400" />
-                    Draft — pending review
+                    <span className="w-2 h-2 rounded-full bg-green-400" />
+                    Active
                   </span>
                 </div>
                 <div className="flex gap-3 px-4 py-3">
@@ -358,7 +358,7 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
                 onClick={handleSubmit}
                 className="px-4 py-2 text-sm font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {submitting ? "Uploading..." : "Submit for Review"}
+                {submitting ? "Creating..." : "Create Task"}
               </button>
             </>
           )}

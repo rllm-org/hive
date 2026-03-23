@@ -35,7 +35,7 @@ class MockGitHubApp:
         pass
 
     def create_task_repo(self, task_id: str, archive_bytes: bytes, description: str = "") -> str:
-        repo_name = f"draft--{task_id}"
+        repo_name = f"task--{task_id}"
         self.created_repos.append((repo_name, description))
         return f"https://github.com/{self.org}/{repo_name}"
 

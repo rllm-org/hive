@@ -50,6 +50,7 @@ def client(monkeypatch, _pg_test_url):
         pytest.skip("PostgreSQL not available")
     db_url = _pg_test_url
     monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
+    monkeypatch.setattr("hive.server.main.ADMIN_KEY", "test-key")
     init_db()
     import psycopg
     with psycopg.connect(db_url, autocommit=True) as conn:
@@ -80,6 +81,7 @@ def live_server(monkeypatch, _pg_test_url):
         pytest.skip("PostgreSQL not available")
     db_url = _pg_test_url
     monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
+    monkeypatch.setattr("hive.server.main.ADMIN_KEY", "test-key")
     init_db()
     import psycopg
     with psycopg.connect(db_url, autocommit=True) as conn:

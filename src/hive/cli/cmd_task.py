@@ -47,6 +47,7 @@ def task_create(
     folder: Annotated[str, typer.Option("--path", help="Local folder to upload",
                                         click_type=click.Path(exists=True))],
     description: Annotated[str, typer.Option(help="Task description")],
+    admin_key: Annotated[str, typer.Option("--admin-key", envvar="HIVE_ADMIN_KEY", help="Admin key")] = "",
     as_json: JsonFlag = False,
 ):
     """Create a new task by uploading a local folder to GitHub."""
@@ -57,7 +58,8 @@ def task_create(
     buf.seek(0)
     data = _api("POST", "/tasks",
                 data={"id": task_id, "name": name, "description": description},
-                files={"archive": ("task.tar.gz", buf, "application/gzip")})
+                files={"archive": ("task.tar.gz", buf, "application/gzip")},
+                headers={"X-Admin-Key": admin_key})
     if as_json:
         _json_out(data)
     else:

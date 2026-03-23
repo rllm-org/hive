@@ -132,8 +132,8 @@ class GitHubApp:
         return {"html_url": info["html_url"], "ssh_url": info["ssh_url"]}
 
     def create_task_repo(self, task_id: str, archive_bytes: bytes, description: str = "") -> str:
-        """Create draft--{task_id} repo under org from uploaded archive (tar.gz or zip). Returns repo URL."""
-        repo_name = f"draft--{task_id}"
+        """Create task--{task_id} repo under org from uploaded archive (tar.gz or zip). Returns repo URL."""
+        repo_name = f"task--{task_id}"
         # Create repo (or get existing)
         existing = httpx.get(
             f"{_GITHUB_API}/repos/{self.org}/{repo_name}",
@@ -143,7 +143,7 @@ class GitHubApp:
             resp = httpx.post(
                 f"{_GITHUB_API}/orgs/{self.org}/repos",
                 headers=self.headers(),
-                json={"name": repo_name, "description": description},
+                json={"name": repo_name, "description": description, "visibility": "public"},
                 timeout=30,
             )
             resp.raise_for_status()

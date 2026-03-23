@@ -56,7 +56,8 @@ def _post_task(client, id="gsm8k", name="GSM8K Solver", description="A solver ta
     data = {"id": id, "name": name, "description": description}
     if config:
         data["config"] = config
-    return client.post("/api/tasks", data=data, files={"archive": ("task.tar.gz", _make_tar(), "application/gzip")})
+    return client.post("/api/tasks", data=data, files={"archive": ("task.tar.gz", _make_tar(), "application/gzip")},
+                       headers={"X-Admin-Key": "test-key"})
 
 
 class TestCreateTask:
@@ -64,19 +65,19 @@ class TestCreateTask:
         resp = _post_task(client)
         assert resp.status_code == 201
         assert resp.json()["id"] == "gsm8k"
-        assert resp.json()["repo_url"] == "https://github.com/hive-agents/draft--gsm8k"
-        assert resp.json()["status"] == "draft"
+        assert resp.json()["repo_url"] == "https://github.com/hive-agents/task--gsm8k"
+        assert resp.json()["status"] == "active"
 
-    def test_duplicate_draft(self, client):
+    def test_duplicate_task(self, client):
         _post_task(client, id="t1", name="T", description="D")
-        # Second upload to same draft is OK (idempotent repo creation)
         resp = _post_task(client, id="t1", name="T", description="D")
-        assert resp.status_code == 201
+        assert resp.status_code == 409
 
     def test_missing_fields(self, client):
-        assert client.post("/api/tasks", data={}, files={"archive": ("t.tar.gz", _make_tar(), "application/gzip")}).status_code == 422
+        h = {"X-Admin-Key": "test-key"}
+        assert client.post("/api/tasks", data={}, files={"archive": ("t.tar.gz", _make_tar(), "application/gzip")}, headers=h).status_code == 422
         assert client.post("/api/tasks", data={"id": "x", "name": "X"},
-                           files={"archive": ("t.tar.gz", _make_tar(), "application/gzip")}).status_code == 422
+                           files={"archive": ("t.tar.gz", _make_tar(), "application/gzip")}, headers=h).status_code == 422
 
 
 class TestRegister:
@@ -563,11 +564,13 @@ class TestCommentVote:
 
 
 class TestDeleteRun:
+    _admin = {"X-Admin-Key": "test-key"}
+
     def test_delete_single_run(self, registered_agent, _seed_task):
         client, _, token = registered_agent
         client.post("/api/tasks/t1/submit", params={"token": token},
                     json={"sha": "del1", "message": "to delete", "score": 0.5})
-        resp = client.delete("/api/tasks/t1/runs/del1", params={"token": token})
+        resp = client.delete("/api/tasks/t1/runs/del1", headers=self._admin)
         assert resp.status_code == 200
         assert resp.json()["deleted"] == "del1"
         # Run should be gone
@@ -581,7 +584,7 @@ class TestDeleteRun:
         client.post("/api/tasks/t1/feed", params={"token": token},
                     json={"type": "comment", "parent_id": post_id, "content": "nice"})
         # Delete the run
-        client.delete("/api/tasks/t1/runs/del2", params={"token": token})
+        client.delete("/api/tasks/t1/runs/del2", headers=self._admin)
         # Post should be gone
         assert client.get(f"/api/tasks/t1/feed/{post_id}").status_code == 404
 
@@ -592,13 +595,13 @@ class TestDeleteRun:
         client.post("/api/tasks/t1/submit", params={"token": token},
                     json={"sha": "hi1", "message": "high", "score": 0.9})
         # Delete the high scorer
-        client.delete("/api/tasks/t1/runs/hi1", params={"token": token})
+        client.delete("/api/tasks/t1/runs/hi1", headers=self._admin)
         task = client.get("/api/tasks/t1").json()
         assert task["stats"]["best_score"] == 0.3
 
     def test_delete_nonexistent_run(self, registered_agent, _seed_task):
         client, _, token = registered_agent
-        resp = client.delete("/api/tasks/t1/runs/nope", params={"token": token})
+        resp = client.delete("/api/tasks/t1/runs/nope", headers=self._admin)
         assert resp.status_code == 404
 
     def test_delete_all_runs(self, registered_agent, _seed_task):
@@ -606,7 +609,7 @@ class TestDeleteRun:
         for i in range(3):
             client.post("/api/tasks/t1/submit", params={"token": token},
                         json={"sha": f"all{i}", "message": "m", "score": 0.1 * i})
-        resp = client.delete("/api/tasks/t1/runs", params={"token": token})
+        resp = client.delete("/api/tasks/t1/runs", headers=self._admin)
         assert resp.status_code == 200
         assert resp.json()["deleted"] == 3
         # Runs should be empty
@@ -619,7 +622,7 @@ class TestDeleteRun:
 
     def test_delete_all_runs_task_not_found(self, registered_agent):
         client, _, token = registered_agent
-        resp = client.delete("/api/tasks/nope/runs", params={"token": token})
+        resp = client.delete("/api/tasks/nope/runs", headers=self._admin)
         assert resp.status_code == 404
 
 
