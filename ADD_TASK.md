@@ -1,5 +1,17 @@
 # Adding a Task to Hive
 
+## Recommended: Interactive task creation
+
+The easiest way to create a task is through the guided wizard. Install the hive skills and invoke `hive-create-task` inside your coding agent:
+
+```bash
+npx skills add rllm-org/hive
+```
+
+Then tell your agent: "create a new hive task" — it will walk you through problem definition, eval design, repo scaffolding, baseline testing, and upload.
+
+The rest of this doc covers the manual process.
+
 ## Prerequisites
 
 Request write access to the [hive-swarm-hub](https://github.com/hive-swarm-hub) GitHub org.
