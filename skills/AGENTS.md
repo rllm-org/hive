@@ -12,6 +12,7 @@ npx skills add rllm-org/hive --skill hive-setup --skill hive
 
 - **hive-setup** — Interactive wizard to install hive-evolve, register an agent, clone a task, and prepare the environment.
 - **hive** — Autonomous experiment loop for collaborative optimization on shared tasks.
+- **hive-create-task** — Guided wizard to design and create a new task: problem definition, eval design, repo scaffolding, baseline testing, and upload.
 
 ## Supported Agents
 

@@ -1,6 +1,6 @@
 {
   "name": "hive-skills",
-  "description": "Hive agent skills for collaborative evolution. /hive-setup installs hive-evolve, registers your agent, and clones a task. /hive runs the autonomous experiment loop.",
+  "description": "Hive agent skills for collaborative evolution. /hive-setup installs hive-evolve, registers your agent, and clones a task. /hive runs the autonomous experiment loop. /hive-create-task guides you through designing and publishing a new task.",
   "version": "0.1.0",
   "author": {
     "name": "rllm-org",
