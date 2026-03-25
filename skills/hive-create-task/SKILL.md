@@ -11,10 +11,109 @@ Interactive wizard for designing and creating a new hive task. Guide the user th
 
 **UX Note:** Use `AskUserQuestion` for all user-facing questions.
 
-**References:** Before starting, read these for context on task structure:
-- `docs/program-template.md` — the program.md template
-- `ADD_TASK.md` — manual guide for adding tasks
-- `hello-world/` — a complete example task (program.md, eval/eval.sh, prepare.sh, agent.py)
+---
+
+## Task Repo Structure
+
+Every hive task repo must contain:
+
+```
+<task-id>/
+  program.md               # agent instructions (required)
+  prepare.sh               # data/env setup, run once (required)
+  eval/
+    eval.sh                # evaluation script (required)
+    ...                    # supporting eval files
+  agent.py                 # the artifact to evolve (name varies)
+  requirements.txt         # python deps (optional)
+  .gitignore
+```
+
+### Eval output format
+
+`eval/eval.sh` MUST print a parseable summary ending with:
+
+```
+---
+<metric>:         <value>
+correct:          <N>
+total:            <N>
+```
+
+The agent reads score via `grep "^<metric>:" run.log`.
+
+### program.md template
+
+Use this template, filling in all `<placeholders>`:
+
+````markdown
+# <Task Name>
+
+<One-line description of what the agent improves and how it's evaluated.>
+
+## Setup
+
+1. **Read the in-scope files**:
+   - `<file1>` — <what it is>. You modify this.
+   - `eval/eval.sh` — runs evaluation. Do not modify.
+   - `prepare.sh` — <what it sets up>. Do not modify.
+2. **Run prepare**: `bash prepare.sh` to <what it does>.
+3. **Verify data exists**: Check that `<path>` contains <expected files>.
+4. **Initialize results.tsv**: Create `results.tsv` with just the header row.
+5. **Run baseline**: `bash eval/eval.sh` to establish the starting score.
+
+## The benchmark
+
+<2-3 sentences describing the benchmark, dataset size, and what makes it challenging.>
+
+## Experimentation
+
+**What you CAN do:**
+- Modify `<file1>`, `<file2>`, etc. <Brief guidance on what kinds of changes are fair game.>
+
+**What you CANNOT do:**
+- Modify `eval/`, `prepare.sh`, or test data.
+- <Any other constraints.>
+
+**The goal: maximize <metric>.** <Definition of the metric. State whether higher or lower is better.>
+
+**Simplicity criterion**: All else being equal, simpler is better.
+
+## Output format
+
+```
+---
+<metric>:         <example value>
+<other fields>:   <example value>
+```
+
+## Logging results
+
+Log each experiment to `results.tsv` (tab-separated):
+
+```
+commit	<metric>	cost_usd	status	description
+a1b2c3d	<value>	<cost>	keep	baseline
+b2c3d4e	<value>	<cost>	keep	<what changed>
+```
+
+## The experiment loop
+
+LOOP FOREVER:
+
+1. **THINK** — decide what to try next. Review results.tsv. <Domain-specific hints.>
+2. Modify the in-scope files with your experimental idea.
+3. git commit
+4. Run the experiment: `bash eval/eval.sh > run.log 2>&1`
+5. Read the results: `grep "^<metric>:" run.log`
+6. If the grep output is empty, the run crashed. Run `tail -n 50 run.log` for the stack trace and attempt a fix.
+7. Record the results in results.tsv (do not commit results.tsv).
+8. If <metric> improved, keep the git commit. If equal or worse, `git reset --hard HEAD~1`.
+
+**Timeout**: If a run exceeds <N> minutes, kill it and treat it as a failure.
+
+**NEVER STOP**: Once the loop begins, do NOT pause to ask the human. You are autonomous. The loop runs until interrupted.
+````
 
 ---
 
@@ -62,15 +161,7 @@ Then discuss the eval script design:
 - Does it need external tools? (python, node, curl, etc.)
 - Does it need to parse specific output formats?
 
-The eval MUST print this format at the end:
-```
----
-<metric>:         <value>
-correct:          <N>
-total:            <N>
-```
-
-Help the user design the eval logic. Write pseudocode together if needed.
+The eval MUST print the standard output format defined above. Help the user design the eval logic. Write pseudocode together if needed.
 
 ---
 
@@ -98,7 +189,7 @@ Create a folder named `<task-id>/` with:
 
 ### Required files
 
-1. **`program.md`** — Fill in the template from `docs/program-template.md` using everything gathered in Phases 1-3. This is the agent's entire instruction set. Include:
+1. **`program.md`** — Fill in the template above using everything gathered in Phases 1-3. This is the agent's entire instruction set. Include:
    - Setup steps
    - Benchmark description
    - What can/cannot be modified
