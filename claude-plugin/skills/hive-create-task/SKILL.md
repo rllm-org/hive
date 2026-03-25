@@ -15,19 +15,29 @@ Interactive wizard for designing and creating a new hive task. Guide the user th
 
 ## Task Repo Structure
 
-Every hive task repo must contain:
+### Required files
 
-```
-<task-id>/
-  program.md               # agent instructions (required)
-  prepare.sh               # data/env setup, run once (required)
-  eval/
-    eval.sh                # evaluation script (required)
-    ...                    # supporting eval files
-  agent.py                 # the artifact to evolve (name varies)
-  requirements.txt         # python deps (optional)
-  .gitignore
-```
+| File | Purpose |
+|---|---|
+| `program.md` | Instructions for the agent: what to modify, how to eval, the experiment loop, and constraints |
+| `eval/eval.sh` | Evaluation script — must be runnable via `bash eval/eval.sh` and print a score |
+| `requirements.txt` | Python dependencies |
+| `README.md` | Short description, quickstart, and leaderboard link |
+
+### Recommended files
+
+| File | Purpose |
+|---|---|
+| `prepare.sh` | Setup script — downloads data, installs deps. Recommended but not required. |
+
+### The artifact (free-form)
+
+The rest depends on the task type — this is what agents evolve:
+
+- **Agentic tasks**: an `agent.py` that the agent evolves
+- **ML training tasks**: a training script like `train_gpt.py`
+- **Prompt tasks**: a prompt template, config file, etc.
+- Any other file(s) that make sense for the problem
 
 ### Eval output format
 
@@ -187,28 +197,21 @@ Goal: create the task folder with all required files.
 
 Create a folder named `<task-id>/` with:
 
-### Required files
+### Files to create
 
-1. **`program.md`** — Fill in the template above using everything gathered in Phases 1-3. This is the agent's entire instruction set. Include:
-   - Setup steps
-   - Benchmark description
-   - What can/cannot be modified
-   - Metric definition and output format
-   - Results logging format
-   - The experiment loop
+1. **`program.md`** — Fill in the template above using everything gathered in Phases 1-3. This is the agent's entire instruction set.
 
-2. **`eval/eval.sh`** — The evaluation script. Must:
-   - Be runnable via `bash eval/eval.sh`
-   - Print the standard output format with the metric
-   - Exit 0 on success (even if score is low)
+2. **`eval/eval.sh`** — The evaluation script. Must be runnable via `bash eval/eval.sh`, print the standard output format, and exit 0 on success (even if score is low).
 
-3. **`prepare.sh`** — Setup script. Downloads data, installs deps, etc. Can be a no-op if nothing needed.
+3. **`requirements.txt`** — Python dependencies.
 
-4. **The artifact file(s)** — The starting code agents will evolve (e.g., `agent.py`). Should be a working but suboptimal baseline.
+4. **`README.md`** — Short description, quickstart, and leaderboard link.
 
-5. **`requirements.txt`** — Python dependencies if needed.
+5. **The artifact file(s)** — The starting code agents will evolve. Free-form — could be `agent.py`, `train.py`, a config file, etc. Should be a working but suboptimal baseline.
 
-6. **`.gitignore`** — Ignore `run.log`, `results.tsv`, `__pycache__/`, `.env`, and any data files that prepare.sh downloads.
+6. **`prepare.sh`** (recommended) — Setup script for downloading data, installing deps, etc. Omit if no setup is needed.
+
+7. **`.gitignore`** — Ignore `run.log`, `results.tsv`, `__pycache__/`, `.env`, and any data files.
 
 After creating files, show the user the file tree and let them review.
 
@@ -218,13 +221,13 @@ After creating files, show the user the file tree and let them review.
 
 Goal: verify the task works end-to-end and produces a reasonable baseline. **This is a loop — keep going until the baseline is solid.**
 
-### 5.1 Run prepare
+### 5.1 Run prepare (if present)
 
 ```bash
-cd <task-id> && bash prepare.sh
+cd <task-id> && test -f prepare.sh && bash prepare.sh
 ```
 
-If it fails: diagnose, fix, re-run.
+If it exists and fails: diagnose, fix, re-run.
 
 ### 5.2 Run eval
 
