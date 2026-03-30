@@ -1,6 +1,7 @@
 """Tests for all API endpoints."""
 
 import io
+import json
 import tarfile
 
 import pytest
@@ -197,6 +198,24 @@ def _post_task(client, id="gsm8k", name="GSM8K Solver", description="A solver ta
                        headers={"X-Admin-Key": "test-key"})
 
 
+def _insert_task(task_id="t1", name="Test Task", description="A test", config=None):
+    from hive.server.db import get_db_sync, now
+
+    with get_db_sync() as conn:
+        conn.execute(
+            "INSERT INTO tasks (id, name, description, repo_url, config, created_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s)",
+            (
+                task_id,
+                name,
+                description,
+                "https://github.com/test/test",
+                json.dumps(config) if config is not None else None,
+                now(),
+            ),
+        )
+
+
 class TestCreateTask:
     def test_create(self, client):
         resp = _post_task(client)
@@ -338,6 +357,52 @@ class TestSubmitRun:
         assert resp.status_code == 400
         assert "score" in resp.json()["detail"].lower()
 
+    def test_submit_verifiable_run_requires_fork(self, registered_agent):
+        client, _, token = registered_agent
+        _insert_task("tv1", config={"verify": True, "mutable_paths": ["agent.py"]})
+        resp = client.post(
+            "/api/tasks/tv1/submit",
+            params={"token": token},
+            json={"sha": "verifyfork1", "message": "m", "score": 0.9},
+        )
+        assert resp.status_code == 400
+        assert "fork" in resp.json()["detail"].lower()
+
+    def test_submit_verifiable_run_sets_pending_without_updating_task_stats(self, registered_agent, mock_github):
+        client, _, token = registered_agent
+        _insert_task("tv2", config={"verify": True, "mutable_paths": ["agent.py"]})
+        clone = client.post("/api/tasks/tv2/clone", params={"token": token})
+        assert clone.status_code == 201
+
+        resp = client.post(
+            "/api/tasks/tv2/submit",
+            params={"token": token},
+            json={"sha": "verifypending1", "message": "m", "score": 0.9},
+        )
+        assert resp.status_code == 201
+        run = resp.json()["run"]
+        assert run["verification_status"] == "pending"
+        assert run["verified_score"] is None
+        task = client.get("/api/tasks/tv2").json()
+        assert task["stats"]["best_score"] is None
+        assert task["stats"]["improvements"] == 0
+
+    def test_submit_verifiable_run_queues_even_without_reported_score(self, registered_agent, mock_github):
+        client, _, token = registered_agent
+        _insert_task("tv3", config={"verify": True, "mutable_paths": ["agent.py"]})
+        clone = client.post("/api/tasks/tv3/clone", params={"token": token})
+        assert clone.status_code == 201
+
+        resp = client.post(
+            "/api/tasks/tv3/submit",
+            params={"token": token},
+            json={"sha": "verifynull1", "message": "m"},
+        )
+        assert resp.status_code == 201
+        run = resp.json()["run"]
+        assert run["score"] is None
+        assert run["verification_status"] == "pending"
+
 
 class TestListRuns:
     def test_best_runs(self, registered_agent, _seed_task):
@@ -446,6 +511,34 @@ class TestListRuns:
     def test_task_not_found(self, client):
         resp = client.get("/api/tasks/nope/runs")
         assert resp.status_code == 404
+
+    def test_verified_only_uses_verified_score_even_without_reported_score(self, registered_agent, mock_github):
+        client, _, token = registered_agent
+        _insert_task("tv4", config={"verify": True, "mutable_paths": ["agent.py"]})
+        client.post("/api/tasks/tv4/clone", params={"token": token})
+        client.post(
+            "/api/tasks/tv4/submit",
+            params={"token": token},
+            json={"sha": "verifiedonly1", "message": "m"},
+        )
+        client.post(
+            "/api/tasks/tv4/submit",
+            params={"token": token},
+            json={"sha": "reportedonly1", "message": "m", "score": 0.95},
+        )
+        from hive.server.db import get_db_sync
+
+        with get_db_sync() as conn:
+            conn.execute(
+                "UPDATE runs SET verified = TRUE, verified_score = 0.8, verification_status = 'success'"
+                " WHERE id = %s",
+                ("verifiedonly1",),
+            )
+        resp = client.get("/api/tasks/tv4/runs", params={"verified_only": True})
+        assert resp.status_code == 200
+        runs = resp.json()["runs"]
+        assert [run["id"] for run in runs] == ["verifiedonly1"]
+        assert runs[0]["verified_score"] == 0.8
 
 
 class TestGetRun:
@@ -849,6 +942,40 @@ class TestContext:
         resp = client.get("/api/tasks/nope/context")
         assert resp.status_code == 404
 
+    def test_verifiable_context_leaderboard_uses_verified_scores(self, registered_agent, mock_github):
+        client, _, token = registered_agent
+        _insert_task("tv5", config={"verify": True, "mutable_paths": ["agent.py"]})
+        client.post("/api/tasks/tv5/clone", params={"token": token})
+        client.post(
+            "/api/tasks/tv5/submit",
+            params={"token": token},
+            json={"sha": "reportedhigh1", "message": "m", "score": 0.95},
+        )
+        client.post(
+            "/api/tasks/tv5/submit",
+            params={"token": token},
+            json={"sha": "verifiedlow1", "message": "m", "score": 0.3},
+        )
+
+        from hive.server.db import get_db_sync
+
+        with get_db_sync() as conn:
+            conn.execute(
+                "UPDATE runs SET verified = TRUE, verified_score = 0.7, verification_status = 'success'"
+                " WHERE id = %s",
+                ("verifiedlow1",),
+            )
+            conn.execute(
+                "UPDATE tasks SET best_score = 0.7, improvements = 1 WHERE id = %s",
+                ("tv5",),
+            )
+
+        resp = client.get("/api/tasks/tv5/context")
+        assert resp.status_code == 200
+        leaderboard = resp.json()["leaderboard"]
+        assert [row["id"] for row in leaderboard] == ["verifiedlow1"]
+        assert leaderboard[0]["verified_score"] == 0.7
+
 
 class TestSkills:
     def test_add_and_list(self, registered_agent, _seed_task):
@@ -1222,9 +1349,4 @@ class TestImprovementsDenormalization:
 @pytest.fixture()
 def _seed_task(client):
     """Insert a task directly into DB for tests that need one."""
-    from hive.server.db import get_db_sync, now
-    with get_db_sync() as conn:
-        conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, created_at) VALUES (%s, %s, %s, %s, %s)",
-            ("t1", "Test Task", "A test", "https://github.com/test/test", now()),
-        )
+    _insert_task("t1")

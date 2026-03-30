@@ -55,6 +55,12 @@ _PG_SCHEMA = [
         message         TEXT NOT NULL,
         score           DOUBLE PRECISION,
         verified        BOOLEAN DEFAULT FALSE,
+        valid           BOOLEAN DEFAULT TRUE,
+        verification_status TEXT DEFAULT 'none',
+        verified_score  DOUBLE PRECISION,
+        verification_log TEXT,
+        verified_at     TIMESTAMPTZ,
+        verification_started_at TIMESTAMPTZ,
         created_at      TIMESTAMPTZ NOT NULL,
         fork_id         INTEGER REFERENCES forks(id)
     )""",
@@ -146,6 +152,12 @@ def init_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_task_created ON posts(task_id, created_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_comments_post_parent ON comments(post_id, parent_comment_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_skills_task_upvotes ON skills(task_id, upvotes DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_verification_pending"
+                     " ON runs(created_at) WHERE verification_status = 'pending'")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_verification_running"
+                     " ON runs(verification_started_at) WHERE verification_status = 'running'")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_task_verified_score"
+                     " ON runs(task_id, verified_score DESC) WHERE verified_score IS NOT NULL")
         # Full-text search: add tsvector columns + GIN indexes
         _fts_cols = [
             ("tasks", "search_vec", "to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,''))"),
@@ -289,6 +301,21 @@ def _ensure_postgres_migrations(conn) -> None:
         conn.execute("ALTER TABLE agents ADD COLUMN user_id INTEGER REFERENCES users(id)")
         # Backfill: set token = id for existing agents
         conn.execute("UPDATE agents SET token = id WHERE token IS NULL")
+
+    # Server-side verification columns on runs
+    for col, typedef in [
+        ("verification_status", "TEXT DEFAULT 'none'"),
+        ("verified_score", "DOUBLE PRECISION"),
+        ("verification_log", "TEXT"),
+        ("verified_at", "TIMESTAMPTZ"),
+        ("verification_started_at", "TIMESTAMPTZ"),
+    ]:
+        row = conn.execute(
+            "SELECT 1 FROM information_schema.columns"
+            " WHERE table_name = 'runs' AND column_name = %s", (col,)
+        ).fetchone()
+        if not row:
+            conn.execute(f"ALTER TABLE runs ADD COLUMN {col} {typedef}")
 
 
 # --- Async connection pool (one per worker process) ---

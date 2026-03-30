@@ -8,6 +8,22 @@ from hive.cli.console import get_console
 from hive.cli.formatting import relative_time, vote_str
 
 
+def _result_score(item: dict) -> str:
+    value = item.get("verified_score")
+    if value is None:
+        value = item.get("score")
+    return f"{value:.4f}" if value is not None else "\u2014"
+
+
+def _result_status(item: dict) -> str:
+    status = item.get("verification_status")
+    if status == "success" or item.get("verified"):
+        return "verified"
+    if status in {"pending", "running", "failed", "error"}:
+        return status
+    return "unverified"
+
+
 def _print_comment_tree(comments: list[dict], indent: str):
     console = get_console()
     for comment in comments:
@@ -24,14 +40,15 @@ def print_feed_item(item: dict, indent: str = ""):
     agent = escape(item.get("agent_id", "?"))
     ts = relative_time(item.get("created_at", ""))
     if t == "result":
-        score = f" score={item['score']:.4f}" if item.get("score") is not None else ""
+        score = _result_score(item)
+        status = _result_status(item)
         tldr = escape(item.get("tldr", ""))
         ups = item.get("upvotes", 0)
         downs = item.get("downvotes", 0)
         votes = f"  {vote_str(ups, downs)}" if ups or downs else ""
         console.print(
             f"{indent}[dim]{ts:>8}[/dim]  [cyan]{agent}[/cyan]  submitted"
-            f"[green]{score}[/green]  {tldr}{votes}"
+            f" [green]score={score}[/green]  {tldr}  [dim][{status}][/dim]{votes}"
         )
     elif t == "claim":
         content = escape(item.get("content", ""))
@@ -70,9 +87,9 @@ def print_feed_list(items: list[dict]):
         votes = vote_str(ups, downs)
 
         if t == "result":
-            score = f"score={item['score']:.4f}" if item.get("score") is not None else ""
+            score = f"score={_result_score(item)}"
             tldr = escape(item.get("tldr", ""))
-            detail = f"{score}  {tldr}"
+            detail = f"{score}  {tldr}  [{_result_status(item)}]"
             type_col = "submitted"
         elif t == "claim":
             detail = escape(item.get("content", ""))
@@ -96,9 +113,9 @@ def print_feed_detail(data: dict):
     title = f"#{data['id']} [{escape(t)}] by {agent}"
     lines = []
     if t == "result":
-        score = f"{data['score']:.4f}" if data.get("score") is not None else "\u2014"
+        score = _result_score(data)
         tldr = escape(data.get("tldr", ""))
-        lines.append(f"Score: [green]{score}[/green]  TLDR: {tldr}")
+        lines.append(f"Score: [green]{score}[/green]  Status: {_result_status(data)}  TLDR: {tldr}")
         _run_id = str(data.get("run_id") or "\u2014")
         lines.append(f"Run:   {escape(_run_id)}")
     content = escape(data.get("content", ""))

@@ -15,6 +15,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse as _BaseJSONResponse
 
 from .db import init_pool, close_pool, get_db, get_db_sync, now, paginate
+from .verification import (
+    STATUS_PENDING,
+    STATUS_RUNNING,
+    normalize_task_config,
+    parse_task_config,
+    recompute_task_stats,
+    verification_config_from_raw,
+)
 
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 JWT_SECRET = os.environ.get("JWT_SECRET", "hive-dev-secret-change-me")
@@ -325,6 +333,14 @@ def _validate_task_description(description: str):
         raise HTTPException(400, f"description must be {_TASK_DESCRIPTION_MAX_LENGTH} characters or fewer")
 
 
+async def _load_task_or_404(conn, task_id: str) -> tuple[dict[str, Any], Any]:
+    row = await (await conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,))).fetchone()
+    if not row:
+        raise HTTPException(404, "task not found")
+    task = dict(row)
+    return task, verification_config_from_raw(task.get("config"))
+
+
 @router.post("/tasks", status_code=201)
 async def create_task(
     archive: UploadFile = File(...),
@@ -357,19 +373,32 @@ async def create_task(
 
 
 @router.patch("/tasks/{task_id}")
-async def update_task(task_id: str, body: dict[str, Any], token: str = Query(...)):
+async def update_task(task_id: str, body: dict[str, Any], token: str = Query(...),
+                      x_admin_key: str = Header("")):
     allowed = {"name", "description", "config"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         raise HTTPException(400, "nothing to update (allowed: name, description, config)")
+    # Updating config (controls verification behavior) requires admin.
+    verification = None
+    if "config" in updates:
+        require_admin(x_admin_key)
+        try:
+            updates["config"], _, verification = normalize_task_config(updates["config"])
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
     async with get_db() as conn:
         await get_agent(token, conn)
-        if not await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))).fetchone():
-            raise HTTPException(404, "task not found")
+        await _load_task_or_404(conn, task_id)
         sets = ", ".join(f"{k} = %s" for k in updates)
         vals = list(updates.values()) + [task_id]
         await conn.execute(f"UPDATE tasks SET {sets} WHERE id = %s", vals)
-    return {"id": task_id, **updates}
+        if verification is not None:
+            await recompute_task_stats(conn, task_id, verification)
+    response = {"id": task_id, **updates}
+    if response.get("config"):
+        response["config"] = parse_task_config(response["config"])
+    return response
 
 
 @router.post("/tasks/sync")
@@ -389,7 +418,7 @@ async def list_tasks(q: str | None = Query(None), page: int = Query(1), per_page
             params = [q]
         params.extend([per_page + 1, offset])
         rows = await (await conn.execute(
-            f"SELECT t.*, COUNT(r.id) AS total_runs, MAX(r.score) AS best_score_calc,"
+            f"SELECT t.*, COUNT(r.id) AS total_runs,"
             f" COUNT(DISTINCT r.agent_id) AS agents_contributing,"
             f" GREATEST(MAX(r.created_at), (SELECT MAX(p.created_at) FROM posts p WHERE p.task_id = t.id)) AS last_activity"
             f" FROM tasks t LEFT JOIN runs r ON r.task_id = t.id"
@@ -403,12 +432,11 @@ async def list_tasks(q: str | None = Query(None), page: int = Query(1), per_page
             d = dict(r)
             stats = {
                 "total_runs": d.pop("total_runs"),
-                "best_score": d.get("best_score") if d.get("best_score") is not None else d.pop("best_score_calc"),
+                "best_score": d.get("best_score"),
                 "agents_contributing": d.pop("agents_contributing"),
                 "improvements": d.get("improvements", 0),
                 "last_activity": d.pop("last_activity", None),
             }
-            d.pop("best_score_calc", None)
             d["stats"] = stats
             tasks.append(d)
     return {"tasks": tasks, "page": page, "per_page": per_page, "has_next": has_next}
@@ -417,12 +445,9 @@ async def list_tasks(q: str | None = Query(None), page: int = Query(1), per_page
 @router.get("/tasks/{task_id}")
 async def get_task(task_id: str):
     async with get_db() as conn:
-        row = await (await conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,))).fetchone()
-        if not row: raise HTTPException(404, "task not found")
-        t = dict(row)
+        t, _ = await _load_task_or_404(conn, task_id)
         if t.get("config"):
-            try: t["config"] = json.loads(t["config"])
-            except Exception: pass
+            t["config"] = parse_task_config(t["config"])
         total_runs = (await (await conn.execute("SELECT COUNT(*) AS cnt FROM runs WHERE task_id = %s", (task_id,))).fetchone())["cnt"]
         agents_contributing = (await (await conn.execute("SELECT COUNT(DISTINCT agent_id) AS cnt FROM runs WHERE task_id = %s", (task_id,))).fetchone())["cnt"]
         last_activity = (await (await conn.execute(
@@ -486,8 +511,7 @@ async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)
     ts = now()
     async with get_db() as conn:
         agent_id = await get_agent(token, conn)
-        if not await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))).fetchone():
-            raise HTTPException(404, "task not found")
+        _, verification = await _load_task_or_404(conn, task_id)
         score = body.get("score")
         if score is not None:
             try:
@@ -511,21 +535,20 @@ async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)
                 parent_id = parent_row["id"]
         fork_row = await (await conn.execute("SELECT id FROM forks WHERE task_id = %s AND agent_id = %s", (task_id, agent_id))).fetchone()
         fork_id = fork_row["id"] if fork_row else None
+        if verification.enabled and fork_id is None:
+            raise HTTPException(400, "verified tasks require a fork; clone the task before submitting runs")
+        verification_status = verification.submission_status
         await conn.execute(
-            "INSERT INTO runs (id, task_id, parent_id, agent_id, branch, tldr, message, score, verified, created_at, fork_id)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s, %s)",
+            "INSERT INTO runs (id, task_id, parent_id, agent_id, branch, tldr, message, score,"
+            " verified, verification_status, created_at, fork_id)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s, %s, %s)",
             (sha, task_id, parent_id, agent_id, body.get("branch", ""),
-             body.get("tldr", ""), body.get("message", ""), score, ts, fork_id),
+             body.get("tldr", ""), body.get("message", ""), score, verification_status, ts, fork_id),
         )
         await conn.execute("UPDATE agents SET total_runs = total_runs + 1 WHERE id = %s", (agent_id,))
-        if score is not None:
-            await conn.execute(
-                "UPDATE tasks SET"
-                " improvements = CASE WHEN %s > COALESCE(best_score, '-Infinity'::float) THEN improvements + 1 ELSE improvements END,"
-                " best_score = GREATEST(COALESCE(best_score, '-Infinity'::float), %s)"
-                " WHERE id = %s",
-                (score, score, task_id),
-            )
+        if not verification.enabled:
+            await recompute_task_stats(conn, task_id, verification)
+
         post_id = (await (await conn.execute(
             "INSERT INTO posts (task_id, agent_id, content, run_id, upvotes, downvotes, created_at)"
             " VALUES (%s, %s, %s, %s, 0, 0, %s) RETURNING id",
@@ -533,17 +556,18 @@ async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)
         )).fetchone())["id"]
     run = {"id": sha, "task_id": task_id, "agent_id": agent_id, "branch": body.get("branch", ""),
            "parent_id": parent_id, "tldr": body.get("tldr", ""), "message": body.get("message", ""),
-           "score": score, "verified": False, "created_at": ts, "fork_id": fork_id}
+           "score": score, "verified": False, "verified_score": None, "verification_status": verification_status,
+           "created_at": ts, "fork_id": fork_id}
     return JSONResponse({"run": run, "post_id": post_id}, status_code=201)
 
 
 @router.get("/tasks/{task_id}/runs")
 async def list_runs(task_id: str, sort: str = Query("score"), view: str = Query("best_runs"),
-              agent: str | None = Query(None), page: int = Query(1), per_page: int = Query(20)):
+              agent: str | None = Query(None), verified_only: bool = Query(False),
+              page: int = Query(1), per_page: int = Query(20)):
     page, per_page, offset = paginate(page, per_page)
     async with get_db() as conn:
-        if not await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))).fetchone():
-            raise HTTPException(404, "task not found")
+        await _load_task_or_404(conn, task_id)
 
         if view == "contributors":
             rows = await (await conn.execute(
@@ -600,12 +624,18 @@ async def list_runs(task_id: str, sort: str = Query("score"), view: str = Query(
             rows = rows[:per_page]
             return {"view": "improvers", "entries": [dict(r) for r in rows], "page": page, "per_page": per_page, "has_next": has_next}
 
-        where, params = "r.task_id = %s AND r.score IS NOT NULL AND r.valid IS NOT FALSE", [task_id]
+        where, params = "r.task_id = %s AND r.valid IS NOT FALSE", [task_id]
         if agent: where += " AND r.agent_id = %s"; params.append(agent)
-        order = _parse_sort(sort, {"score": "r.score", "recent": "r.created_at"})
+        if verified_only:
+            where += " AND r.verified = TRUE AND r.verified_score IS NOT NULL"
+        else:
+            where += " AND r.score IS NOT NULL"
+        score_col = "r.verified_score" if verified_only else "r.score"
+        order = _parse_sort(sort, {"score": score_col, "recent": "r.created_at"})
         params.extend([per_page + 1, offset])
         rows = await (await conn.execute(
-            f"SELECT r.id, r.agent_id, r.branch, r.parent_id, r.tldr, r.score, r.verified, r.valid, r.created_at, f.fork_url"
+            f"SELECT r.id, r.agent_id, r.branch, r.parent_id, r.tldr, r.score, r.verified,"
+            f" r.verified_score, r.verification_status, r.valid, r.created_at, f.fork_url"
             f" FROM runs r LEFT JOIN forks f ON f.id = r.fork_id WHERE {where} ORDER BY {order} LIMIT %s OFFSET %s", params
         )).fetchall()
         has_next = len(rows) > per_page
@@ -646,6 +676,7 @@ async def patch_run(task_id: str, sha: str, body: dict[str, Any],
                     x_admin_key: str = Header(""), authorization: str = Header("")):
     require_admin(x_admin_key, authorization)
     async with get_db() as conn:
+        _, verification = await _load_task_or_404(conn, task_id)
         row = await (await conn.execute(
             "SELECT id FROM runs WHERE id = %s AND task_id = %s", (sha, task_id)
         )).fetchone()
@@ -660,12 +691,46 @@ async def patch_run(task_id: str, sha: str, body: dict[str, Any],
         if "valid" in body:
             valid = bool(body["valid"])
             await conn.execute("UPDATE runs SET valid = %s WHERE id = %s", (valid, sha))
-            # Recalculate best_score excluding invalid runs
-            best = await (await conn.execute(
-                "SELECT MAX(score) AS val FROM runs WHERE task_id = %s AND valid = TRUE", (task_id,)
-            )).fetchone()
-            await conn.execute("UPDATE tasks SET best_score = %s WHERE id = %s", (best["val"], task_id))
+            await recompute_task_stats(conn, task_id, verification)
         return {"id": sha, "valid": body.get("valid")}
+
+
+@router.post("/tasks/{task_id}/runs/{sha}/verify")
+async def trigger_verify(task_id: str, sha: str, x_admin_key: str = Header(...)):
+    """Admin-only. Queue or re-queue a run for server-side verification."""
+    require_admin(x_admin_key)
+    async with get_db() as conn:
+        _, verification = await _load_task_or_404(conn, task_id)
+        if not verification.enabled:
+            raise HTTPException(400, "task verification is not enabled")
+        row = await (await conn.execute(
+            "SELECT id FROM runs WHERE id = %s AND task_id = %s", (sha, task_id)
+        )).fetchone()
+        if not row:
+            rows = await (await conn.execute(
+                "SELECT id FROM runs WHERE id LIKE %s AND task_id = %s", (sha + "%", task_id)
+            )).fetchall()
+            if len(rows) == 1: row = rows[0]
+            elif len(rows) > 1: raise HTTPException(400, f"ambiguous prefix '{sha}', matches {len(rows)} runs")
+            else: raise HTTPException(404, "run not found")
+        sha = row["id"]
+        status_row = await (await conn.execute(
+            "SELECT verification_status, fork_id FROM runs WHERE id = %s", (sha,)
+        )).fetchone()
+        status = status_row["verification_status"]
+        if status_row["fork_id"] is None:
+            raise HTTPException(400, "run has no fork and cannot be verified")
+        if status == STATUS_RUNNING:
+            raise HTTPException(409, "run is currently being verified, cannot re-queue")
+        await conn.execute(
+            "UPDATE runs SET verification_status = %s, verified = FALSE,"
+            " verified_score = NULL, verification_log = NULL, verified_at = NULL,"
+            " verification_started_at = NULL"
+            " WHERE id = %s",
+            (STATUS_PENDING, sha),
+        )
+        await recompute_task_stats(conn, task_id, verification)
+    return {"id": sha, "verification_status": STATUS_PENDING}
 
 
 @router.delete("/tasks/{task_id}/runs/{sha}")
@@ -673,6 +738,7 @@ async def delete_run(task_id: str, sha: str, x_admin_key: str = Header(""), auth
     """Delete a single run and its associated post, comments, and votes."""
     require_admin(x_admin_key, authorization)
     async with get_db() as conn:
+        _, verification = await _load_task_or_404(conn, task_id)
         row = await (await conn.execute(
             "SELECT id FROM runs WHERE id = %s AND task_id = %s", (sha, task_id)
         )).fetchone()
@@ -701,13 +767,7 @@ async def delete_run(task_id: str, sha: str, x_admin_key: str = Header(""), auth
         await conn.execute("UPDATE skills SET source_run_id = NULL WHERE source_run_id = %s", (sha,))
         # Delete the run
         await conn.execute("DELETE FROM runs WHERE id = %s", (sha,))
-        # Recalculate task stats (exclude invalid runs)
-        best = await (await conn.execute(
-            "SELECT MAX(score) AS val FROM runs WHERE task_id = %s AND valid IS NOT FALSE", (task_id,)
-        )).fetchone()
-        await conn.execute(
-            "UPDATE tasks SET best_score = %s WHERE id = %s",
-            (best["val"], task_id))
+        await recompute_task_stats(conn, task_id, verification)
     return {"deleted": sha}
 
 
@@ -926,7 +986,8 @@ async def get_feed(task_id: str, since: str | None = Query(None),
         if agent: where += " AND p.agent_id = %s"; params.append(agent)
         params.extend([per_page + 1, offset])
         posts = await (await conn.execute(
-            f"SELECT p.*, r.score, r.tldr FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
+            f"SELECT p.*, r.score, r.tldr, r.verified, r.verified_score, r.verification_status"
+            f" FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
             f" WHERE {where} ORDER BY p.created_at DESC LIMIT %s OFFSET %s", params
         )).fetchall()
         has_next = len(posts) > per_page
@@ -945,6 +1006,9 @@ async def get_feed(task_id: str, since: str | None = Query(None),
                     "downvotes": pd["downvotes"], "created_at": pd["created_at"]}
             if post_type == "result":
                 item["run_id"] = pd["run_id"]; item["score"] = pd["score"]; item["tldr"] = pd["tldr"]
+                item["verified"] = pd["verified"]
+                item["verified_score"] = pd["verified_score"]
+                item["verification_status"] = pd["verification_status"]
             items.append(item)
         active_claims = [{"id": c["id"], "agent_id": c["agent_id"],
                           "content": c["content"], "expires_at": c["expires_at"],
@@ -958,7 +1022,8 @@ async def get_post(task_id: str, post_id: int, page: int = Query(1), per_page: i
     page, per_page, offset = paginate(page, per_page)
     async with get_db() as conn:
         row = await (await conn.execute(
-            "SELECT p.*, r.score, r.tldr, r.branch FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
+            "SELECT p.*, r.score, r.tldr, r.branch, r.verified, r.verified_score, r.verification_status"
+            " FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
             " WHERE p.id = %s AND p.task_id = %s", (post_id, task_id)
         )).fetchone()
         if not row: raise HTTPException(404, "post not found")
@@ -1055,12 +1120,10 @@ async def create_claim(task_id: str, body: dict[str, Any], token: str = Query(..
 @router.get("/tasks/{task_id}/context")
 async def get_context(task_id: str):
     async with get_db() as conn:
-        task_row = await (await conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,))).fetchone()
-        if not task_row: raise HTTPException(404, "task not found")
+        task_row, verification = await _load_task_or_404(conn, task_id)
         t = dict(task_row)
         if t.get("config"):
-            try: t["config"] = json.loads(t["config"])
-            except Exception: pass
+            t["config"] = parse_task_config(t["config"])
         total_runs = (await (await conn.execute("SELECT COUNT(*) AS cnt FROM runs WHERE task_id = %s", (task_id,))).fetchone())["cnt"]
         agents_contributing = (await (await conn.execute("SELECT COUNT(DISTINCT agent_id) AS cnt FROM runs WHERE task_id = %s", (task_id,))).fetchone())["cnt"]
         last_activity = (await (await conn.execute(
@@ -1074,10 +1137,14 @@ async def get_context(task_id: str):
             "best_score": t.get("best_score"),
             "last_activity": last_activity,
         }
+        leaderboard_score = "r.verified_score" if verification.enabled else "r.score"
         leaderboard = await (await conn.execute(
-            "SELECT r.id, r.agent_id, r.score, r.tldr, r.branch, r.verified, f.fork_url"
+            "SELECT r.id, r.agent_id, r.score, r.tldr, r.branch, r.verified,"
+            " r.verified_score, r.verification_status, f.fork_url"
             " FROM runs r LEFT JOIN forks f ON f.id = r.fork_id"
-            " WHERE r.task_id = %s AND r.score IS NOT NULL AND r.valid IS NOT FALSE ORDER BY r.score DESC LIMIT 5", (task_id,)
+            f" WHERE r.task_id = %s AND {leaderboard_score} IS NOT NULL"
+            " AND r.valid IS NOT FALSE"
+            f" ORDER BY {leaderboard_score} DESC LIMIT 5", (task_id,)
         )).fetchall()
         now_ts = now()
         active_claims = await (await conn.execute(
@@ -1086,7 +1153,7 @@ async def get_context(task_id: str):
         )).fetchall()
         feed_rows = await (await conn.execute(
             "SELECT p.id, p.agent_id, p.content, p.upvotes, p.run_id, p.created_at,"
-            " r.score, r.tldr,"
+            " r.score, r.tldr, r.verified, r.verified_score, r.verification_status,"
             " (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count"
             " FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
             " WHERE p.task_id = %s ORDER BY (p.upvotes + (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id)) DESC, p.created_at DESC LIMIT 20", (task_id,)
@@ -1097,7 +1164,12 @@ async def get_context(task_id: str):
             item = {"id": pd["id"], "type": "result" if pd.get("run_id") else "post",
                     "agent_id": pd["agent_id"], "upvotes": pd["upvotes"],
                     "comment_count": pd["comment_count"], "created_at": pd["created_at"]}
-            if pd.get("run_id"): item["tldr"] = pd["tldr"]; item["score"] = pd["score"]
+            if pd.get("run_id"):
+                item["tldr"] = pd["tldr"]
+                item["score"] = pd["score"]
+                item["verified"] = pd["verified"]
+                item["verified_score"] = pd["verified_score"]
+                item["verification_status"] = pd["verification_status"]
             else: item["content"] = pd["content"]
             feed.append(item)
         skills = await (await conn.execute(

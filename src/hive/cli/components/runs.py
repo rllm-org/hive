@@ -11,6 +11,28 @@ from hive.cli.formatting import delta_str
 _RANK_STYLES = {1: "[bold yellow]1[/bold yellow]", 2: "[bold]2[/bold]", 3: "[bold]3[/bold]"}
 
 
+def _display_score_value(run: dict):
+    if run.get("verified_score") is not None:
+        return run.get("verified_score")
+    return run.get("score")
+
+
+def _display_score_text(run: dict, *, width: int = 8, precision: int = 4) -> str:
+    value = _display_score_value(run)
+    if value is None:
+        return "  \u2014   " if width == 8 else "\u2014"
+    return f"{value:.{precision}f}"
+
+
+def _verification_label(run: dict) -> str:
+    status = run.get("verification_status")
+    if status == "success" or run.get("verified"):
+        return "verified"
+    if status in {"pending", "running", "failed", "error"}:
+        return status
+    return "unverified"
+
+
 def print_leaderboard(entries: list[dict]):
     """Print leaderboard table (used in task context)."""
     console = get_console()
@@ -25,8 +47,8 @@ def print_leaderboard(entries: list[dict]):
     table.add_column("Fork", style="dim", no_wrap=True)
     table.add_column("TLDR")
     for i, r in enumerate(entries, 1):
-        score = f"{r['score']:.4f}" if r.get("score") is not None else "  \u2014   "
-        v = "" if r.get("verified") else " \\[unverified]"
+        score = _display_score_text(r)
+        v = f" \\[{_verification_label(r)}]"
         fork_url = r.get("fork_url", "")
         short_fork = fork_url.replace("https://github.com/", "") if fork_url else "--"
         rank = _RANK_STYLES.get(i, str(i))
@@ -52,8 +74,8 @@ def print_run_table(data: dict, view: str):
         table.add_column("Agent", style="cyan", width=20)
         table.add_column("TLDR")
         for r in data.get("runs", []):
-            score = f"{r['score']:.4f}" if r.get("score") is not None else "  \u2014   "
-            v = "verified" if r.get("verified") else "unverified"
+            score = _display_score_text(r)
+            v = _verification_label(r)
             table.add_row(
                 r["id"][:8],
                 score,
@@ -111,17 +133,21 @@ def print_run_table(data: dict, view: str):
 def print_run_detail(r: dict):
     """Print detailed view of a single run."""
     console = get_console()
-    score = f"{r['score']:.3f}" if r.get("score") is not None else "\u2014"
-    v = "verified" if r.get("verified") else "unverified"
+    reported_score = f"{r['score']:.3f}" if r.get("score") is not None else "\u2014"
+    verified_score = f"{r['verified_score']:.3f}" if r.get("verified_score") is not None else "\u2014"
+    status = _verification_label(r)
     lines = [
         f"[bold]Run:[/bold]    {escape(r['id'])}",
         f"[bold]Agent:[/bold]  [cyan]{escape(r['agent_id'])}[/cyan]",
         f"[bold]Fork:[/bold]   {escape(r.get('fork_url') or r.get('repo_url') or chr(0x2014))}",
         f"[bold]Branch:[/bold] {escape(r['branch'])}",
         f"[bold]SHA:[/bold]    {escape(r['id'])}",
-        f"[bold]Score:[/bold]  [green]{score}[/green]  \\[{v}]",
+        f"[bold]Status:[/bold] {escape(status)}",
+        f"[bold]Score:[/bold]  [green]{reported_score}[/green]  [dim](reported)[/dim]",
         f"[bold]TLDR:[/bold]   {escape(r.get('tldr', ''))}",
     ]
+    if "verified_score" in r or "verification_status" in r:
+        lines.insert(6, f"[bold]Verified:[/bold] [green]{verified_score}[/green]")
     panel = Panel("\n".join(lines), title="Run Detail", border_style="dim")
     console.print(panel)
     fork = r.get("fork_url") or r.get("repo_url", "")

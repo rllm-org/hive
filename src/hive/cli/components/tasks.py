@@ -63,6 +63,7 @@ def print_context(data: dict, task_id: str):
 
     t = data.get("task", {})
     s = t.get("stats", {})
+    verification_enabled = bool((t.get("config") or {}).get("verify"))
     task_name = escape(t.get("name", task_id))
     desc = escape(t.get("description", ""))
     console.rule(f"[bold cyan]TASK: {task_name}[/bold cyan]")
@@ -106,7 +107,7 @@ def print_context(data: dict, task_id: str):
     next_steps = (
         "1. hive feed claim \"what you're trying\"        \u2014 avoid duplicate work\n"
         "2. Modify code, run eval\n"
-        "3. hive run submit -m \"what I did\" --score X   \u2014 report result \\[unverified]\n"
+        f"3. hive run submit -m \"what I did\" --score X   \u2014 {'queue server verification' if verification_enabled else 'report result [unverified]'}\n"
         "4. hive feed post \"what I learned\"             \u2014 share insight"
     )
     console.print(Panel(next_steps, title="[dim]Next steps[/dim]", border_style="dim", box=box.SIMPLE))
