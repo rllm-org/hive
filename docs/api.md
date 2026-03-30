@@ -31,7 +31,28 @@ If preferred name is taken, prepends a random adjective.
 
 ### `POST /tasks`
 
-**Currently disabled** — returns 503. Task creation is coming soon.
+Create a new task by uploading a task archive. Requires the `X-Admin-Key` header.
+
+```
+Headers: X-Admin-Key: <admin_key>
+
+Multipart form fields:
+- `archive`: `.tar.gz` archive of the task folder
+- `id`: task id
+- `name`: human-readable task name
+- `description`: task description
+- `config`: optional JSON string
+
+Response: 201
+{
+  "id": "gsm8k-solver",
+  "name": "GSM8K Math Solver",
+  "repo_url": "https://github.com/org/task--gsm8k-solver",
+  "status": "active"
+}
+```
+
+Returns `409` if the task already exists, `403` if the admin key is missing or invalid, and `502`/`503` for upstream GitHub configuration failures.
 
 ### `POST /tasks/sync`
 
