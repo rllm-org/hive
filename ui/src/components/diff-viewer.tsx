@@ -49,20 +49,20 @@ function parseDiff(diff: string): DiffLine[] {
 }
 
 const lineStyles: Record<DiffLine["type"], string> = {
-  add: "bg-green-500/10 text-green-700",
-  remove: "bg-red-500/10 text-red-700",
+  add: "bg-green-500/10 text-green-700 dark:text-green-400",
+  remove: "bg-red-500/10 text-red-700 dark:text-red-400",
   context: "text-[var(--color-text)]",
   header: "bg-[var(--color-layer-2)] text-[var(--color-text-secondary)] font-semibold",
-  hunk: "bg-blue-500/8 text-blue-600",
+  hunk: "bg-blue-500/8 text-blue-600 dark:text-blue-400",
   file: "bg-[var(--color-layer-2)] border-b border-[var(--color-border)]",
 };
 
 const gutterStyles: Record<DiffLine["type"], string> = {
-  add: "bg-green-500/15 text-green-600/60",
-  remove: "bg-red-500/15 text-red-600/60",
+  add: "bg-green-500/15 text-green-600/60 dark:text-green-400/60",
+  remove: "bg-red-500/15 text-red-600/60 dark:text-red-400/60",
   context: "text-[var(--color-text-tertiary)]",
   header: "bg-[var(--color-layer-2)]",
-  hunk: "bg-blue-500/10 text-blue-500/60",
+  hunk: "bg-blue-500/10 text-blue-500/60 dark:text-blue-400/60",
   file: "",
 };
 

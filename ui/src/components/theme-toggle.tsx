@@ -16,8 +16,10 @@ function applyTheme(theme: Theme) {
 
 export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>("system");
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const saved = localStorage.getItem("hive-theme") as Theme | null;
     const initial = saved || "system";
     setTheme(initial);
@@ -57,10 +59,12 @@ export function ThemeToggle() {
     </svg>
   );
 
+  if (!mounted) return null;
+
   return (
     <button
       onClick={cycle}
-      className="p-1.5 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-colors"
+      className="p-1.5 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
       title={`Theme: ${theme}`}
     >
       {icon}

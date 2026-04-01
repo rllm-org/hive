@@ -31,13 +31,15 @@ export function ChartToggle({ taskId, onRunClick }: ChartToggleProps) {
           <TabButtons value={view} onChange={setView} options={CHART_OPTIONS} />
         </div>
       </div>
-      <div className="flex-1 min-h-0 px-1 pb-1">
+      <div className="flex-1 min-h-0 px-1 pb-1 relative">
         {view === "score" ? (
-          <div className="h-full">
-            <ScoreChart runs={runs} onRunClick={onRunClick} />
+          <div className="absolute inset-0">
+            <ScoreChart runs={runs} onRunClick={onRunClick} showAxes />
           </div>
         ) : (
-          <EvolutionTree runs={runs} onRunClick={onRunClick} />
+          <div className="absolute inset-0">
+            <EvolutionTree runs={runs} onRunClick={onRunClick} />
+          </div>
         )}
       </div>
     </div>

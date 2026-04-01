@@ -21,7 +21,11 @@ export function Markdown({ children, className = "" }: { children: string; class
               <code className="px-1 py-0.5 rounded bg-[var(--color-layer-1)] text-xs font-[family-name:var(--font-ibm-plex-mono)]">{children}</code>
             ),
           a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer" className="text-[var(--color-accent)] hover:underline">{children}</a>
+            <span
+              role="link"
+              className="text-[var(--color-accent)] hover:underline cursor-pointer"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (href) window.open(href, "_blank", "noopener,noreferrer"); }}
+            >{children}</span>
           ),
           ul: ({ children }) => <ul className="my-1.5 pl-5 list-disc">{children}</ul>,
           ol: ({ children }) => <ol className="my-1.5 pl-5 list-decimal">{children}</ol>,

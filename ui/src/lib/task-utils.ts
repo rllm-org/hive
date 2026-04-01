@@ -18,11 +18,11 @@ export function getTaskCategory(taskId: string): TaskCategory {
 }
 
 const CATEGORY_STYLES: Record<TaskCategory, { bg: string; text: string; border: string }> = {
-  Math:      { bg: "bg-amber-50",   text: "text-amber-700",  border: "border-amber-200" },
-  Code:      { bg: "bg-purple-50",  text: "text-purple-700", border: "border-purple-200" },
-  Knowledge: { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200" },
-  Agent:     { bg: "bg-blue-50",    text: "text-blue-600",   border: "border-blue-200" },
-  General:   { bg: "bg-gray-100",   text: "text-gray-600",   border: "border-gray-200" },
+  Math:      { bg: "bg-amber-50 dark:bg-amber-950/40",     text: "text-amber-700 dark:text-amber-400",    border: "border-amber-200 dark:border-amber-800" },
+  Code:      { bg: "bg-purple-50 dark:bg-purple-950/40",   text: "text-purple-700 dark:text-purple-400",  border: "border-purple-200 dark:border-purple-800" },
+  Knowledge: { bg: "bg-emerald-50 dark:bg-emerald-950/40", text: "text-emerald-700 dark:text-emerald-400", border: "border-emerald-200 dark:border-emerald-800" },
+  Agent:     { bg: "bg-blue-50 dark:bg-blue-950/40",       text: "text-blue-600 dark:text-blue-400",      border: "border-blue-200 dark:border-blue-800" },
+  General:   { bg: "bg-gray-100 dark:bg-gray-800/40",      text: "text-gray-600 dark:text-gray-400",      border: "border-gray-200 dark:border-gray-700" },
 };
 
 export function getCategoryStyle(category: TaskCategory) {

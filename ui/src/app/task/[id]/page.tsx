@@ -16,6 +16,37 @@ import { FileViewer } from "@/components/file-viewer";
 import { useCountUp } from "@/hooks/use-count-up";
 import { GitHubIcon } from "@/components/shared/github-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import "github-markdown-css/github-markdown-light.css";
+
+function useReadme(repoUrl: string | undefined) {
+  const [content, setContent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!repoUrl) return;
+    const match = repoUrl.match(/github\.com\/([^/]+\/[^/]+)/);
+    if (!match) return;
+    const repo = match[1].replace(/\.git$/, "");
+    setLoading(true);
+    // Try main first, then master
+    fetch(`https://raw.githubusercontent.com/${repo}/main/README.md`)
+      .then((r) => {
+        if (!r.ok) return fetch(`https://raw.githubusercontent.com/${repo}/master/README.md`);
+        return r;
+      })
+      .then((r) => {
+        if (!r.ok) throw new Error("not found");
+        return r.text();
+      })
+      .then(setContent)
+      .catch(() => setContent(null))
+      .finally(() => setLoading(false));
+  }, [repoUrl]);
+
+  return { content, loading };
+}
 
 function TaskStats({ agents, runs }: { agents: number; runs: number }) {
   const animAgents = useCountUp(agents);
@@ -179,6 +210,22 @@ export default function TaskDetailPage() {
   const { items, hasMore: feedHasMore, loadMore: feedLoadMore, loadingMore: feedLoadingMore } = useFeed(taskId);
   const { files: taskFiles, fetchFileContent } = useTaskFiles(context?.task.repo_url);
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
+  const [viewMode, setViewMode] = useState<"about" | "status">("about");
+  const { content: readme, loading: readmeLoading } = useReadme(context?.task.repo_url);
+
+  const agentOptions = [
+    { name: "Claude Code", cmd: "claude", autoCmd: "claude --dangerously-skip-permissions" },
+    { name: "Codex", cmd: "codex", autoCmd: "codex --full-auto" },
+    { name: "Gemini", cmd: "gemini", autoCmd: "gemini --sandbox=none" },
+    { name: "Cursor", cmd: "cursor", autoCmd: "cursor --yolo" },
+    { name: "Cline", cmd: "cline", autoCmd: "cline --auto-approve" },
+    { name: "OpenCode", cmd: "opencode", autoCmd: "opencode" },
+    { name: "Kimi", cmd: "kimi", autoCmd: "kimi" },
+    { name: "Trae", cmd: "trae", autoCmd: "trae --yes" },
+    { name: "MiniMax", cmd: "minimax-codex", autoCmd: "minimax-codex --full-auto" },
+  ] as const;
+  const [selectedAgent, setSelectedAgent] = useState(0);
+  const [autoMode, setAutoMode] = useState(false);
 
   // Auto-open run from URL query param ?run=<runId> (once only)
   const runParam = searchParams.get("run");
@@ -198,7 +245,9 @@ export default function TaskDetailPage() {
   // Resizable + collapsible panels
   const [leftWidth, setLeftWidth] = useState(260);
   const [rightWidth, setRightWidth] = useState(400);
-  const [isDragging, setIsDragging] = useState<"left" | "right" | null>(null);
+  const [aboutWidth, setAboutWidth] = useState(380);
+  const [isDragging, setIsDragging] = useState<"left" | "right" | "about" | null>(null);
+  const aboutContainerRef = useRef<HTMLDivElement>(null);
   const [isLeftCollapsed, setIsLeftCollapsed] = useState(() => {
     if (typeof window !== "undefined") return localStorage.getItem("hive-left-collapsed") === "true";
     return false;
@@ -224,12 +273,22 @@ export default function TaskDetailPage() {
     if (!next) setRightWidth(preCollapseRightRef.current);
   };
 
-  const handleMouseDown = useCallback((side: "left" | "right") => {
+  const handleMouseDown = useCallback((side: "left" | "right" | "about") => {
     setIsDragging(side);
   }, []);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging || !containerRef.current) return;
+    if (!isDragging) return;
+
+    if (isDragging === "about") {
+      if (!aboutContainerRef.current) return;
+      const rect = aboutContainerRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      setAboutWidth(Math.max(280, Math.min(600, x)));
+      return;
+    }
+
+    if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
 
@@ -331,53 +390,53 @@ export default function TaskDetailPage() {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-[var(--color-bg)] relative">
       {/* Header bar */}
-      <header className="shrink-0 bg-[var(--color-surface)] border-b border-[var(--color-border)] px-3 md:px-5 py-3 flex items-center">
-        <Link href="/" aria-label="Back to home" className="w-8 h-8 rounded-lg bg-[var(--color-layer-1)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-all mr-4">
+      <header className="shrink-0 bg-[var(--color-surface)] border-b border-[var(--color-border)] px-3 md:px-5 py-3 flex items-center relative">
+        <Link href="/#tasks" aria-label="Back to tasks" className="w-8 h-8 rounded-lg bg-[var(--color-layer-1)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-all mr-4">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M8.5 3L4.5 7l4 4" />
           </svg>
         </Link>
         <div className="flex-1">
-          <h1 className="text-lg font-bold text-[var(--color-text)]">
+          <h1 className="text-xl font-bold text-[var(--color-text)]">
             {context.task.name}
           </h1>
         </div>
+        {/* Centered toggle */}
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center border border-[var(--color-border)] rounded-none text-xs font-medium">
+          <button
+            onClick={() => setViewMode("about")}
+            className={`px-3 py-1.5 transition-colors ${viewMode === "about" ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-secondary)] hover:bg-[var(--color-layer-2)]"}`}
+          >
+            About
+          </button>
+          <button
+            onClick={() => setViewMode("status")}
+            className={`px-3 py-1.5 transition-colors ${viewMode === "status" ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-secondary)] hover:bg-[var(--color-layer-2)]"}`}
+          >
+            Status
+          </button>
+        </div>
         <TaskStats agents={s.agents_contributing} runs={s.total_runs} />
-        <ThemeToggle />
       </header>
 
-      {/* Main content — fills remaining space */}
-      <main ref={containerRef} className="flex-1 min-h-0 flex flex-col md:flex-row bg-[var(--color-surface)] overflow-hidden md:overflow-hidden overflow-y-auto">
-        {/* Left sidebar — hidden on mobile */}
-        {isLeftCollapsed ? (
-          <div
-            onClick={toggleLeft}
-            className="hidden md:flex items-start justify-center cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors border-r border-[var(--color-border)]"
-            style={{ width: 36, flexShrink: 0, paddingTop: 16 }}
-          >
-            <span
-              className="text-xs font-medium text-[var(--color-text-tertiary)] tracking-widest"
-              style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
-            >
-              TASK DETAIL
-            </span>
-          </div>
-        ) : (
-          <div style={{ width: leftWidth, flexShrink: 0 }} className="hidden md:flex overflow-y-auto flex-col border-r border-[var(--color-border)]">
-            {/* About */}
-            <div className="px-4 pt-3 pb-2 text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">About</div>
-            <div className="px-5 pt-1 pb-4">
+      {/* About view */}
+      {viewMode === "about" && (
+        <main ref={aboutContainerRef} className="flex-1 min-h-0 flex flex-col md:flex-row bg-[var(--color-surface)] overflow-hidden">
+          {/* Left: sidebar content */}
+          <div style={{ width: aboutWidth, flexShrink: 0 }} className="hidden md:flex overflow-y-auto flex-col border-r border-[var(--color-border)]">
+            <div className="px-5 pt-4 pb-2 text-sm font-bold text-[var(--color-text)] uppercase tracking-wide">About</div>
+            <div className="px-6 pt-1 pb-5">
               {context.task.description && (
-                <p className="text-sm text-[var(--color-text)] leading-relaxed mb-3">{context.task.description}</p>
+                <p className="text-[15px] text-[var(--color-text)] leading-relaxed mb-3">{context.task.description}</p>
               )}
               {context.task.repo_url && (
                 <a
                   href={context.task.repo_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs text-[var(--color-accent)] hover:underline"
+                  className="inline-flex items-center gap-1.5 text-sm text-[var(--color-accent)] hover:underline"
                 >
-                  <GitHubIcon className="w-3.5 h-3.5" />
+                  <GitHubIcon className="w-4 h-4" />
                   {extractRepoName(context.task.repo_url)}
                 </a>
               )}
@@ -385,18 +444,47 @@ export default function TaskDetailPage() {
 
             <div className="h-px bg-[var(--color-border)]" />
 
-            <div className="px-4 pt-3 pb-2 text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">Participate</div>
-            <div className="px-5 pt-1 pb-4">
-              <div className="space-y-3">
+            <div className="px-5 pt-4 pb-2 text-sm font-bold text-[var(--color-text)] uppercase tracking-wide">Participate</div>
+            <div className="px-6 pt-1 pb-5">
+              <div className="space-y-4">
                 <div>
-                  <p className="text-[11px] text-[var(--color-text-secondary)] mb-1">Run in your terminal:</p>
-                  <TerminalBlock>{`hive task clone ${taskId} && cd ${taskId}`}</TerminalBlock>
+                  <p className="text-[13px] font-medium text-[var(--color-text)] mb-1.5">1. Install the Hive skill</p>
+                  <TerminalBlock>npx skills add rllm-org/hive</TerminalBlock>
                 </div>
                 <div>
-                  <p className="text-[11px] text-[var(--color-text-secondary)] mb-1">Start your agent and give it this prompt:</p>
-                  <AgentBlock copyText="Read program.md, then run hive --help to learn the CLI. Evolve the code, eval, and submit in a loop.">
-                    {`Read program.md, then run hive --help to learn the CLI. Evolve the code, eval, and submit in a loop.`}
-                  </AgentBlock>
+                  <p className="text-[13px] font-medium text-[var(--color-text)] mb-1.5">2. Launch your agent</p>
+                  <TerminalBlock>{autoMode ? agentOptions[selectedAgent].autoCmd : agentOptions[selectedAgent].cmd}</TerminalBlock>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <select
+                      aria-label="Select an agent"
+                      value={selectedAgent}
+                      onChange={(e) => setSelectedAgent(Number(e.target.value))}
+                      className="h-[24px] px-1.5 rounded text-[11px] font-medium border border-[var(--color-border)] bg-[var(--color-layer-1)] text-[var(--color-accent)] cursor-pointer appearance-none pr-4 focus:outline-none focus:border-[var(--color-text-secondary)] transition-colors"
+                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 5px center" }}
+                    >
+                      {agentOptions.map((a, i) => (
+                        <option key={a.name} value={i}>{a.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => setAutoMode(!autoMode)}
+                      className="flex items-center gap-1 text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"
+                    >
+                      <span>Auto</span>
+                      <span className={`relative inline-block w-6 h-3.5 rounded-full transition-colors ${autoMode ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"}`}>
+                        <span className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-transform ${autoMode ? "left-3" : "left-0.5"}`} />
+                      </span>
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[13px] font-medium text-[var(--color-text)] mb-1.5">3. Start the command, chat with it and choose <span className="text-[var(--color-accent)]">{context.task.name}</span></p>
+                  <div className="relative bg-gradient-to-r from-[var(--color-accent)]/8 to-transparent border border-[var(--color-accent)]/25 rounded-none p-2.5 pr-12">
+                    <CopyButton text="/hive-setup" />
+                    <pre className="font-[family-name:var(--font-ibm-plex-mono)] text-[12px] leading-[20px] text-[var(--color-text)] whitespace-pre-wrap break-all">
+                      <span className="text-[var(--color-accent)] select-none">&gt; </span>/hive-setup
+                    </pre>
+                  </div>
                 </div>
               </div>
             </div>
@@ -404,9 +492,8 @@ export default function TaskDetailPage() {
             {fileTree.length > 0 && (
               <>
                 <div className="h-px bg-[var(--color-border)]" />
-
-                <div className="px-4 pt-3 pb-2 text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">Base Files</div>
-                <div className="px-5 pt-1 pb-4">
+                <div className="px-5 pt-4 pb-2 text-sm font-bold text-[var(--color-text)] uppercase tracking-wide">Base Files</div>
+                <div className="px-6 pt-1 pb-5">
                   <div className="space-y-0.5">
                     {fileTree.map((node) => (
                       <FileTreeNode
@@ -423,26 +510,42 @@ export default function TaskDetailPage() {
               </>
             )}
           </div>
-        )}
 
-        {/* Left drag handle — hidden on mobile */}
-        <div
-          onMouseDown={() => handleMouseDown("left")}
-          className="hidden md:block shrink-0 group relative"
-          style={{ width: 8, marginLeft: -4, marginRight: -4, cursor: "col-resize", zIndex: 10 }}
-        >
-          <div className={`absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${isDragging === "left" ? "bg-[var(--color-accent)]" : "group-hover:bg-[var(--color-accent)] bg-transparent"}`} />
+          {/* Drag handle */}
           <div
-            className="bg-[var(--color-layer-2)] border border-[var(--color-border)] group-hover:bg-[var(--color-accent)] group-hover:border-[var(--color-accent)] transition-colors"
-            style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 16, height: 26, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}
+            onMouseDown={() => handleMouseDown("about")}
+            className="hidden md:block shrink-0 group relative"
+            style={{ width: 8, marginLeft: -4, marginRight: -4, cursor: "col-resize", zIndex: 10 }}
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-[var(--color-text-tertiary)] group-hover:text-white transition-colors">
-              <path d="M4 3.5L2 6L4 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M8 3.5L10 6L8 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <div className={`absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${isDragging === "about" ? "bg-[var(--color-accent)]" : "group-hover:bg-[var(--color-accent)] bg-transparent"}`} />
+            <div
+              className="bg-[var(--color-layer-2)] border border-[var(--color-border)] group-hover:bg-[var(--color-accent)] group-hover:border-[var(--color-accent)] transition-colors"
+              style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 16, height: 26, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-[var(--color-text-tertiary)] group-hover:text-white transition-colors">
+                <path d="M4 3.5L2 6L4 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M8 3.5L10 6L8 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
           </div>
-        </div>
 
+          {/* Right: README */}
+          <div className="flex-1 min-w-0 overflow-y-auto px-8 py-6">
+            {readmeLoading ? (
+              <div className="text-sm text-[var(--color-text-secondary)]">Loading README...</div>
+            ) : readme ? (
+              <article className="markdown-body" style={{ background: "transparent", padding: "24px" }}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{readme}</ReactMarkdown>
+              </article>
+            ) : (
+              <div className="text-sm text-[var(--color-text-tertiary)]">No README available for this task.</div>
+            )}
+          </div>
+        </main>
+      )}
+
+      {/* Status view — fills remaining space */}
+      <main ref={containerRef} className={`flex-1 min-h-0 flex flex-col md:flex-row bg-[var(--color-surface)] overflow-hidden md:overflow-hidden overflow-y-auto ${viewMode !== "status" ? "hidden" : ""}`}>
         {/* Chart panel */}
         <div className="flex-1 min-w-0 flex flex-col min-h-[300px] md:min-h-0">
           <div className="flex-1 min-h-0">

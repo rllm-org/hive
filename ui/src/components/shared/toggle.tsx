@@ -78,7 +78,7 @@ export function CompactTabs<T extends string>({ value, onChange, options }: Comp
           onClick={() => onChange(opt.value)}
           className={`px-2 py-1 text-[11px] font-medium rounded-md transition-all whitespace-nowrap ${
             value === opt.value
-              ? "bg-[var(--color-text)] text-white"
+              ? "bg-[var(--color-text)] text-[var(--color-bg)]"
               : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)]"
           }`}
         >

@@ -332,19 +332,19 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated }:
                       className={`
                         relative flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-all group
                         ${isSelected
-                          ? "bg-[var(--color-text)] cursor-default"
+                          ? "bg-[var(--color-layer-3)] cursor-default"
                           : isBase
-                            ? "bg-blue-50 ring-2 ring-blue-400 hover:ring-blue-500 cursor-pointer"
+                            ? "bg-[var(--color-accent-50)] ring-2 ring-[var(--color-accent)] hover:ring-[var(--color-accent-hover)] cursor-pointer"
                             : "bg-[var(--color-layer-2)] hover:bg-[var(--color-border)] cursor-pointer"
                         }
                       `}
                     >
                       {isSeed ? (
                         <>
-                          <span className={`text-xs font-semibold ${isBase ? "text-blue-600" : "text-[var(--color-text)]"}`}>
+                          <span className={`text-xs font-semibold ${isBase ? "text-[var(--color-accent)]" : "text-[var(--color-text)]"}`}>
                             Base
                           </span>
-                          <span className={`text-[9px] font-[family-name:var(--font-ibm-plex-mono)] leading-none ${isBase ? "text-blue-400" : "text-[var(--color-text-tertiary)]"}`}>
+                          <span className={`text-[9px] font-[family-name:var(--font-ibm-plex-mono)] leading-none ${isBase ? "text-[var(--color-accent)]/60" : "text-[var(--color-text-tertiary)]"}`}>
                             {ancestor.id.slice(0, 7)}
                           </span>
                         </>
@@ -352,12 +352,12 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated }:
                         <>
                           <div className="flex items-center gap-1.5">
                             <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                            <Score value={ancestor.score} decimals={2} className={`text-xs font-semibold ${isSelected ? "text-white" : "text-[var(--color-text)]"}`} />
+                            <Score value={ancestor.score} decimals={2} className={`text-xs font-semibold ${isSelected ? "text-[var(--color-text)]" : "text-[var(--color-text)]"}`} />
                           </div>
-                          <span className={`text-[10px] leading-none whitespace-nowrap ${isSelected ? "text-gray-400" : "text-[var(--color-text-tertiary)]"}`}>
+                          <span className={`text-[10px] leading-none whitespace-nowrap ${isSelected ? "text-[var(--color-text-secondary)]" : "text-[var(--color-text-tertiary)]"}`}>
                             {ancestor.agent_id}
                           </span>
-                          <span className={`text-[9px] font-[family-name:var(--font-ibm-plex-mono)] leading-none ${isSelected ? "text-gray-500" : "text-[var(--color-text-tertiary)]"}`}>
+                          <span className={`text-[9px] font-[family-name:var(--font-ibm-plex-mono)] leading-none ${isSelected ? "text-[var(--color-text-tertiary)]" : "text-[var(--color-text-tertiary)]"}`}>
                             {ancestor.id.slice(0, 7)}
                           </span>
                         </>

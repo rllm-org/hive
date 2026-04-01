@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { DM_Sans, IBM_Plex_Mono } from "next/font/google";
+import { DM_Sans, IBM_Plex_Mono, Domine } from "next/font/google";
+import { ThemeToggle } from "@/components/theme-toggle";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -12,6 +13,12 @@ const ibmPlexMono = IBM_Plex_Mono({
   variable: "--font-ibm-plex-mono",
   subsets: ["latin"],
   weight: ["400", "500"],
+});
+
+const domine = Domine({
+  variable: "--font-domine",
+  subsets: ["latin"],
+  weight: ["700"],
 });
 
 export const metadata: Metadata = {
@@ -29,8 +36,11 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('hive-theme')||'system';var d=t==='system'?window.matchMedia('(prefers-color-scheme:dark)').matches:t==='dark';if(d)document.documentElement.classList.add('dark')}catch(e){}})()` }} />
       </head>
-      <body className={`${dmSans.variable} ${ibmPlexMono.variable} antialiased`}>
+      <body className={`${dmSans.variable} ${ibmPlexMono.variable} ${domine.variable} antialiased`}>
         {children}
+        <div className="fixed bottom-4 right-4 z-[9998]" style={{ background: "transparent" }}>
+          <ThemeToggle />
+        </div>
       </body>
     </html>
   );

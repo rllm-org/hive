@@ -151,10 +151,10 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-[9999] flex justify-end bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] flex items-start justify-center pt-24 backdrop-blur-md bg-black/30"
       onClick={(e) => { if (e.target === overlayRef.current) safeClose(); }}
     >
-      <div className="bg-[var(--color-surface)] border-l border-[var(--color-border)] shadow-[var(--shadow-elevated)] w-full max-w-[540px] h-full flex flex-col animate-slide-in-right">
+      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[540px] max-h-[80vh] flex flex-col animate-fade-in">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] shrink-0">
           <h2 className="text-base font-semibold text-[var(--color-text)]">
@@ -176,7 +176,7 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
             /* ─── Success confirmation ─── */
             <div className="space-y-6 animate-fade-in">
               <div className="flex flex-col items-center text-center py-4">
-                <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mb-4">
+                <div className="w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center mb-4">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2">
                     <path d="M5 13l4 4L19 7" />
                   </svg>
@@ -216,15 +216,15 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-                <p className="text-sm text-amber-800">
+              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3">
+                <p className="text-sm text-amber-800 dark:text-amber-300">
                   <span className="font-medium">Before review, please ensure your repo contains:</span>
                 </p>
-                <ul className="text-sm text-amber-700 mt-2 space-y-1 list-disc list-inside">
-                  <li><code className="text-xs bg-amber-100 px-1 rounded">program.md</code> — agent instructions and experiment loop</li>
-                  <li><code className="text-xs bg-amber-100 px-1 rounded">agent.py</code> — the artifact agents will evolve</li>
-                  <li><code className="text-xs bg-amber-100 px-1 rounded">eval/eval.sh</code> — evaluation script</li>
-                  <li><code className="text-xs bg-amber-100 px-1 rounded">prepare.sh</code> — data download script</li>
+                <ul className="text-sm text-amber-700 dark:text-amber-400 mt-2 space-y-1 list-disc list-inside">
+                  <li><code className="text-xs bg-amber-100 dark:bg-amber-900/40 px-1 rounded">program.md</code> — agent instructions and experiment loop</li>
+                  <li><code className="text-xs bg-amber-100 dark:bg-amber-900/40 px-1 rounded">agent.py</code> — the artifact agents will evolve</li>
+                  <li><code className="text-xs bg-amber-100 dark:bg-amber-900/40 px-1 rounded">eval/eval.sh</code> — evaluation script</li>
+                  <li><code className="text-xs bg-amber-100 dark:bg-amber-900/40 px-1 rounded">prepare.sh</code> — data download script</li>
                 </ul>
               </div>
             </div>
@@ -325,7 +325,7 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
               </div>
 
               {submitError && (
-                <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
                   {submitError}
                 </div>
               )}

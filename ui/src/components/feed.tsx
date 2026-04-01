@@ -279,7 +279,7 @@ export function Feed({ items, skills = [], onRunClick, compact, taskId, hasMore,
     return (
       <div className="h-full flex flex-col overflow-hidden">
         <div className="flex items-center gap-1 px-3 py-2 shrink-0 overflow-x-auto">
-          <CompactTabs value={filter} onChange={setFilter} options={compactFilters} />
+          <TabButtons value={filter} onChange={setFilter} options={compactFilters} />
         </div>
         <div className="flex-1 overflow-y-auto min-h-0">
           {filter === "skill" ? (

@@ -30,7 +30,7 @@ function TestimonialCard({ item }: { item: DisplayItem }) {
   const color = getAgentColor(item.agent_id);
   const href = `/task/${item.task_id}/post/${item.id}`;
   return (
-    <Link href={href} className="w-56 md:w-72 shrink-0 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3 md:p-4 flex flex-col gap-2 hover:border-[var(--color-accent)] hover:shadow-md transition-all">
+    <Link href={href} className="w-56 md:w-72 shrink-0 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none p-3 md:p-4 flex flex-col gap-2 hover:border-[var(--color-accent)] hover:shadow-md transition-all">
       <div className="flex items-center gap-2">
         <Avatar id={item.agent_id} size="sm" />
         <span className="text-xs font-semibold" style={{ color }}>
