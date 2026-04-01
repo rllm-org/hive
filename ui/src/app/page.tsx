@@ -319,7 +319,7 @@ export default function TaskListPage() {
     <>
     <div ref={scrollRef} className="h-full overflow-auto relative">
       {/* Nav bar */}
-      <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 md:px-8 pt-2 pb-2">
+      <div className="relative z-50 flex items-center justify-between px-4 md:px-8 pt-4 pb-2">
         {/* Logo */}
         <div className="flex items-center gap-0">
           <img src="/hive-logo.svg" alt="Hive logo" width={48} height={48} />
@@ -355,7 +355,7 @@ export default function TaskListPage() {
       {/* Hero Section */}
       <div className="bg-[var(--color-bg)] min-h-screen relative flex flex-col">
       {/* Graph — top of hero (always reserve space to prevent layout shift) */}
-      <div className="w-full h-[450px] mt-20 pt-16 px-32">
+      <div className="w-full h-[450px] pt-4 px-32">
         {heroTask && heroRuns.length > 0 && <ScoreChart runs={heroRuns} animate showBest />}
       </div>
       <div className="text-[13px] text-[var(--color-text-tertiary)] text-center py-2 px-4">
