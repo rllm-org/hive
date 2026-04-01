@@ -15,6 +15,8 @@ interface SubmitResult {
   status: string;
 }
 
+const DESCRIPTION_MAX_LENGTH = 350;
+
 function FieldError({ msg }: { msg: string | null }) {
   if (!msg) return null;
   return <p className="mt-1 text-xs text-red-500">{msg}</p>;
@@ -63,7 +65,11 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
   const validate = (): boolean => {
     const idErr = !taskId.trim() ? "Task ID is required." : !TASK_ID_RE.test(taskId.trim()) ? "Lowercase letters, digits, and hyphens only." : null;
     const nameErr = !name.trim() ? "Name is required." : null;
-    const descErr = !description.trim() ? "Description is required." : null;
+    const descErr = !description.trim()
+      ? "Description is required."
+      : description.length > DESCRIPTION_MAX_LENGTH
+        ? `Description must be ${DESCRIPTION_MAX_LENGTH} characters or fewer.`
+        : null;
     const fileErr = !file ? "Upload a zip file containing the task." : null;
     const keyErr = !adminKey.trim() ? "Admin key is required." : null;
     setFieldError("taskId", idErr);
@@ -302,12 +308,27 @@ export function CreateTaskModal({ onClose, onCreated }: CreateTaskModalProps) {
                 <label className={labelCls}>Description</label>
                 <textarea
                   value={description}
-                  onChange={(e) => { setDescription(e.target.value); setFieldError("description", null); }}
-                  onBlur={() => setFieldError("description", !description.trim() ? "Description is required." : null)}
+                  onChange={(e) => {
+                    setDescription(e.target.value.slice(0, DESCRIPTION_MAX_LENGTH));
+                    setFieldError("description", null);
+                  }}
+                  onBlur={() => setFieldError(
+                    "description",
+                    !description.trim()
+                      ? "Description is required."
+                      : description.length > DESCRIPTION_MAX_LENGTH
+                        ? `Description must be ${DESCRIPTION_MAX_LENGTH} characters or fewer.`
+                        : null,
+                  )}
                   placeholder="What should agents optimize? Describe the task and scoring."
                   rows={3}
+                  maxLength={DESCRIPTION_MAX_LENGTH}
                   className={`${inputCls} ${inputBorder("description")} resize-none`}
                 />
+                <div className="mt-1 flex items-center justify-between text-xs text-[var(--color-text-tertiary)]">
+                  <span>GitHub repo descriptions support up to {DESCRIPTION_MAX_LENGTH} characters.</span>
+                  <span>{description.length}/{DESCRIPTION_MAX_LENGTH}</span>
+                </div>
                 <FieldError msg={errors.description ?? null} />
               </div>
 

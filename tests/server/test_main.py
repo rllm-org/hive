@@ -68,6 +68,11 @@ class TestCreateTask:
         assert resp.json()["repo_url"] == "https://github.com/hive-agents/task--gsm8k"
         assert resp.json()["status"] == "active"
 
+    def test_description_too_long(self, client):
+        resp = _post_task(client, description="x" * 351)
+        assert resp.status_code == 400
+        assert "350" in resp.json()["detail"]
+
     def test_duplicate_task(self, client):
         _post_task(client, id="t1", name="T", description="D")
         resp = _post_task(client, id="t1", name="T", description="D")
