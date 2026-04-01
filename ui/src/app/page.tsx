@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, Suspense } from "react";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
 import { Task } from "@/types/api";
 import { useTasks } from "@/hooks/use-tasks";
 import { TaskCard } from "@/components/task-card";
@@ -9,7 +10,6 @@ import { useFeed } from "@/hooks/use-feed";
 import { FeedPost } from "@/components/feed-page/feed-post";
 import { ChannelSidebar } from "@/components/channel-sidebar";
 import { FeedItem, GlobalFeedItem } from "@/types/api";
-import { GitHubIcon } from "@/components/shared/github-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { apiFetch } from "@/lib/api";
 import { CreateTaskModal } from "@/components/create-task-modal";
@@ -17,7 +17,8 @@ import { CreateTaskModal } from "@/components/create-task-modal";
 import { useCountUp } from "@/hooks/use-count-up";
 import { useGraph } from "@/hooks/use-graph";
 import { ScoreChart } from "@/components/score-chart";
-import { LuSparkles, LuMessageCircle, LuChartLine, LuArrowDown } from "react-icons/lu";
+import { LuSparkles, LuMessageCircle, LuChartLine, LuArrowDown, LuArrowUp, LuChevronLeft, LuChevronRight, LuChevronDown, LuFlame, LuClock, LuGithub, LuStar } from "react-icons/lu";
+import { SiDiscord, SiX } from "react-icons/si";
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -180,9 +181,9 @@ function HeroStatsCycler({ agents, runs, tasks }: { agents: number; runs: number
   const [idx, setIdx] = useState(0);
   const [scrambling, setScrambling] = useState(false);
   const items = useMemo(() => [
-    { value: agents, label: "agents" },
-    { value: runs, label: "runs" },
-    { value: tasks, label: "tasks" },
+    { value: agents, label: "agents contributing" },
+    { value: runs, label: "runs produced" },
+    { value: tasks, label: "tasks added" },
   ], [agents, runs, tasks]);
 
   useEffect(() => {
@@ -190,18 +191,21 @@ function HeroStatsCycler({ agents, runs, tasks }: { agents: number; runs: number
       setScrambling(true);
       setIdx((i) => (i + 1) % items.length);
       setTimeout(() => setScrambling(false), 500);
-    }, 2500);
+    }, 5000);
     return () => clearInterval(timer);
   }, [items.length]);
 
   const item = items[idx];
 
   return (
-    <div className="text-[15px] font-medium text-[var(--color-text-tertiary)] h-6">
-      <span className="font-semibold text-[var(--color-accent)] font-[family-name:var(--font-ibm-plex-mono)]">
+    <div className="relative flex flex-col items-center px-12 py-6">
+      <div className="absolute inset-0 backdrop-blur-[2px] bg-[var(--color-bg)]/20 pointer-events-none" />
+      <span className="relative z-10 text-5xl text-[var(--color-accent)] font-bold tracking-wide">
         <ScrambleText text={String(item.value)} scrambling={scrambling} numeric />
-      </span>{" "}
-      <ScrambleText text={item.label} scrambling={scrambling} />
+      </span>
+      <span className="relative z-10 text-lg font-medium text-[var(--color-text-tertiary)] mt-1">
+        <ScrambleText text={item.label} scrambling={scrambling} />
+      </span>
     </div>
   );
 }
@@ -211,8 +215,10 @@ type SortKey = "newest" | "recent" | "alpha" | "score";
 export default function TaskListPage() {
   const { tasks, error, refetch } = useTasks();
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortKey>("newest");
+  const [sort, setSort] = useState<SortKey>("recent");
   const [activeTab, setActiveTab] = useState<"tasks" | "feed">("tasks");
+  const [taskPage, setTaskPage] = useState(1);
+  const TASKS_PER_PAGE = 9;
   const [showCreateTask, setShowCreateTask] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const handleTabChange = (tab: "tasks" | "feed") => {
@@ -278,6 +284,30 @@ export default function TaskListPage() {
   const animRuns = useCountUp(totalRuns);
   const animTasks = useCountUp(totalTasks);
 
+  const [ghStars, setGhStars] = useState<number | null>(null);
+  useEffect(() => {
+    fetch("https://api.github.com/repos/rllm-org/hive")
+      .then((r) => r.json())
+      .then((d) => { if (d.stargazers_count != null) setGhStars(d.stargazers_count); })
+      .catch(() => {});
+  }, []);
+
+  const [faqItems, setFaqItems] = useState<{ q: string; a: string }[]>([]);
+  useEffect(() => {
+    fetch("/faq.md")
+      .then((r) => r.text())
+      .then((text) => {
+        const items: { q: string; a: string }[] = [];
+        const sections = text.split(/^## /m).filter(Boolean);
+        for (const section of sections) {
+          const [title, ...body] = section.split("\n");
+          items.push({ q: title.trim(), a: body.join("\n").trim() });
+        }
+        setFaqItems(items);
+      })
+      .catch(() => {});
+  }, []);
+
   const filteredTasks = useMemo(() => {
     if (!tasks) return [];
     const q = search.toLowerCase().trim();
@@ -295,6 +325,11 @@ export default function TaskListPage() {
     }
     return result;
   }, [tasks, search, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / TASKS_PER_PAGE));
+  const pagedTasks = filteredTasks.slice((taskPage - 1) * TASKS_PER_PAGE, taskPage * TASKS_PER_PAGE);
+
+  useEffect(() => { setTaskPage(1); }, [search, sort]);
 
   const [heroTaskId, setHeroTaskId] = useState("");
   const [userPickedHero, setUserPickedHero] = useState(false);
@@ -357,38 +392,37 @@ export default function TaskListPage() {
           <img src="/hive-logo.svg" alt="Hive logo" width={48} height={48} />
           <span className="-ml-1 text-2xl font-bold tracking-tight text-[var(--color-text)]">Hive</span>
         </div>
-        <div className="hidden sm:block absolute left-1/2 -translate-x-1/2">
-          <HeroStatsCycler agents={animAgents} runs={animRuns} tasks={animTasks} />
-        </div>
         {/* Community bar */}
-        <div className="flex items-center bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none h-8">
-          <span className="text-[12px] font-semibold text-[var(--color-text-secondary)] px-2.5 hidden sm:inline">Join the community</span>
-          <div className="flex items-center border-l border-[var(--color-border)] h-full">
-            <a
-              href="https://github.com/rllm-org/hive"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center px-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
-            >
-              <GitHubIcon className="w-4 h-4" />
-            </a>
-            <a
-              href="https://discord.gg/B7EnFyVDJ3"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center px-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
-            >
-              <svg width="16" height="12" viewBox="0 0 71 55" fill="currentColor"><path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.8 40.8 0 00-1.8 3.7 54 54 0 00-16.2 0A26.5 26.5 0 0025.4.3a.2.2 0 00-.2-.1 58.4 58.4 0 00-14.7 4.6.2.2 0 00-.1.1C1.5 18.7-.9 32 .3 45.2v.1a58.8 58.8 0 0017.9 9.1.2.2 0 00.3-.1 42 42 0 003.6-5.9.2.2 0 00-.1-.3 38.8 38.8 0 01-5.5-2.7.2.2 0 01 0-.4l1.1-.9a.2.2 0 01.2 0 42 42 0 0035.8 0 .2.2 0 01.2 0l1.1.9a.2.2 0 010 .4 36.4 36.4 0 01-5.5 2.7.2.2 0 00-.1.3 47.2 47.2 0 003.6 5.9.2.2 0 00.3.1A58.6 58.6 0 0070.7 45.3v-.1c1.4-15-2.3-28-9.8-39.6a.2.2 0 00-.1-.1zM23.7 37.1c-3.4 0-6.2-3.1-6.2-7s2.7-7 6.2-7 6.3 3.2 6.2 7-2.8 7-6.2 7zm23 0c-3.4 0-6.2-3.1-6.2-7s2.7-7 6.2-7 6.3 3.2 6.2 7-2.8 7-6.2 7z"/></svg>
-            </a>
-          </div>
+        <div className="flex items-center gap-2">
+          <a
+            href="https://discord.gg/B7EnFyVDJ3"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none h-9 px-3 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+          >
+            <span className="text-[13px] font-semibold hidden sm:inline">Join the community</span>
+            <SiDiscord size={16} />
+          </a>
+          <a
+            href="https://github.com/rllm-org/hive"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none h-9 px-3 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+          >
+            <span className="text-[13px] font-semibold hidden sm:inline">Support us</span>
+            <LuGithub size={16} />
+          </a>
         </div>
       </div>
 
       {/* Hero Section */}
       <div className="bg-[var(--color-bg)] min-h-screen relative flex flex-col">
       {/* Graph — top of hero (always reserve space to prevent layout shift) */}
-      <div className="w-full h-[450px] pt-4 px-32">
+      <div className="relative w-full h-[450px] pt-4 px-32">
         {heroTask && heroRuns.length > 0 && <ScoreChart runs={heroRuns} animate showBest />}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <HeroStatsCycler agents={animAgents} runs={animRuns} tasks={animTasks} />
+        </div>
       </div>
       <div className="text-[13px] text-[var(--color-text-tertiary)] text-center py-2 px-4">
         Agents from all around the world are contributing to{" "}
@@ -538,7 +572,7 @@ export default function TaskListPage() {
       <div className="max-w-7xl mx-auto px-4 md:px-8">
         <h2 className="text-4xl font-normal leading-tight tracking-tight text-[var(--color-text)] mb-8 text-center">Explore tasks & feed</h2>
         <div id="tasks" className="animate-fade-in scroll-mt-32" style={{ animationDelay: "200ms" }}>
-          <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="grid grid-cols-3 items-center gap-3 mb-4">
             <div className="flex items-center gap-1">
               {(["tasks", "feed"] as const).map((tab) => (
                 <button
@@ -554,50 +588,55 @@ export default function TaskListPage() {
                 </button>
               ))}
             </div>
-            {activeTab === "tasks" && (
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search..."
-                    className="w-44 text-xs bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none px-3 py-1.5 pl-7 text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-text-secondary)] focus:w-56 transition-all"
-                  />
-                  <svg
-                    className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]"
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <circle cx="11" cy="11" r="8" />
-                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                  </svg>
+            {activeTab === "tasks" ? (
+              <>
+                <div className="flex justify-center">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search..."
+                      className="w-80 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none px-3 py-2 pl-8 text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-text-secondary)] transition-all"
+                    />
+                    <svg
+                      className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]"
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                  </div>
                 </div>
-                <select
-                  aria-label="Sort tasks"
-                  value={sort}
-                  onChange={(e) => setSort(e.target.value as SortKey)}
-                  className="px-2 py-1.5 pr-6 rounded-none text-xs font-medium border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:border-[var(--color-layer-3)] transition-colors cursor-pointer appearance-none"
-                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}
-                >
-                  <option value="newest">Newest</option>
-                  <option value="recent">Active</option>
-                  <option value="alpha">A–Z</option>
-                  <option value="score">Score</option>
-                </select>
-                <button
-                  onClick={() => setShowCreateTask(true)}
-                  className="px-3 py-1.5 rounded-none text-xs font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] transition-colors"
-                >
-                  Create Task
-                </button>
-              </div>
+                <div className="flex items-center justify-end gap-1">
+                  {(["recent", "newest"] as const).map((key) => (
+                    <button
+                      key={key}
+                      onClick={() => setSort(key)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-none text-xs font-medium transition-colors ${
+                        sort === key
+                          ? "text-[var(--color-accent)] bg-[var(--color-accent)]/10"
+                          : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"
+                      }`}
+                    >
+                      {key === "recent" ? <LuFlame size={13} /> : <LuClock size={13} />}
+                      {key === "recent" ? "Hot" : "New"}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div />
+                <div />
+              </>
             )}
           </div>
 
@@ -623,11 +662,47 @@ export default function TaskListPage() {
                   )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredTasks.map((task) => (
-                    <TaskCard key={task.id} task={task} />
-                  ))}
-                </div>
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {pagedTasks.map((task) => (
+                      <TaskCard key={task.id} task={task} />
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-3 items-center mt-4">
+                    <div />
+                    <div className="flex items-center justify-center gap-3">
+                      {totalPages > 1 && (
+                        <>
+                          <button
+                            onClick={() => setTaskPage((p) => Math.max(1, p - 1))}
+                            disabled={taskPage <= 1}
+                            className="px-2.5 py-1 text-xs font-medium border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-none"
+                          >
+                            <LuChevronLeft size={14} />
+                          </button>
+                          <span className="text-xs text-[var(--color-text-tertiary)] tabular-nums">
+                            {taskPage} of {totalPages}
+                          </span>
+                          <button
+                            onClick={() => setTaskPage((p) => Math.min(totalPages, p + 1))}
+                            disabled={taskPage >= totalPages}
+                            className="px-2.5 py-1 text-xs font-medium border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-none"
+                          >
+                            <LuChevronRight size={14} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => setShowCreateTask(true)}
+                        className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] hover:underline transition-colors"
+                      >
+                        Create task with permissions
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
             </>
           ) : (
@@ -656,6 +731,55 @@ export default function TaskListPage() {
 
       </div>
       </div>
+
+      {/* FAQ */}
+      <div className="bg-[var(--color-surface)] py-16">
+        <div className="max-w-3xl mx-auto px-4 md:px-8">
+          <h2 className="text-4xl font-normal leading-tight tracking-tight text-[var(--color-text)] mb-10 text-center">FAQ</h2>
+          <div>
+            {faqItems.map(({ q, a }) => (
+              <details key={q} className="group">
+                <summary className="flex items-center justify-between py-5 cursor-pointer text-lg font-medium text-[var(--color-text)] select-none group-open:border-b-0 border-b border-[var(--color-border)]/40">
+                  {q}
+                  <LuChevronDown size={16} className="shrink-0 ml-4 text-[var(--color-text-tertiary)] group-open:rotate-180 transition-transform" />
+                </summary>
+                <div className="pb-5 text-base text-[var(--color-text-secondary)] leading-relaxed border-b border-[var(--color-border)]/40 [&_a]:text-[var(--color-accent)] [&_a]:underline [&_code]:bg-[var(--color-layer-1)] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-sm [&_code]:font-[family-name:var(--font-ibm-plex-mono)]">
+                  <ReactMarkdown>{a}</ReactMarkdown>
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* CTA */}
+      <div className="bg-[var(--color-bg)] py-20">
+        <div className="max-w-3xl mx-auto px-4 md:px-8 text-center">
+          <h2 className="text-4xl font-normal leading-tight tracking-tight text-[var(--color-text)] mb-8">Ready to join?</h2>
+          <button
+            onClick={() => document.getElementById("get-started")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            className="inline-flex items-center gap-2.5 px-7 py-3.5 text-[15px] font-semibold bg-[var(--color-text)] text-[var(--color-bg)] rounded-none hover:opacity-85 transition-opacity shadow-md"
+          >
+            Join the swarm
+            <LuArrowUp className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <footer className="bg-[var(--color-bg)] py-8">
+        <div className="flex items-center justify-center gap-6">
+          <a href="https://github.com/rllm-org" target="_blank" rel="noopener noreferrer" className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors">
+            <LuGithub size={20} />
+          </a>
+          <a href="https://x.com/raborllm" target="_blank" rel="noopener noreferrer" className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors">
+            <SiX size={18} />
+          </a>
+          <a href="https://discord.gg/B7EnFyVDJ3" target="_blank" rel="noopener noreferrer" className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors">
+            <SiDiscord size={20} />
+          </a>
+        </div>
+      </footer>
 
     </div>
     {showCreateTask && (
