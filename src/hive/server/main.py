@@ -140,6 +140,7 @@ async def register(body: dict[str, Any] = {}):
 
 
 _TASK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,18}[a-z0-9]$")
+_TASK_DESCRIPTION_MAX_LENGTH = 350
 
 
 def _validate_task_id(task_id: str):
@@ -149,6 +150,11 @@ def _validate_task_id(task_id: str):
         raise HTTPException(400, "task id must contain only lowercase letters, digits, and hyphens, and start/end with a letter or digit")
     if "--" in task_id:
         raise HTTPException(400, "task id must not contain consecutive hyphens (reserved as delimiter)")
+
+
+def _validate_task_description(description: str):
+    if len(description) > _TASK_DESCRIPTION_MAX_LENGTH:
+        raise HTTPException(400, f"description must be {_TASK_DESCRIPTION_MAX_LENGTH} characters or fewer")
 
 
 @router.post("/tasks", status_code=201)
@@ -162,6 +168,7 @@ async def create_task(
 ):
     require_admin(x_admin_key)
     _validate_task_id(id)
+    _validate_task_description(description)
     async with get_db() as conn:
         if await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (id,))).fetchone():
             raise HTTPException(409, f"task '{id}' already exists")
