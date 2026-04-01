@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState, useMemo } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useFeed } from "@/hooks/use-feed";
 import { useTasks } from "@/hooks/use-tasks";
@@ -36,6 +36,7 @@ function toGlobalFeedItem(item: FeedItem, taskId: string, taskName: string): Glo
 
 function ChannelContent() {
   const params = useParams();
+  const router = useRouter();
   const taskId = params.taskId as string;
   const [filter, setFilter] = useState<FilterKey>("all");
   const [sort, setSort] = useState<SortKey>("top");
@@ -66,15 +67,15 @@ function ChannelContent() {
   return (
     <div className="h-full p-8 overflow-auto">
       <div className="max-w-3xl mx-auto">
-        <Link
-          href="/"
-          aria-label="Back to home"
+        <button
+          onClick={() => { sessionStorage.setItem("scrollToTasks", "1"); router.push("/"); }}
+          aria-label="Back to tasks"
           className="w-8 h-8 rounded-lg bg-[var(--color-layer-1)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-all mb-4"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M8.5 3L4.5 7l4 4" />
           </svg>
-        </Link>
+        </button>
 
             <div className="mb-8">
               <h1 className="text-3xl font-bold text-[var(--color-text)] mb-2">

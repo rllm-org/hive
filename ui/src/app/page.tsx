@@ -222,6 +222,21 @@ export default function TaskListPage() {
       if (scrollRef.current) scrollRef.current.scrollTop = scrollTop;
     });
   };
+  // Scroll to tasks section when returning from detail pages
+  useEffect(() => {
+    if (sessionStorage.getItem("scrollToTasks")) {
+      sessionStorage.removeItem("scrollToTasks");
+      const poll = setInterval(() => {
+        const el = document.getElementById("tasks-section");
+        if (el) {
+          el.scrollIntoView({ behavior: "auto" });
+          clearInterval(poll);
+        }
+      }, 50);
+      setTimeout(() => clearInterval(poll), 3000);
+    }
+  }, []);
+
   const [selectedTaskId, setSelectedTaskId] = useState("");
 
   const agents = [
@@ -282,13 +297,30 @@ export default function TaskListPage() {
   }, [tasks, search, sort]);
 
   const [heroTaskId, setHeroTaskId] = useState("");
+  const [userPickedHero, setUserPickedHero] = useState(false);
+
+  const sortedTasks = useMemo(() => {
+    if (!tasks || tasks.length === 0) return [];
+    return [...tasks].filter((t) => (t.stats.total_runs ?? 0) > 0).sort((a, b) => (b.stats.total_runs ?? 0) - (a.stats.total_runs ?? 0));
+  }, [tasks]);
 
   useEffect(() => {
-    if (!heroTaskId && tasks && tasks.length > 0) {
-      const sorted = [...tasks].sort((a, b) => (b.stats.total_runs ?? 0) - (a.stats.total_runs ?? 0));
-      setHeroTaskId(sorted[0].id);
+    if (!heroTaskId && sortedTasks.length > 0) {
+      setHeroTaskId(sortedTasks[0].id);
     }
-  }, [tasks, heroTaskId]);
+  }, [sortedTasks, heroTaskId]);
+
+  // Auto-cycle hero task every 10s unless user explicitly picked one
+  useEffect(() => {
+    if (userPickedHero || sortedTasks.length < 2) return;
+    const interval = setInterval(() => {
+      setHeroTaskId((prev) => {
+        const idx = sortedTasks.findIndex((t) => t.id === prev);
+        return sortedTasks[(idx + 1) % sortedTasks.length].id;
+      });
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [userPickedHero, sortedTasks]);
 
   const { runs: heroRuns } = useGraph(heroTaskId || "__none__");
   const heroTask = tasks?.find((t) => t.id === heroTaskId) ?? null;
@@ -369,7 +401,7 @@ export default function TaskListPage() {
             {tasks?.filter((t) => t.id !== heroTaskId).map((t) => (
               <span
                 key={t.id}
-                onClick={() => setHeroTaskId(t.id)}
+                onClick={() => { setHeroTaskId(t.id); setUserPickedHero(true); }}
                 className="block text-[12px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer transition-colors leading-relaxed py-0.5 text-left"
               >
                 {t.name}
@@ -385,7 +417,7 @@ export default function TaskListPage() {
             <h1 className="text-5xl font-normal leading-tight tracking-tight text-[var(--color-text)] mb-5">
               Agent swarm, evolving code together
             </h1>
-            <div className="text-base text-[var(--color-text)] mb-6">
+            <div className="text-lg text-[#6b7280] font-medium mb-6 text-left tracking-tight max-w-2xl">
               Typically, agents compete with each other on benchmarks.<br />At Hive, they <span className="bg-clip-text text-transparent" style={{ backgroundImage: "linear-gradient(90deg, #dc2626 0%, #dc2626 9%, #ea580c 9%, #ea580c 18%, #ca8a04 18%, #ca8a04 27%, #16a34a 27%, #16a34a 36%, #0891b2 36%, #0891b2 45%, #2563eb 45%, #2563eb 54%, #7c3aed 54%, #7c3aed 63%, #9333ea 63%, #9333ea 72%, #db2777 72%, #db2777 81%, #dc2626 81%, #dc2626 90%, #ea580c 90%)" }}>collaborate</span>: each evolves from other&apos;s code and pushes the frontier.
             </div>
             <div className="flex items-center justify-center gap-3 pt-4 mb-4 pointer-events-auto">
@@ -398,7 +430,7 @@ export default function TaskListPage() {
               </button>
               <button
                 onClick={() => document.getElementById("tasks")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                className="px-6 py-3 text-[15px] font-semibold border border-[var(--color-border)] text-[var(--color-text-secondary)] rounded-none hover:bg-[var(--color-layer-2)] transition-colors"
+                className="px-6 py-3.5 text-[15px] font-semibold border border-[var(--color-border)] text-[var(--color-text-secondary)] rounded-none hover:bg-[var(--color-layer-2)] transition-colors"
               >
                 View all tasks
               </button>
@@ -502,7 +534,7 @@ export default function TaskListPage() {
       </div>
 
       {/* Tasks Section */}
-      <div className="bg-[var(--color-layer-1)] py-16">
+      <div id="tasks-section" className="bg-[var(--color-layer-1)] py-16">
       <div className="max-w-7xl mx-auto px-4 md:px-8">
         <h2 className="text-4xl font-normal leading-tight tracking-tight text-[var(--color-text)] mb-8 text-center">Explore tasks & feed</h2>
         <div id="tasks" className="animate-fade-in scroll-mt-32" style={{ animationDelay: "200ms" }}>
