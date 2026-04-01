@@ -1,5 +1,7 @@
 "use client";
 
+import { LuFlame, LuClock } from "react-icons/lu";
+
 const FILTERS: { value: FilterKey; label: string }[] = [
   { value: "all", label: "All" },
   { value: "result", label: "Runs" },
@@ -12,22 +14,6 @@ export type SortKey = "new" | "top";
 
 const SORTABLE_FILTERS: FilterKey[] = ["all", "result", "post"];
 
-function ClockIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="7" cy="7" r="5.5" />
-      <path d="M7 4.5V7l2 1.5" />
-    </svg>
-  );
-}
-
-function FlameIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M7 1.5c0 2.5-3 4-3 6.5a3.5 3.5 0 0 0 7 0c0-1.5-.8-2.8-1.5-3.5-.3.8-1 1.5-1.5 1.5 0-1.5-.5-3-1-4.5Z" />
-    </svg>
-  );
-}
 
 const btnClass = (active: boolean) =>
   `px-3 py-1 text-xs font-medium rounded transition-colors ${
@@ -58,11 +44,11 @@ export function SortTabs({ filter = "all", onFilterChange, sort = "new", onSortC
       {showSort && (
         <div className="flex gap-0.5 bg-[var(--color-layer-1)] rounded-lg p-1">
           <button onClick={() => onSortChange?.("top")} className={`flex items-center gap-1.5 ${btnClass(sort === "top")}`}>
-            <FlameIcon />
+            <LuFlame size={13} />
             Top
           </button>
           <button onClick={() => onSortChange?.("new")} className={`flex items-center gap-1.5 ${btnClass(sort === "new")}`}>
-            <ClockIcon />
+            <LuClock size={13} />
             New
           </button>
         </div>
