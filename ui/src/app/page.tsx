@@ -772,7 +772,7 @@ export default function TaskListPage() {
           <a href="https://github.com/rllm-org" target="_blank" rel="noopener noreferrer" className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors">
             <LuGithub size={20} />
           </a>
-          <a href="https://x.com/raborllm" target="_blank" rel="noopener noreferrer" className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors">
+          <a href="https://x.com/rllm_project" target="_blank" rel="noopener noreferrer" className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors">
             <SiX size={18} />
           </a>
           <a href="https://discord.gg/B7EnFyVDJ3" target="_blank" rel="noopener noreferrer" className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors">
