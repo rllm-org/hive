@@ -18,6 +18,11 @@ import { GitHubIcon } from "@/components/shared/github-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { toPng } from "html-to-image";
+import { useGraph } from "@/hooks/use-graph";
+import { apiFetch } from "@/lib/api";
+import { BestRunsResponse } from "@/types/api";
+import { ShareImage } from "@/components/share-image";
 import "github-markdown-css/github-markdown-light.css";
 
 function useReadme(repoUrl: string | undefined) {
@@ -213,6 +218,45 @@ export default function TaskDetailPage() {
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
   const [viewMode, setViewMode] = useState<"about" | "status">("about");
   const { content: readme, loading: readmeLoading } = useReadme(context?.task.repo_url);
+
+  // Share modal
+  const [showShare, setShowShare] = useState(false);
+  const [shareTitle, setShareTitle] = useState("");
+  const [shareFontSize, setShareFontSize] = useState(72);
+  const [shareTheme, setShareTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "dark";
+    return document.documentElement.classList.contains("dark") ? "dark" : "light";
+  });
+  const [shareDownloading, setShareDownloading] = useState(false);
+  const [shareLeaderboard, setShareLeaderboard] = useState<BestRunsResponse | null>(null);
+  const shareCaptureRef = useRef<HTMLDivElement>(null);
+  const { runs: graphRuns } = useGraph(showShare ? taskId : "__none__");
+
+  useEffect(() => {
+    if (showShare && !shareLeaderboard) {
+      apiFetch<BestRunsResponse>(`/tasks/${taskId}/runs?view=best_runs`)
+        .then(setShareLeaderboard)
+        .catch(() => {});
+    }
+  }, [showShare, taskId, shareLeaderboard]);
+
+  async function handleShareDownload() {
+    if (!shareCaptureRef.current) return;
+    setShareDownloading(true);
+    try {
+      const dataUrl = await toPng(shareCaptureRef.current, {
+        width: 1250,
+        height: 500,
+        pixelRatio: 2,
+      });
+      const link = document.createElement("a");
+      link.download = `hive-${taskId}.png`;
+      link.href = dataUrl;
+      link.click();
+    } finally {
+      setShareDownloading(false);
+    }
+  }
 
   const agentOptions = [
     { name: "Claude Code", cmd: "claude", autoCmd: "claude --dangerously-skip-permissions" },
@@ -418,6 +462,15 @@ export default function TaskDetailPage() {
           </button>
         </div>
         <TaskStats agents={s.agents_contributing} runs={s.total_runs} />
+        <button
+          onClick={() => setShowShare(true)}
+          aria-label="Share image"
+          className="w-8 h-8 rounded-lg bg-[var(--color-layer-1)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-all ml-2"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+          </svg>
+        </button>
       </header>
 
       {/* About view */}
@@ -656,6 +709,117 @@ export default function TaskDetailPage() {
 
       {viewingFile && (
         <FileViewer path={viewingFile.path} content={viewingFile.content} onClose={() => setViewingFile(null)} />
+      )}
+
+      {/* Share Image Modal */}
+      {showShare && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowShare(false); }}
+        >
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div className="relative z-10 flex flex-col bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xl" style={{ width: 800 }}>
+            {/* Close button */}
+            <button
+              onClick={() => setShowShare(false)}
+              className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full hover:bg-[var(--color-layer-2)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors z-20"
+            >
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 3l8 8M11 3l-8 8" />
+              </svg>
+            </button>
+
+            {/* Preview */}
+            <div className="flex items-center justify-center p-6 pb-0">
+              {shareLeaderboard && graphRuns.length > 0 ? (
+                <div className="border border-[var(--color-border)]" style={{ width: 720, height: 288, overflow: "hidden" }}>
+                  <div style={{ transform: "scale(0.576)", transformOrigin: "top left" }}>
+                    <ShareImage
+                      ref={shareCaptureRef}
+                      runs={graphRuns}
+                      task={context.task}
+                      leaderboardRuns={shareLeaderboard.runs}
+                      theme={shareTheme}
+                      title={shareTitle || undefined}
+                      titleFontSize={shareFontSize}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center text-[var(--color-text-secondary)] border border-[var(--color-border)]" style={{ width: 720, height: 288 }}>
+                  Loading...
+                </div>
+              )}
+            </div>
+
+            {/* Editor toolbar */}
+            <div className="flex flex-col gap-3 p-4">
+              {/* Title input with font size + theme controls */}
+              <div className="flex items-stretch gap-2" style={{ height: 40 }}>
+                <input
+                  type="text"
+                  value={shareTitle}
+                  onChange={(e) => setShareTitle(e.target.value)}
+                  placeholder="Customize text"
+                  className="flex-1 px-3 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] rounded-none placeholder:text-[var(--color-text-tertiary)]"
+                />
+                <div className="flex items-center border border-[var(--color-border)] rounded-none overflow-hidden">
+                  <button
+                    onClick={() => setShareFontSize((s) => Math.max(s - 2, 20))}
+                    className="px-1.5 h-full text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 4l4 4 4-4" /></svg>
+                  </button>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={shareFontSize}
+                    onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) setShareFontSize(v); else if (e.target.value === "") setShareFontSize(0); }}
+                    onBlur={() => setShareFontSize((s) => Math.max(20, Math.min(90, s || 72)))}
+                    className="w-8 text-center text-[11px] text-[var(--color-text)] tabular-nums font-mono bg-transparent border-none outline-none"
+                  />
+                  <button
+                    onClick={() => setShareFontSize((s) => Math.min(s + 2, 90))}
+                    className="px-1.5 h-full text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 8L6 4l4 4" /></svg>
+                  </button>
+                </div>
+                <button
+                  onClick={() => setShareTheme(shareTheme === "light" ? "dark" : "light")}
+                  className="w-10 border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors flex items-center justify-center"
+                  title={`Theme: ${shareTheme}`}
+                >
+                  {shareTheme === "light" ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
+
+              {/* Bottom row: download right */}
+              <div className="flex items-center justify-end">
+                <button
+                  onClick={handleShareDownload}
+                  disabled={shareDownloading || !shareLeaderboard || graphRuns.length === 0}
+                  className="flex items-center gap-2 px-5 py-2 text-sm font-semibold bg-[var(--color-text)] text-[var(--color-bg)] rounded-none hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {shareDownloading ? "Exporting..." : "Download"}
+                  {!shareDownloading && (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 5v14M5 12l7 7 7-7" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -13,6 +13,7 @@ interface ScoreChartProps {
   showAxes?: boolean;
   animate?: boolean;
   showBest?: boolean;
+  hideGrid?: boolean;
 }
 
 function findBestLineage(runs: Run[]): { ids: Set<string>; chains: Set<string>[] } {
@@ -45,7 +46,7 @@ interface PointData {
   isLineage: boolean;
 }
 
-export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false, showBest = false }: ScoreChartProps) {
+export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false, showBest = false, hideGrid = false }: ScoreChartProps) {
   const [hoveredRun, setHoveredRun] = React.useState<{ run: Run; x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -169,7 +170,7 @@ export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false
             <>
               {yTicks.map((v, i) => (
                 <g key={`y-${i}`}>
-                  <line x1={padLeft} y1={yScale(v)} x2={w - padRight} y2={yScale(v)} stroke="var(--color-border)" strokeWidth={0.5} strokeDasharray="4 3" />
+                  {!hideGrid && <line x1={padLeft} y1={yScale(v)} x2={w - padRight} y2={yScale(v)} stroke="var(--color-border)" strokeWidth={0.5} strokeDasharray="4 3" />}
                   <text x={padLeft - 8} y={yScale(v)} textAnchor="end" dominantBaseline="middle" fill="var(--color-text-tertiary)" fontSize={11} fontFamily="'IBM Plex Mono', monospace">
                     {v.toFixed(yRange > 100 ? 0 : 3)}
                   </text>
