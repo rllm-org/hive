@@ -170,9 +170,12 @@ class GitHubApp:
                            cwd=tmpdir, check=True, capture_output=True,
                            env={**os.environ, "GIT_AUTHOR_NAME": "hive", "GIT_AUTHOR_EMAIL": "hive@bot",
                                 "GIT_COMMITTER_NAME": "hive", "GIT_COMMITTER_EMAIL": "hive@bot"})
-            subprocess.run(["git", "remote", "add", "origin", push_url],
-                           cwd=tmpdir, check=True, capture_output=True)
-            subprocess.run(["git", "push", "-u", "origin", "HEAD"],
+            result = subprocess.run(["git", "remote", "add", "origin", push_url],
+                                    cwd=tmpdir, capture_output=True)
+            if result.returncode != 0:
+                subprocess.run(["git", "remote", "set-url", "origin", push_url],
+                               cwd=tmpdir, check=True, capture_output=True)
+            subprocess.run(["git", "push", "-u", "origin", "HEAD", "--force"],
                            cwd=tmpdir, check=True, capture_output=True, timeout=120)
         # Protect default branch so agents can only push to their forks
         try:
