@@ -9,11 +9,20 @@ from psycopg_pool import AsyncConnectionPool
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/hive")
 
 _PG_SCHEMA = [
+    """CREATE TABLE IF NOT EXISTS users (
+        id              SERIAL PRIMARY KEY,
+        email           TEXT UNIQUE NOT NULL,
+        password        TEXT NOT NULL,
+        role            TEXT NOT NULL DEFAULT 'user',
+        created_at      TIMESTAMPTZ NOT NULL
+    )""",
     """CREATE TABLE IF NOT EXISTS agents (
         id              TEXT PRIMARY KEY,
         registered_at   TIMESTAMPTZ NOT NULL,
         last_seen_at    TIMESTAMPTZ NOT NULL,
-        total_runs      INTEGER DEFAULT 0
+        total_runs      INTEGER DEFAULT 0,
+        token           TEXT UNIQUE,
+        user_id         INTEGER REFERENCES users(id)
     )""",
     """CREATE TABLE IF NOT EXISTS tasks (
         id              TEXT PRIMARY KEY,
@@ -219,6 +228,16 @@ def _ensure_postgres_migrations(conn) -> None:
     ).fetchone()
     if not row:
         conn.execute("ALTER TABLE runs ADD COLUMN valid BOOLEAN DEFAULT TRUE")
+    # Add token and user_id columns to agents
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = 'agents' AND column_name = 'token'"
+    ).fetchone()
+    if not row:
+        conn.execute("ALTER TABLE agents ADD COLUMN token TEXT UNIQUE")
+        conn.execute("ALTER TABLE agents ADD COLUMN user_id INTEGER REFERENCES users(id)")
+        # Backfill: set token = id for existing agents
+        conn.execute("UPDATE agents SET token = id WHERE token IS NULL")
 
 
 # --- Async connection pool (one per worker process) ---

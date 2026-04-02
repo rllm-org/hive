@@ -6,7 +6,9 @@ import { getAgentColor } from "@/lib/agent-colors";
 import { timeAgo } from "@/lib/time";
 import { DiffViewer } from "@/components/diff-viewer";
 import { fetchGitHubDiff, getGitHubCompareUrl } from "@/lib/github-diff";
-import { apiFetch, apiPatch } from "@/lib/api";
+import { apiFetch, apiPatch, apiDelete } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { getAuthHeader } from "@/lib/auth";
 import { resolveRun, resolveId, buildRunMap } from "@/lib/run-utils";
 import { Modal, ModalCloseButton } from "@/components/shared/modal";
 import { GitHubIcon } from "@/components/shared/github-icon";
@@ -41,9 +43,9 @@ function buildAncestorChain(run: Run, allRuns: Run[]): Run[] {
 
 export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated }: RunDetailProps) {
   const [fullRun, setFullRun] = useState<FullRun | null>(null);
+  const { isAdmin } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [showAdminDialog, setShowAdminDialog] = useState(false);
-  const [adminKey, setAdminKey] = useState("");
+  const [showAdminDialog, setShowAdminDialog] = useState<"invalidate" | "delete" | null>(null);
   const [adminError, setAdminError] = useState("");
   const [isValid, setIsValid] = useState(run.valid !== false);
   const [adminLoading, setAdminLoading] = useState(false);
@@ -136,14 +138,27 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated }:
   const message = fullRun?.message;
 
   const handleToggleValid = async () => {
-    if (!adminKey.trim()) return;
     setAdminLoading(true);
     setAdminError("");
     try {
-      await apiPatch(`/tasks/${taskId}/runs/${run.id}`, { valid: !isValid }, { "X-Admin-Key": adminKey.trim() });
+      await apiPatch(`/tasks/${taskId}/runs/${run.id}`, { valid: !isValid }, getAuthHeader());
       setIsValid(!isValid);
-      setShowAdminDialog(false);
-      setAdminKey("");
+      setShowAdminDialog(null);
+      onRunUpdated?.();
+    } catch (e) {
+      setAdminError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleDeleteRun = async () => {
+    setAdminLoading(true);
+    setAdminError("");
+    try {
+      await apiDelete(`/tasks/${taskId}/runs/${run.id}`, getAuthHeader());
+      setShowAdminDialog(null);
+      onClose();
       onRunUpdated?.();
     } catch (e) {
       setAdminError(e instanceof Error ? e.message : "Failed");
@@ -153,6 +168,8 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated }:
   };
 
   return (
+    <>
+    {!showAdminDialog && (
     <Modal onClose={onClose}>
       {/* Header with metadata bar */}
       <div className="px-6 pt-5 shrink-0">
@@ -167,32 +184,39 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated }:
             )}
           </div>
           <div className="flex items-center gap-1">
-            {/* Kebab menu */}
-            <div className="relative">
-              <button
-                onClick={() => setMenuOpen(!menuOpen)}
-                className="w-7 h-7 flex items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-colors"
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                  <circle cx="7" cy="3" r="1.2" />
-                  <circle cx="7" cy="7" r="1.2" />
-                  <circle cx="7" cy="11" r="1.2" />
-                </svg>
-              </button>
-              {menuOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                  <div className="absolute right-0 top-8 z-20 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-lg py-1 min-w-[160px]">
-                    <button
-                      onClick={() => { setMenuOpen(false); setShowAdminDialog(true); }}
-                      className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors ${isValid ? "text-red-500 hover:bg-red-500/10" : "text-emerald-600 hover:bg-emerald-500/10"}`}
-                    >
-                      {isValid ? "Invalidate run" : "Re-validate run"}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            {isAdmin && (
+              <div className="relative">
+                <button
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  className="w-7 h-7 flex items-center justify-center rounded-md text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                    <circle cx="7" cy="3" r="1.2" />
+                    <circle cx="7" cy="7" r="1.2" />
+                    <circle cx="7" cy="11" r="1.2" />
+                  </svg>
+                </button>
+                {menuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                    <div className="absolute right-0 top-8 z-20 bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[160px]">
+                      <button
+                        onClick={() => { setMenuOpen(false); setShowAdminDialog("invalidate"); }}
+                        className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors ${isValid ? "text-red-500 hover:bg-red-500/10" : "text-emerald-600 hover:bg-emerald-500/10"}`}
+                      >
+                        {isValid ? "Invalidate run" : "Re-validate run"}
+                      </button>
+                      <button
+                        onClick={() => { setMenuOpen(false); setShowAdminDialog("delete"); }}
+                        className="w-full text-left px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-500/10 transition-colors"
+                      >
+                        Delete run
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             <ModalCloseButton onClick={onClose} />
           </div>
         </div>
@@ -226,42 +250,6 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated }:
           )}
         </div>
       </div>
-
-      {/* Admin key dialog */}
-      {showAdminDialog && (
-        <div className="px-6 pb-4 shrink-0">
-          <div className="p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-layer-1)]">
-            <p className="text-xs text-[var(--color-text-secondary)] mb-2">
-              Enter admin key to {isValid ? "invalidate" : "re-validate"} this run
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="password"
-                value={adminKey}
-                onChange={(e) => setAdminKey(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleToggleValid()}
-                placeholder="Admin key"
-                className="flex-1 text-xs bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md px-2.5 py-1.5 text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
-                autoFocus
-              />
-              <button
-                onClick={handleToggleValid}
-                disabled={adminLoading || !adminKey.trim()}
-                className={`px-3 py-1.5 text-xs font-medium text-white rounded-md transition-colors disabled:opacity-40 ${isValid ? "bg-red-500 hover:bg-red-600" : "bg-emerald-600 hover:bg-emerald-700"}`}
-              >
-                {adminLoading ? "..." : isValid ? "Invalidate" : "Validate"}
-              </button>
-              <button
-                onClick={() => { setShowAdminDialog(false); setAdminKey(""); setAdminError(""); }}
-                className="px-2 py-1.5 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-            {adminError && <p className="text-xs text-red-500 mt-1.5">{adminError}</p>}
-          </div>
-        </div>
-      )}
 
       <div className="h-px bg-[var(--color-border)] shrink-0" />
 
@@ -401,5 +389,57 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated }:
 
       </div>
     </Modal>
+    )}
+
+    {/* Admin confirm popup */}
+    {showAdminDialog && (
+      <div className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30" onClick={() => { setShowAdminDialog(null); setAdminError(""); }}>
+        <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[380px] animate-fade-in" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+            <h2 className="text-base font-semibold text-[var(--color-text)]">
+              {showAdminDialog === "delete" ? "Delete Run" : isValid ? "Invalidate Run" : "Re-validate Run"}
+            </h2>
+            <button
+              onClick={() => { setShowAdminDialog(null); setAdminError(""); }}
+              className="w-7 h-7 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M3 3l8 8M11 3l-8 8" />
+              </svg>
+            </button>
+          </div>
+          <div className="px-6 py-5 space-y-4">
+            <p className={`text-sm ${showAdminDialog === "delete" ? "text-red-500" : "text-[var(--color-text-secondary)]"}`}>
+              {showAdminDialog === "delete"
+                ? "This will permanently delete this run and its associated posts and comments. This cannot be undone."
+                : isValid
+                  ? "This run will be excluded from the leaderboard but will remain visible in the evolution tree."
+                  : "This run will be restored to the leaderboard."}
+            </p>
+            {adminError && <p className="text-xs text-red-500">{adminError}</p>}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={showAdminDialog === "delete" ? handleDeleteRun : handleToggleValid}
+                disabled={adminLoading}
+                className={`px-4 py-2 text-sm font-medium text-white disabled:opacity-50 transition-colors ${
+                  showAdminDialog === "delete" || isValid
+                    ? "bg-red-500 hover:bg-red-600"
+                    : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+              >
+                {adminLoading ? "..." : showAdminDialog === "delete" ? "Delete run" : isValid ? "Invalidate" : "Re-validate"}
+              </button>
+              <button
+                onClick={() => { setShowAdminDialog(null); setAdminError(""); }}
+                className="px-4 py-2 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

@@ -62,7 +62,7 @@ export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false
 
   const { allPoints, pointsByIdx, edges, lineageChains, yMin, yMax } = useMemo(() => {
     const scored = runs
-      .filter((r) => r.score !== null && r.valid !== false)
+      .filter((r) => r.score !== null)
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     const { ids: lineageIds, chains: lineageChains } = findBestLineage(scored);
 
@@ -90,7 +90,9 @@ export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false
     }
 
     const allScores = scored.map((r) => r.score!);
-    const range = Math.max(...allScores) - Math.min(...allScores);
+    const lo = allScores.length > 0 ? Math.min(...allScores) : 0;
+    const hi = allScores.length > 0 ? Math.max(...allScores) : 1;
+    const range = hi - lo;
 
     const pointsByIdx = new Map<number, PointData>();
     for (const p of allPoints) pointsByIdx.set(p.idx, p);
@@ -100,8 +102,8 @@ export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false
       pointsByIdx,
       edges,
       lineageChains,
-      yMin: Math.min(...allScores) - range * 0.05,
-      yMax: Math.max(...allScores) + range * 0.05,
+      yMin: lo - range * 0.05,
+      yMax: hi + range * 0.05,
     };
   }, [runs]);
 
@@ -191,6 +193,7 @@ export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false
               const parentPt = pointsByIdx.get(e.parentIdx);
               const childPt = pointsByIdx.get(e.childIdx);
               if (!parentPt || !childPt) return null;
+              if (parentPt.run.valid === false || childPt.run.valid === false) return null;
               return (
                 <line key={i} x1={xScale(e.parentIdx)} y1={yScale(parentPt.run.score!)} x2={xScale(e.childIdx)} y2={yScale(childPt.run.score!)}
                   stroke="var(--color-border)" strokeWidth={1} opacity={0.6} />
@@ -201,7 +204,7 @@ export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false
           <g>
             {visibleChains.map((chain, ci) => {
               const pts = visiblePoints
-                .filter((p) => chain.has(p.run.id))
+                .filter((p) => chain.has(p.run.id) && p.run.valid !== false)
                 .sort((a, b) => a.idx - b.idx);
               if (pts.length < 2) return null;
               const pathD = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${xScale(p.idx)} ${yScale(p.run.score!)}`).join(" ");
@@ -218,8 +221,10 @@ export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false
             {visiblePoints.map((p) => {
               const cx = xScale(p.idx);
               const cy = yScale(p.run.score!);
-              const color = getAgentColor(p.run.agent_id);
-              return p.isLineage ? (
+              const isInvalid = p.run.valid === false;
+              const color = isInvalid ? "var(--color-text-tertiary)" : getAgentColor(p.run.agent_id);
+              const pointOpacity = isInvalid ? 0.3 : undefined;
+              return p.isLineage && !isInvalid ? (
                 <circle key={p.run.id} cx={cx} cy={cy} r={6}
                   fill={color} stroke="var(--color-surface)" strokeWidth={2}
                   className="cursor-pointer"
@@ -228,7 +233,7 @@ export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false
                   onClick={() => onRunClick?.(p.run)} />
               ) : (
                 <circle key={p.run.id} cx={cx} cy={cy} r={3.5}
-                  fill={color} stroke="var(--color-surface)" strokeWidth={1} opacity={0.35}
+                  fill={color} stroke="var(--color-surface)" strokeWidth={1} opacity={pointOpacity ?? 0.35}
                   className="cursor-pointer"
                   onMouseEnter={() => setHoveredRun({ run: p.run, x: cx, y: cy })}
                   onMouseLeave={() => setHoveredRun(null)}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, Suspense } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import { Task } from "@/types/api";
@@ -12,13 +13,42 @@ import { ChannelSidebar } from "@/components/channel-sidebar";
 import { FeedItem, GlobalFeedItem } from "@/types/api";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { apiFetch } from "@/lib/api";
-import { CreateTaskModal } from "@/components/create-task-modal";
+import { UserMenu } from "@/components/user-menu";
+import { useAuth } from "@/lib/auth";
+import { AuthModal } from "@/components/auth-modal";
 
 import { useCountUp } from "@/hooks/use-count-up";
 import { useGraph } from "@/hooks/use-graph";
 import { ScoreChart } from "@/components/score-chart";
 import { LuSparkles, LuMessageCircle, LuChartLine, LuArrowDown, LuArrowUp, LuChevronLeft, LuChevronRight, LuChevronDown, LuFlame, LuClock, LuGithub, LuStar } from "react-icons/lu";
 import { SiDiscord, SiX } from "react-icons/si";
+
+function ClaimPrompt() {
+  const { user } = useAuth();
+  const [showAuth, setShowAuth] = useState(false);
+
+  const handleClick = () => {
+    if (user) {
+      // Click the bottom-left avatar to open profile
+      const btn = document.querySelector<HTMLButtonElement>("[data-user-menu]");
+      btn?.click();
+    } else {
+      setShowAuth(true);
+    }
+  };
+
+  return (
+    <>
+      <p className="text-sm text-[var(--color-text-tertiary)] mt-3 pointer-events-auto">
+        Already joined?{" "}
+        <button onClick={handleClick} className="text-[var(--color-accent)] hover:underline">
+          Claim your agent
+        </button>
+      </p>
+      {showAuth && createPortal(<AuthModal onClose={() => setShowAuth(false)} />, document.body)}
+    </>
+  );
+}
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -219,7 +249,6 @@ export default function TaskListPage() {
   const [activeTab, setActiveTab] = useState<"tasks" | "feed">("tasks");
   const [taskPage, setTaskPage] = useState(1);
   const TASKS_PER_PAGE = 9;
-  const [showCreateTask, setShowCreateTask] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const handleTabChange = (tab: "tasks" | "feed") => {
     const scrollTop = scrollRef.current?.scrollTop ?? 0;
@@ -469,6 +498,7 @@ export default function TaskListPage() {
                 View all tasks
               </button>
             </div>
+            <ClaimPrompt />
           </div>
         </div>
 
@@ -597,7 +627,8 @@ export default function TaskListPage() {
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                       placeholder="Search..."
-                      className="w-80 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none px-3 py-2 pl-8 text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-text-secondary)] transition-all"
+                      style={{ outline: "none", boxShadow: "none" }}
+                      className="w-80 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none px-3 py-2 pl-8 text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
                     />
                     <svg
                       className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]"
@@ -693,14 +724,6 @@ export default function TaskListPage() {
                         </>
                       )}
                     </div>
-                    <div className="flex justify-end">
-                      <button
-                        onClick={() => setShowCreateTask(true)}
-                        className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] hover:underline transition-colors"
-                      >
-                        Create task with permissions
-                      </button>
-                    </div>
                   </div>
                 </>
               )}
@@ -782,12 +805,6 @@ export default function TaskListPage() {
       </footer>
 
     </div>
-    {showCreateTask && (
-      <CreateTaskModal
-        onClose={() => setShowCreateTask(false)}
-        onCreated={() => { refetch(); setShowCreateTask(false); }}
-      />
-    )}
     </>
   );
 }

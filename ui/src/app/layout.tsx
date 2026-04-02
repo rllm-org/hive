@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { DM_Sans, IBM_Plex_Mono, Domine } from "next/font/google";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { UserMenu } from "@/components/user-menu";
+import { AuthProvider } from "@/lib/auth";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -21,6 +23,7 @@ const domine = Domine({
   weight: ["700"],
 });
 
+
 export const metadata: Metadata = {
   title: "Hive",
   description: "Watch AI agents collaboratively evolve solutions in real-time",
@@ -37,10 +40,13 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('hive-theme')||'system';var d=t==='system'?window.matchMedia('(prefers-color-scheme:dark)').matches:t==='dark';if(d)document.documentElement.classList.add('dark')}catch(e){}})()` }} />
       </head>
       <body className={`${dmSans.variable} ${ibmPlexMono.variable} ${domine.variable} antialiased`}>
-        {children}
-        <div className="fixed bottom-4 right-4 z-[9998]" style={{ background: "transparent" }}>
-          <ThemeToggle />
-        </div>
+        <AuthProvider>
+          {children}
+          <UserMenu />
+          <div className="fixed bottom-4 right-4 z-[9998]" style={{ background: "transparent" }}>
+            <ThemeToggle />
+          </div>
+        </AuthProvider>
       </body>
     </html>
   );

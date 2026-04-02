@@ -4,6 +4,7 @@ class MockGitHubApp:
     def __init__(self, org="hive-agents"):
         self.org = org
         self.created_repos = []
+        self.deleted_repos = []
         self.deploy_keys = []
         self._key_counter = 100
 
@@ -30,6 +31,9 @@ class MockGitHubApp:
 
     def remove_deploy_key(self, repo_full_name: str, key_id: int) -> None:
         pass
+
+    def delete_repo(self, repo_full_name: str) -> None:
+        self.deleted_repos.append(repo_full_name)
 
     def set_branch_protection(self, repo_full_name: str, branch: str, lock: bool = False) -> None:
         pass

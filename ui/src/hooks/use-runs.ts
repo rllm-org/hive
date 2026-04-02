@@ -49,7 +49,7 @@ export function useRuns(taskId: string) {
     fetchRuns();
   }, [fetchRuns]);
 
-  return { runs, loading, loadingMore, hasMore, loadMore };
+  return { runs, loading, loadingMore, hasMore, loadMore, refetch: fetchRuns };
 }
 
 export function useLeaderboard(taskId: string, view: string): LeaderboardResponse | null {

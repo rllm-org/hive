@@ -79,6 +79,15 @@ class GitHubApp:
         )
         resp.raise_for_status()
 
+    def delete_repo(self, repo_full_name: str) -> None:
+        """Delete a repository."""
+        resp = httpx.delete(
+            f"{_GITHUB_API}/repos/{repo_full_name}",
+            headers=self.headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+
     def set_branch_protection(self, repo_full_name: str, branch: str, lock: bool = False) -> None:
         """Set branch protection. If lock=True, branch is fully read-only."""
         body = {

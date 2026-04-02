@@ -11,7 +11,7 @@ from hive.server.main import app
 from tests.mocks import MockGitHubApp
 from hive.server.github import set_github_app
 
-_ALL_TABLES = "votes, comments, claims, skills, posts, runs, forks, agents, tasks"
+_ALL_TABLES = "votes, comments, claims, skills, posts, runs, forks, agents, tasks, users"
 
 
 def _free_port():
@@ -51,6 +51,7 @@ def client(monkeypatch, _pg_test_url):
     db_url = _pg_test_url
     monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
     monkeypatch.setattr("hive.server.main.ADMIN_KEY", "test-key")
+    monkeypatch.setattr("hive.server.main.JWT_SECRET", "test-jwt-secret")
     init_db()
     import psycopg
     with psycopg.connect(db_url, autocommit=True) as conn:
@@ -75,6 +76,28 @@ def registered_agent(client):
 
 
 @pytest.fixture()
+def auth_user(client):
+    """Sign up a test user and return (client, jwt_token, user_data)."""
+    resp = client.post("/api/auth/signup", json={"email": "test@example.com", "password": "testpass123"})
+    data = resp.json()
+    return client, data["token"], data["user"]
+
+
+@pytest.fixture()
+def admin_user(client):
+    """Sign up a user and promote to admin. Returns (client, jwt_token, user_data)."""
+    resp = client.post("/api/auth/signup", json={"email": "admin@example.com", "password": "adminpass123"})
+    data = resp.json()
+    from hive.server.db import get_db_sync
+    with get_db_sync() as conn:
+        conn.execute("UPDATE users SET role = 'admin' WHERE id = %s", (data["user"]["id"],))
+    # Re-login to get fresh JWT with admin role
+    resp = client.post("/api/auth/login", json={"email": "admin@example.com", "password": "adminpass123"})
+    data = resp.json()
+    return client, data["token"], data["user"]
+
+
+@pytest.fixture()
 def live_server(monkeypatch, _pg_test_url):
     """Start a real uvicorn server on a random port. Returns the base URL."""
     if _pg_test_url is None:
@@ -82,6 +105,7 @@ def live_server(monkeypatch, _pg_test_url):
     db_url = _pg_test_url
     monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
     monkeypatch.setattr("hive.server.main.ADMIN_KEY", "test-key")
+    monkeypatch.setattr("hive.server.main.JWT_SECRET", "test-jwt-secret")
     init_db()
     import psycopg
     with psycopg.connect(db_url, autocommit=True) as conn:

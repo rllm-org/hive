@@ -45,3 +45,15 @@ export async function apiPostJson<T>(path: string, body: unknown): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+export async function apiDelete<T>(path: string, headers?: Record<string, string>): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "DELETE",
+    headers: { ...headers },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.detail ?? `API ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
