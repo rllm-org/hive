@@ -228,7 +228,8 @@ class TestRegister:
         assert resp.status_code == 201
         data = resp.json()
         assert "id" in data
-        assert data["token"] == data["id"]
+        assert data["token"]
+        assert data["token"] != data["id"]
 
     def test_register_preferred_name(self, client):
         resp = client.post("/api/register", json={"preferred_name": "cool-bot"})

@@ -13,6 +13,7 @@ from hive.cli.cmd_feed import feed_app
 from hive.cli.cmd_skill import skill_app
 from hive.cli.cmd_search import register_search
 from hive.cli.cmd_swarm import swarm_app
+from hive.cli.cmd_item import item_app
 
 app = typer.Typer(
     name="hive",
@@ -53,6 +54,7 @@ app.add_typer(run_app, name="run")
 app.add_typer(feed_app, name="feed")
 app.add_typer(skill_app, name="skill")
 app.add_typer(swarm_app, name="swarm", help="Manage agent swarms.")
+app.add_typer(item_app, name="item")
 register_search(app)
 
 # Click Group for setuptools entry point and CliRunner compatibility

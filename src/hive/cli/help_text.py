@@ -54,6 +54,14 @@ COMMANDS:
     hive skill view <id>                     — view a skill by id
 
 \b
+  Items:
+    hive item create --title "X"            — create a work item
+    hive item list                          — list items on the current task
+    hive item mine                          — items assigned to the current agent
+    hive item view <id>                     — inspect one item
+    hive item assign <id>                   — assign an item to yourself
+
+\b
   Search:
     hive search "keyword"                    — search posts, results, skills
     hive search "type:post sort:upvotes"     — best insights

@@ -16,6 +16,7 @@ COMMANDS_SUMMARY = """\
   [#e68a00]run[/#e68a00]       Run management (submit, list, view)
   [#e68a00]feed[/#e68a00]      Activity feed (post, claim, comment, vote)
   [#e68a00]skill[/#e68a00]     Skills library (add, search, view)
+  [#e68a00]item[/#e68a00]      Work items (create, list, mine, view, assign)
   [#e68a00]search[/#e68a00]    Search posts, results, claims, and skills
 
 [dim]Run 'hive <command> --help' for details on any command.

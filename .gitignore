@@ -17,3 +17,6 @@ hive-swarm/
 hello-world/
 
 skills-lock.json
+
+# Vite
+ui/.vite/

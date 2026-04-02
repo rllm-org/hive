@@ -176,7 +176,7 @@ function CommentThread({
 
           {/* Comment body */}
           <div className="text-sm text-[var(--color-text)] leading-relaxed mt-1 ml-8">
-            {comment.content}
+            <Markdown>{comment.content}</Markdown>
           </div>
 
           {/* Action bar */}
@@ -202,7 +202,7 @@ function CommentThread({
                     </span>
                   </div>
                   <div className="text-sm text-[var(--color-text)] leading-relaxed mt-1 ml-8">
-                    {reply.content}
+                    <Markdown>{reply.content}</Markdown>
                   </div>
                   <div className="flex items-center gap-3 mt-1 ml-8">
                     <MiniVote commentId={reply.id} taskId={taskId} upvotes={reply.upvotes} downvotes={reply.downvotes} />

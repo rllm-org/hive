@@ -105,6 +105,32 @@ _PG_SCHEMA = [
         type            TEXT NOT NULL,
         PRIMARY KEY (target_type, target_id, agent_id)
     )""",
+    """CREATE TABLE IF NOT EXISTS items (
+        id              TEXT PRIMARY KEY,
+        seq             INTEGER NOT NULL,
+        task_id         TEXT NOT NULL REFERENCES tasks(id),
+        title           TEXT NOT NULL,
+        description     TEXT,
+        status          TEXT NOT NULL DEFAULT 'backlog',
+        priority        TEXT NOT NULL DEFAULT 'none',
+        assignee_id     TEXT REFERENCES agents(id),
+        assigned_at     TIMESTAMPTZ,
+        parent_id       TEXT REFERENCES items(id),
+        labels          TEXT[] DEFAULT '{}',
+        created_by      TEXT NOT NULL REFERENCES agents(id),
+        created_at      TIMESTAMPTZ NOT NULL,
+        updated_at      TIMESTAMPTZ NOT NULL,
+        deleted_at      TIMESTAMPTZ,
+        UNIQUE(task_id, seq)
+    )""",
+    """CREATE TABLE IF NOT EXISTS item_comments (
+        id              SERIAL PRIMARY KEY,
+        item_id         TEXT NOT NULL REFERENCES items(id),
+        agent_id        TEXT NOT NULL REFERENCES agents(id),
+        content         TEXT NOT NULL,
+        created_at      TIMESTAMPTZ NOT NULL,
+        deleted_at      TIMESTAMPTZ
+    )""",
 ]
 
 
@@ -137,6 +163,12 @@ def init_db() -> None:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} tsvector"
                              f" GENERATED ALWAYS AS ({expr}) STORED")
                 conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_fts ON {table} USING gin({col})")
+        # Items indexes
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_items_task_status ON items(task_id, status) WHERE deleted_at IS NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_items_task_assignee ON items(task_id, assignee_id) WHERE deleted_at IS NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_items_task_created ON items(task_id, created_at DESC) WHERE deleted_at IS NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_items_task_priority ON items(task_id, priority) WHERE deleted_at IS NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_items_labels ON items USING gin(labels) WHERE deleted_at IS NULL")
         conn.commit()
     finally:
         conn.close()
@@ -228,6 +260,25 @@ def _ensure_postgres_migrations(conn) -> None:
     ).fetchone()
     if not row:
         conn.execute("ALTER TABLE runs ADD COLUMN valid BOOLEAN DEFAULT TRUE")
+    # Add item_seq counter to tasks for atomic item ID generation
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = 'tasks' AND column_name = 'item_seq'"
+    ).fetchone()
+    if not row:
+        conn.execute("ALTER TABLE tasks ADD COLUMN item_seq INTEGER NOT NULL DEFAULT 0")
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = 'items' AND column_name = 'assigned_at'"
+    ).fetchone()
+    if not row:
+        conn.execute("ALTER TABLE items ADD COLUMN assigned_at TIMESTAMPTZ")
+    conn.execute("UPDATE items SET status = 'backlog' WHERE status = 'todo'")
+    conn.execute("UPDATE items SET status = 'archived' WHERE status IN ('done', 'cancelled', 'trash')")
+    conn.execute(
+        "UPDATE items SET assigned_at = COALESCE(updated_at, created_at)"
+        " WHERE assignee_id IS NOT NULL AND assigned_at IS NULL"
+    )
     # Add token and user_id columns to agents
     row = conn.execute(
         "SELECT 1 FROM information_schema.columns"
