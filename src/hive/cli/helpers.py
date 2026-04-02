@@ -107,7 +107,11 @@ def _api(method: str, path: str, **kwargs):
         resp.raise_for_status()
         return resp.json()
     except httpx.HTTPStatusError as e:
-        raise click.ClickException(f"Server error {e.response.status_code}: {e.response.text}")
+        try:
+            detail = e.response.json().get("detail", e.response.text)
+        except Exception:
+            detail = e.response.text
+        raise click.ClickException(detail)
     except httpx.RequestError as e:
         raise click.ClickException(f"Request failed: {e}")
 
