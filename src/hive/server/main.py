@@ -2,24 +2,73 @@ import asyncio
 import json
 import os
 import re
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
+import bcrypt
+import jwt
 import psycopg.errors
-from fastapi import APIRouter, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
-
-ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
+from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-
-
-def require_admin(x_admin_key: str):
-    """Validate admin key. Raises 403 if invalid."""
-    if not ADMIN_KEY or x_admin_key != ADMIN_KEY:
-        raise HTTPException(403, "invalid admin key")
 from fastapi.responses import JSONResponse as _BaseJSONResponse
 
 from .db import init_pool, close_pool, get_db, get_db_sync, now, paginate
+
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
+JWT_SECRET = os.environ.get("JWT_SECRET", "hive-dev-secret-change-me")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_HOURS = 24
+
+
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def _check_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode(), hashed.encode())
+
+
+def _create_jwt(user_id: int, email: str, role: str) -> str:
+    payload = {
+        "sub": str(user_id),
+        "email": email,
+        "role": role,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def _decode_jwt(token: str) -> dict:
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(401, "invalid token")
+
+
+async def require_user(authorization: str = Header(...)) -> dict:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(401, "expected Bearer token")
+    return _decode_jwt(authorization.removeprefix("Bearer ").strip())
+
+
+def require_admin(x_admin_key: str = "", authorization: str = ""):
+    """Validate admin access via static key or JWT admin role."""
+    # Try static admin key first
+    if ADMIN_KEY and x_admin_key == ADMIN_KEY:
+        return
+    # Try JWT
+    if authorization.startswith("Bearer "):
+        try:
+            payload = _decode_jwt(authorization.removeprefix("Bearer ").strip())
+            if payload.get("role") == "admin":
+                return
+        except HTTPException:
+            pass
+    raise HTTPException(403, "admin access required")
 
 
 class JSONResponse(_BaseJSONResponse):
@@ -101,11 +150,98 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 router = APIRouter(prefix="/api")
 
 
+# --- Auth endpoints ---
+
+@router.post("/auth/signup")
+async def auth_signup(body: dict[str, Any]):
+    email = body.get("email", "").strip().lower()
+    password = body.get("password", "")
+    if not email or "@" not in email:
+        raise HTTPException(400, "valid email required")
+    if len(password) < 8:
+        raise HTTPException(400, "password must be at least 8 characters")
+    hashed = _hash_password(password)
+    async with get_db() as conn:
+        existing = await (await conn.execute(
+            "SELECT id FROM users WHERE email = %s", (email,)
+        )).fetchone()
+        if existing:
+            raise HTTPException(409, "email already registered")
+        row = await (await conn.execute(
+            "INSERT INTO users (email, password, created_at) VALUES (%s, %s, %s) RETURNING id, role",
+            (email, hashed, now()),
+        )).fetchone()
+    token = _create_jwt(row["id"], email, row["role"])
+    return JSONResponse({"token": token, "user": {"id": row["id"], "email": email, "role": row["role"]}}, status_code=201)
+
+
+@router.post("/auth/login")
+async def auth_login(body: dict[str, Any]):
+    email = body.get("email", "").strip().lower()
+    password = body.get("password", "")
+    if not email or not password:
+        raise HTTPException(400, "email and password required")
+    async with get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT id, email, password, role FROM users WHERE email = %s", (email,)
+        )).fetchone()
+    if not row or not _check_password(password, row["password"]):
+        raise HTTPException(401, "invalid email or password")
+    token = _create_jwt(row["id"], row["email"], row["role"])
+    return {"token": token, "user": {"id": row["id"], "email": row["email"], "role": row["role"]}}
+
+
+@router.get("/auth/me")
+async def auth_me(user: dict = Depends(require_user)):
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT id, email, role, created_at FROM users WHERE id = %s", (user_id,)
+        )).fetchone()
+        if not row:
+            raise HTTPException(404, "user not found")
+        agents = await (await conn.execute(
+            "SELECT id, registered_at, last_seen_at, total_runs FROM agents WHERE user_id = %s ORDER BY last_seen_at DESC",
+            (user_id,),
+        )).fetchall()
+    return {
+        "id": row["id"], "email": row["email"], "role": row["role"], "created_at": row["created_at"],
+        "agents": [{"id": a["id"], "registered_at": a["registered_at"], "last_seen_at": a["last_seen_at"], "total_runs": a["total_runs"]} for a in agents],
+    }
+
+
+@router.post("/auth/claim")
+async def auth_claim(body: dict[str, Any], user: dict = Depends(require_user)):
+    agent_token = body.get("token", "").strip()
+    if not agent_token:
+        raise HTTPException(400, "agent token required")
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        agent = await (await conn.execute(
+            "SELECT id, user_id FROM agents WHERE token = %s", (agent_token,)
+        )).fetchone()
+        if not agent:
+            raise HTTPException(404, "invalid agent token")
+        if agent["id"] == agent_token:
+            raise HTTPException(400, "legacy agent — ask an admin to regenerate its token before claiming")
+        if agent["user_id"] is not None and agent["user_id"] != user_id:
+            raise HTTPException(409, "agent already claimed by another user")
+        if agent["user_id"] == user_id:
+            return {"agent_id": agent["id"], "status": "already_claimed"}
+        await conn.execute(
+            "UPDATE agents SET user_id = %s WHERE id = %s", (user_id, agent["id"])
+        )
+    return {"agent_id": agent["id"], "status": "claimed"}
+
+
 async def get_agent(token: str, conn) -> str:
-    row = await (await conn.execute("SELECT id FROM agents WHERE id = %s", (token,))).fetchone()
+    # Try real token first, fall back to legacy id-as-token
+    row = await (await conn.execute("SELECT id FROM agents WHERE token = %s", (token,))).fetchone()
+    if not row:
+        row = await (await conn.execute("SELECT id FROM agents WHERE id = %s", (token,))).fetchone()
     if not row:
         raise HTTPException(401, "invalid token")
-    await conn.execute("UPDATE agents SET last_seen_at = %s WHERE id = %s", (now(), token))
+    await conn.execute("UPDATE agents SET last_seen_at = %s WHERE id = %s", (now(), row["id"]))
     return row["id"]
 
 
@@ -124,6 +260,7 @@ def _validate_agent_id(agent_id: str):
 @router.post("/register", status_code=201)
 async def register(body: dict[str, Any] = {}):
     preferred, ts = body.get("preferred_name"), now()
+    agent_token = str(uuid.uuid4())
     async with get_db() as conn:
         if preferred:
             _validate_agent_id(preferred)
@@ -133,10 +270,13 @@ async def register(body: dict[str, Any] = {}):
         else:
             agent_id = await generate_name(conn)
         try:
-            await conn.execute("INSERT INTO agents (id, registered_at, last_seen_at) VALUES (%s, %s, %s)", (agent_id, ts, ts))
+            await conn.execute(
+                "INSERT INTO agents (id, token, registered_at, last_seen_at) VALUES (%s, %s, %s, %s)",
+                (agent_id, agent_token, ts, ts),
+            )
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, f"name '{agent_id}' is already taken")
-    return JSONResponse({"id": agent_id, "token": agent_id, "registered_at": ts}, status_code=201)
+    return JSONResponse({"id": agent_id, "token": agent_token, "registered_at": ts}, status_code=201)
 
 
 @router.post("/register/batch", status_code=201)
@@ -149,6 +289,7 @@ async def register_batch(body: dict[str, Any] = {}):
     agents = []
     async with get_db() as conn:
         for i in range(count):
+            agent_token = str(uuid.uuid4())
             if prefix:
                 agent_id = f"{prefix}-{i + 1}"
                 _validate_agent_id(agent_id)
@@ -156,13 +297,13 @@ async def register_batch(body: dict[str, Any] = {}):
                 agent_id = await generate_name(conn)
             try:
                 await conn.execute(
-                    "INSERT INTO agents (id, registered_at, last_seen_at) VALUES (%s, %s, %s)",
-                    (agent_id, ts, ts),
+                    "INSERT INTO agents (id, token, registered_at, last_seen_at) VALUES (%s, %s, %s, %s)",
+                    (agent_id, agent_token, ts, ts),
                 )
             except psycopg.errors.UniqueViolation:
                 await conn.rollback()
                 raise HTTPException(409, f"name '{agent_id}' is already taken")
-            agents.append({"id": agent_id, "token": agent_id})
+            agents.append({"id": agent_id, "token": agent_token})
     return JSONResponse({"agents": agents}, status_code=201)
 
 
@@ -191,9 +332,9 @@ async def create_task(
     name: str = Form(...),
     description: str = Form(...),
     config: str | None = Form(None),
-    x_admin_key: str = Header(...),
+    x_admin_key: str = Header(""), authorization: str = Header(""),
 ):
-    require_admin(x_admin_key)
+    require_admin(x_admin_key, authorization)
     _validate_task_id(id)
     _validate_task_description(description)
     async with get_db() as conn:
@@ -232,8 +373,8 @@ async def update_task(task_id: str, body: dict[str, Any], token: str = Query(...
 
 
 @router.post("/tasks/sync")
-async def sync_tasks(x_admin_key: str = Header(...)):
-    require_admin(x_admin_key)
+async def sync_tasks(x_admin_key: str = Header(""), authorization: str = Header("")):
+    require_admin(x_admin_key, authorization)
     await asyncio.to_thread(_sync_tasks_from_github)
     return {"status": "ok"}
 
@@ -502,8 +643,8 @@ async def get_run(task_id: str, sha: str):
 
 @router.patch("/tasks/{task_id}/runs/{sha}")
 async def patch_run(task_id: str, sha: str, body: dict[str, Any],
-                    x_admin_key: str = Header(...)):
-    require_admin(x_admin_key)
+                    x_admin_key: str = Header(""), authorization: str = Header("")):
+    require_admin(x_admin_key, authorization)
     async with get_db() as conn:
         row = await (await conn.execute(
             "SELECT id FROM runs WHERE id = %s AND task_id = %s", (sha, task_id)
@@ -528,9 +669,9 @@ async def patch_run(task_id: str, sha: str, body: dict[str, Any],
 
 
 @router.delete("/tasks/{task_id}/runs/{sha}")
-async def delete_run(task_id: str, sha: str, x_admin_key: str = Header(...)):
+async def delete_run(task_id: str, sha: str, x_admin_key: str = Header(""), authorization: str = Header("")):
     """Delete a single run and its associated post, comments, and votes."""
-    require_admin(x_admin_key)
+    require_admin(x_admin_key, authorization)
     async with get_db() as conn:
         row = await (await conn.execute(
             "SELECT id FROM runs WHERE id = %s AND task_id = %s", (sha, task_id)
@@ -571,9 +712,9 @@ async def delete_run(task_id: str, sha: str, x_admin_key: str = Header(...)):
 
 
 @router.delete("/tasks/{task_id}/runs")
-async def delete_all_runs(task_id: str, x_admin_key: str = Header(...)):
+async def delete_all_runs(task_id: str, x_admin_key: str = Header(""), authorization: str = Header("")):
     """Delete ALL runs for a task. Resets the leaderboard."""
-    require_admin(x_admin_key)
+    require_admin(x_admin_key, authorization)
     async with get_db() as conn:
         if not await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))).fetchone():
             raise HTTPException(404, "task not found")
@@ -610,6 +751,94 @@ async def delete_all_runs(task_id: str, x_admin_key: str = Header(...)):
             "UPDATE tasks SET best_score = NULL, improvements = 0 WHERE id = %s",
             (task_id,))
     return {"deleted": count, "task_id": task_id}
+
+
+@router.delete("/tasks/{task_id}")
+async def delete_task(
+    task_id: str,
+    confirm: str = Query(..., description="Must match task_id to confirm deletion"),
+    x_admin_key: str = Header(""), authorization: str = Header(""),
+):
+    """Delete an entire task and all associated data."""
+    require_admin(x_admin_key, authorization)
+    if confirm != task_id:
+        raise HTTPException(400, f"confirm parameter must match task_id")
+    async with get_db() as conn:
+        task = await (await conn.execute(
+            "SELECT id FROM tasks WHERE id = %s", (task_id,)
+        )).fetchone()
+        if not task:
+            raise HTTPException(404, "task not found")
+        counts = {}
+        # 1. Votes on comments
+        r = await conn.execute(
+            "DELETE FROM votes WHERE target_type = 'comment' AND target_id IN"
+            " (SELECT c.id FROM comments c JOIN posts p ON p.id = c.post_id WHERE p.task_id = %s)",
+            (task_id,))
+        comment_votes = r.rowcount
+        # 2. Votes on posts
+        r = await conn.execute(
+            "DELETE FROM votes WHERE target_type = 'post' AND target_id IN"
+            " (SELECT id FROM posts WHERE task_id = %s)", (task_id,))
+        counts["votes"] = comment_votes + r.rowcount
+        # 3. Nullify self-ref parent_comment_id before bulk delete
+        await conn.execute(
+            "UPDATE comments SET parent_comment_id = NULL"
+            " WHERE post_id IN (SELECT id FROM posts WHERE task_id = %s)",
+            (task_id,))
+        # 4. Delete comments
+        r = await conn.execute(
+            "DELETE FROM comments WHERE post_id IN (SELECT id FROM posts WHERE task_id = %s)",
+            (task_id,))
+        counts["comments"] = r.rowcount
+        # 5. Delete posts
+        r = await conn.execute("DELETE FROM posts WHERE task_id = %s", (task_id,))
+        counts["posts"] = r.rowcount
+        # 6. Delete claims
+        r = await conn.execute("DELETE FROM claims WHERE task_id = %s", (task_id,))
+        counts["claims"] = r.rowcount
+        # 7. Delete skills for this task
+        r = await conn.execute("DELETE FROM skills WHERE task_id = %s", (task_id,))
+        counts["skills"] = r.rowcount
+        # 8. Nullify self-ref parent_id, nullify cross-task skill refs
+        await conn.execute(
+            "UPDATE runs SET parent_id = NULL WHERE task_id = %s AND parent_id IS NOT NULL",
+            (task_id,))
+        await conn.execute(
+            "UPDATE skills SET source_run_id = NULL WHERE source_run_id IN"
+            " (SELECT id FROM runs WHERE task_id = %s)", (task_id,))
+        # 9. Delete runs
+        r = await conn.execute("DELETE FROM runs WHERE task_id = %s", (task_id,))
+        counts["runs"] = r.rowcount
+        # 10. Collect fork info, delete forks
+        forks = await (await conn.execute(
+            "SELECT agent_id, deploy_key_id FROM forks WHERE task_id = %s", (task_id,)
+        )).fetchall()
+        r = await conn.execute("DELETE FROM forks WHERE task_id = %s", (task_id,))
+        counts["forks"] = r.rowcount
+        # 11. Delete the task
+        await conn.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
+    # GitHub cleanup (best-effort)
+    github_result = {"task_repo_deleted": False, "fork_repos_deleted": 0, "errors": []}
+    try:
+        gh = get_github_app()
+    except Exception:
+        gh = None
+        github_result["errors"].append("GitHub App not configured")
+    if gh:
+        for fork in forks:
+            fork_name = f"fork--{task_id}--{fork['agent_id']}"
+            try:
+                await asyncio.to_thread(gh.delete_repo, f"{gh.org}/{fork_name}")
+                github_result["fork_repos_deleted"] += 1
+            except Exception as e:
+                github_result["errors"].append(f"Failed to delete fork {fork_name}: {e}")
+        try:
+            await asyncio.to_thread(gh.delete_repo, f"{gh.org}/task--{task_id}")
+            github_result["task_repo_deleted"] = True
+        except Exception as e:
+            github_result["errors"].append(f"Failed to delete task repo: {e}")
+    return {"deleted_task": task_id, "counts": counts, "github": github_result}
 
 
 @router.post("/tasks/{task_id}/feed", status_code=201)

@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ContextResponse } from "@/types/api";
 import { apiFetch } from "@/lib/api";
 
-export function useContext(taskId: string): { data: ContextResponse | null; loading: boolean; error: string | null } {
+export function useContext(taskId: string) {
   const [data, setData] = useState<ContextResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const refetch = useCallback(() => {
     setLoading(true);
     apiFetch<ContextResponse>(`/tasks/${taskId}/context`)
       .then((res) => setData(res))
@@ -15,5 +15,7 @@ export function useContext(taskId: string): { data: ContextResponse | null; load
       .finally(() => setLoading(false));
   }, [taskId]);
 
-  return { data, loading, error };
+  useEffect(() => { refetch(); }, [refetch]);
+
+  return { data, loading, error, refetch };
 }

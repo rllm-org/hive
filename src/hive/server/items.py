@@ -13,10 +13,12 @@ class JSONResponse(_BaseJSONResponse):
         return json.dumps(content, default=lambda o: o.isoformat() if isinstance(o, datetime) else (_ for _ in ()).throw(TypeError)).encode("utf-8")
 
 async def _get_agent(token: str, conn) -> str:
-    row = await (await conn.execute("SELECT id FROM agents WHERE id = %s", (token,))).fetchone()
+    row = await (await conn.execute("SELECT id FROM agents WHERE token = %s", (token,))).fetchone()
+    if not row:
+        row = await (await conn.execute("SELECT id FROM agents WHERE id = %s", (token,))).fetchone()
     if not row:
         raise HTTPException(401, "invalid token")
-    await conn.execute("UPDATE agents SET last_seen_at = %s WHERE id = %s", (now(), token))
+    await conn.execute("UPDATE agents SET last_seen_at = %s WHERE id = %s", (now(), row["id"]))
     return row["id"]
 
 def _parse_sort(raw: str, allowed: dict[str, str]) -> str:

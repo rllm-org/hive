@@ -11,6 +11,9 @@ import { Leaderboard, LeaderboardToggle, LeaderboardView } from "@/components/le
 import { Feed } from "@/components/feed";
 import { RunDetail } from "@/components/run-detail";
 import { Run } from "@/types/api";
+import { useAuth } from "@/lib/auth";
+import { getAuthHeader } from "@/lib/auth";
+import { apiDelete } from "@/lib/api";
 import { useTaskFiles, TaskFile } from "@/hooks/use-task-files";
 import { FileViewer } from "@/components/file-viewer";
 import { useCountUp } from "@/hooks/use-count-up";
@@ -211,13 +214,34 @@ export default function TaskDetailPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const taskId = params.id as string;
-  const { data: context, loading, error } = useContext(taskId);
-  const { runs } = useRuns(taskId);
+  const { data: context, loading, error, refetch: refetchContext } = useContext(taskId);
+  const { runs, refetch: refetchRuns } = useRuns(taskId);
   const { items, hasMore: feedHasMore, loadMore: feedLoadMore, loadingMore: feedLoadingMore } = useFeed(taskId);
   const { files: taskFiles, fetchFileContent } = useTaskFiles(context?.task.repo_url);
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
   const [viewMode, setViewMode] = useState<"about" | "status">("about");
   const { content: readme, loading: readmeLoading } = useReadme(context?.task.repo_url);
+
+  // Admin
+  const { isAdmin } = useAuth();
+  const [showDeleteTask, setShowDeleteTask] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+
+  const handleDeleteTask = async () => {
+    setDeleteLoading(true);
+    setDeleteError("");
+    try {
+      await apiDelete(`/tasks/${taskId}?confirm=${taskId}`, getAuthHeader());
+      router.push("/");
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
 
   // Share modal
   const [showShare, setShowShare] = useState(false);
@@ -471,7 +495,89 @@ export default function TaskDetailPage() {
             <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
           </svg>
         </button>
+        {isAdmin && (
+          <div className="relative ml-1">
+            <button
+              onClick={() => setAdminMenuOpen(!adminMenuOpen)}
+              className="w-8 h-8 rounded-lg bg-[var(--color-layer-1)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <circle cx="7" cy="3" r="1.2" />
+                <circle cx="7" cy="7" r="1.2" />
+                <circle cx="7" cy="11" r="1.2" />
+              </svg>
+            </button>
+            {adminMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setAdminMenuOpen(false)} />
+                <div className="absolute right-0 top-10 z-20 bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[160px]">
+                  <button
+                    onClick={() => { setAdminMenuOpen(false); setShowDeleteTask(true); }}
+                    className="w-full text-left px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-500/10 transition-colors"
+                  >
+                    Delete task
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </header>
+
+      {/* Delete task confirmation */}
+      {showDeleteTask && (
+        <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-24 backdrop-blur-md bg-black/30" onClick={() => setShowDeleteTask(false)}>
+          <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[380px] animate-fade-in" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+              <h2 className="text-base font-semibold text-[var(--color-text)]">Delete Task</h2>
+              <button
+                onClick={() => setShowDeleteTask(false)}
+                className="w-7 h-7 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M3 3l8 8M11 3l-8 8" />
+                </svg>
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-sm text-red-500">
+                This will permanently delete <strong>{context.task.name}</strong> and all its runs, posts, comments, and skills. This cannot be undone.
+              </p>
+              <div>
+                <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">
+                  Type <span className="font-[family-name:var(--font-ibm-plex-mono)] text-[var(--color-text)]">{taskId}</span> to confirm
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmId}
+                  onChange={(e) => setDeleteConfirmId(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && deleteConfirmId === taskId && handleDeleteTask()}
+                  style={{ outline: "none", boxShadow: "none" }}
+                  className="w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] font-[family-name:var(--font-ibm-plex-mono)] placeholder:text-[var(--color-text-tertiary)]"
+                  placeholder={taskId}
+                  autoFocus
+                />
+              </div>
+              {deleteError && <p className="text-xs text-red-500">{deleteError}</p>}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDeleteTask}
+                  disabled={deleteLoading || deleteConfirmId !== taskId}
+                  className="px-4 py-2 text-sm font-medium bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 transition-colors"
+                >
+                  {deleteLoading ? "Deleting..." : "Delete task"}
+                </button>
+                <button
+                  onClick={() => { setShowDeleteTask(false); setDeleteConfirmId(""); setDeleteError(""); }}
+                  className="px-4 py-2 text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* About view */}
       {viewMode === "about" && (
@@ -704,7 +810,7 @@ export default function TaskDetailPage() {
       </main>
 
       {selectedRun && (
-        <RunDetail run={selectedRun} runs={runs} taskId={taskId} repoUrl={context.task.repo_url} onClose={() => setSelectedRun(null)} />
+        <RunDetail run={selectedRun} runs={runs} taskId={taskId} repoUrl={context.task.repo_url} onClose={() => setSelectedRun(null)} onRunUpdated={() => { refetchRuns(); refetchContext(); }} />
       )}
 
       {viewingFile && (

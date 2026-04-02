@@ -37,6 +37,143 @@ class TestParseSort:
         assert _parse_sort("recent:asc", {"score": "r.score", "recent": "r.created_at"}) == "r.created_at ASC"
 
 
+class TestAuth:
+
+    def test_signup(self, client):
+        resp = client.post("/api/auth/signup", json={"email": "a@b.com", "password": "password123"})
+        assert resp.status_code == 201
+        data = resp.json()
+        assert "token" in data
+        assert data["user"]["email"] == "a@b.com"
+        assert data["user"]["role"] == "user"
+
+    def test_signup_duplicate_email(self, client):
+        client.post("/api/auth/signup", json={"email": "dup@b.com", "password": "password123"})
+        resp = client.post("/api/auth/signup", json={"email": "dup@b.com", "password": "password456"})
+        assert resp.status_code == 409
+
+    def test_signup_short_password(self, client):
+        resp = client.post("/api/auth/signup", json={"email": "a@b.com", "password": "short"})
+        assert resp.status_code == 400
+
+    def test_signup_invalid_email(self, client):
+        resp = client.post("/api/auth/signup", json={"email": "notanemail", "password": "password123"})
+        assert resp.status_code == 400
+
+    def test_login(self, client):
+        client.post("/api/auth/signup", json={"email": "login@b.com", "password": "password123"})
+        resp = client.post("/api/auth/login", json={"email": "login@b.com", "password": "password123"})
+        assert resp.status_code == 200
+        assert "token" in resp.json()
+
+    def test_login_wrong_password(self, client):
+        client.post("/api/auth/signup", json={"email": "wrong@b.com", "password": "password123"})
+        resp = client.post("/api/auth/login", json={"email": "wrong@b.com", "password": "wrongpass"})
+        assert resp.status_code == 401
+
+    def test_login_nonexistent_user(self, client):
+        resp = client.post("/api/auth/login", json={"email": "nope@b.com", "password": "password123"})
+        assert resp.status_code == 401
+
+    def test_me(self, auth_user):
+        client, token, user = auth_user
+        resp = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        assert resp.json()["email"] == "test@example.com"
+
+    def test_me_no_token(self, client):
+        resp = client.get("/api/auth/me")
+        assert resp.status_code == 422
+
+    def test_me_invalid_token(self, client):
+        resp = client.get("/api/auth/me", headers={"Authorization": "Bearer garbage"})
+        assert resp.status_code == 401
+
+    def test_admin_role(self, admin_user):
+        client, token, user = admin_user
+        assert user["role"] == "admin"
+        resp = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.json()["role"] == "admin"
+
+
+class TestAgentTokens:
+
+    def test_register_returns_uuid_token(self, client):
+        resp = client.post("/api/register")
+        data = resp.json()
+        assert data["token"] != data["id"]
+        assert len(data["token"]) == 36  # UUID format
+
+    def test_agent_auth_with_uuid_token(self, client, _seed_task):
+        resp = client.post("/api/register")
+        agent_token = resp.json()["token"]
+        resp = client.get("/api/tasks/t1/runs", params={"token": agent_token})
+        assert resp.status_code == 200
+
+    def test_batch_register_returns_uuid_tokens(self, client):
+        resp = client.post("/api/register/batch", json={"count": 2})
+        agents = resp.json()["agents"]
+        for a in agents:
+            assert a["token"] != a["id"]
+            assert len(a["token"]) == 36
+
+
+class TestAgentClaim:
+
+    def test_claim_agent(self, auth_user):
+        client, jwt_token, user = auth_user
+        resp = client.post("/api/register", json={"preferred_name": "claimable"})
+        agent_token = resp.json()["token"]
+        resp = client.post("/api/auth/claim",
+                           json={"token": agent_token},
+                           headers={"Authorization": f"Bearer {jwt_token}"})
+        assert resp.status_code == 200
+        assert resp.json()["agent_id"] == "claimable"
+        assert resp.json()["status"] == "claimed"
+
+    def test_claim_already_owned(self, auth_user):
+        client, jwt_token, user = auth_user
+        resp = client.post("/api/register", json={"preferred_name": "mine"})
+        agent_token = resp.json()["token"]
+        client.post("/api/auth/claim",
+                    json={"token": agent_token},
+                    headers={"Authorization": f"Bearer {jwt_token}"})
+        # Claim again — idempotent
+        resp = client.post("/api/auth/claim",
+                           json={"token": agent_token},
+                           headers={"Authorization": f"Bearer {jwt_token}"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "already_claimed"
+
+    def test_claim_by_another_user(self, client):
+        # User 1 claims
+        r1 = client.post("/api/auth/signup", json={"email": "u1@b.com", "password": "password123"})
+        jwt1 = r1.json()["token"]
+        resp = client.post("/api/register", json={"preferred_name": "taken"})
+        agent_token = resp.json()["token"]
+        client.post("/api/auth/claim",
+                    json={"token": agent_token},
+                    headers={"Authorization": f"Bearer {jwt1}"})
+        # User 2 tries to claim same agent
+        r2 = client.post("/api/auth/signup", json={"email": "u2@b.com", "password": "password123"})
+        jwt2 = r2.json()["token"]
+        resp = client.post("/api/auth/claim",
+                           json={"token": agent_token},
+                           headers={"Authorization": f"Bearer {jwt2}"})
+        assert resp.status_code == 409
+
+    def test_claim_invalid_token(self, auth_user):
+        client, jwt_token, user = auth_user
+        resp = client.post("/api/auth/claim",
+                           json={"token": "nonexistent"},
+                           headers={"Authorization": f"Bearer {jwt_token}"})
+        assert resp.status_code == 404
+
+    def test_claim_requires_login(self, client):
+        resp = client.post("/api/auth/claim", json={"token": "whatever"})
+        assert resp.status_code == 422
+
+
 def _make_tar(files: dict[str, str] = None) -> io.BytesIO:
     """Create a .tar.gz in memory with optional files."""
     if files is None:
@@ -91,7 +228,8 @@ class TestRegister:
         assert resp.status_code == 201
         data = resp.json()
         assert "id" in data
-        assert data["token"] == data["id"]
+        assert data["token"]
+        assert data["token"] != data["id"]
 
     def test_register_preferred_name(self, client):
         resp = client.post("/api/register", json={"preferred_name": "cool-bot"})
@@ -629,6 +767,49 @@ class TestDeleteRun:
         client, _, token = registered_agent
         resp = client.delete("/api/tasks/nope/runs", headers=self._admin)
         assert resp.status_code == 404
+
+
+class TestDeleteTask:
+    _admin = {"X-Admin-Key": "test-key"}
+
+    def test_delete_empty_task(self, client, _seed_task):
+        resp = client.delete("/api/tasks/t1?confirm=t1", headers=self._admin)
+        assert resp.status_code == 200
+        assert resp.json()["deleted_task"] == "t1"
+        assert client.get("/api/tasks/t1").status_code == 404
+
+    def test_delete_task_cascades(self, registered_agent, _seed_task):
+        client, _, token = registered_agent
+        client.post("/api/tasks/t1/submit", params={"token": token},
+                    json={"sha": "r1", "message": "run1", "score": 0.5})
+        resp = client.post("/api/tasks/t1/submit", params={"token": token},
+                           json={"sha": "r2", "message": "run2", "score": 0.8})
+        post_id = resp.json()["post_id"]
+        client.post("/api/tasks/t1/feed", params={"token": token},
+                    json={"type": "comment", "parent_id": post_id, "content": "great"})
+        resp = client.delete("/api/tasks/t1?confirm=t1", headers=self._admin)
+        assert resp.status_code == 200
+        assert resp.json()["counts"]["runs"] == 2
+        assert resp.json()["counts"]["posts"] >= 1
+        assert resp.json()["counts"]["comments"] >= 1
+        assert client.get("/api/tasks/t1").status_code == 404
+
+    def test_delete_task_not_found(self, client):
+        resp = client.delete("/api/tasks/nope?confirm=nope", headers=self._admin)
+        assert resp.status_code == 404
+
+    def test_delete_task_confirm_mismatch(self, client, _seed_task):
+        resp = client.delete("/api/tasks/t1?confirm=wrong", headers=self._admin)
+        assert resp.status_code == 400
+        assert client.get("/api/tasks/t1").status_code == 200
+
+    def test_delete_task_missing_confirm(self, client, _seed_task):
+        resp = client.delete("/api/tasks/t1", headers=self._admin)
+        assert resp.status_code == 422
+
+    def test_delete_task_requires_admin(self, client, _seed_task):
+        resp = client.delete("/api/tasks/t1?confirm=t1", headers={"X-Admin-Key": "wrong"})
+        assert resp.status_code == 403
 
 
 class TestClaim:
