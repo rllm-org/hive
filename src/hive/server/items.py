@@ -214,6 +214,111 @@ async def list_items(
     return JSONResponse({"items": items, "page": page, "per_page": per_page, "has_next": has_next})
 
 
+@router.post("/bulk", status_code=201)
+async def bulk_create_items(task_id: str, body: dict, token: str = Query(...)):
+    items_data = body.get("items", [])
+    if len(items_data) == 0 or len(items_data) > 50:
+        raise HTTPException(400, "items must contain between 1 and 50 entries")
+    for item in items_data:
+        if not item.get("title"):
+            raise HTTPException(400, "title is required")
+        _validate_fields(item)
+    ts = now()
+    async with get_db() as conn:
+        agent_id = await get_agent(token, conn)
+        await _check_task(task_id, conn)
+        created = []
+        for item in items_data:
+            if item.get("assignee_id"):
+                row = await (await conn.execute(
+                    "SELECT id FROM agents WHERE id = %s", (item["assignee_id"],)
+                )).fetchone()
+                if not row:
+                    raise HTTPException(404, f"assignee '{item['assignee_id']}' not found")
+            if item.get("parent_id"):
+                row = await (await conn.execute(
+                    "SELECT id FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL",
+                    (item["parent_id"], task_id),
+                )).fetchone()
+                if not row:
+                    raise HTTPException(404, f"parent item '{item['parent_id']}' not found")
+            seq_row = await (await conn.execute(
+                "UPDATE tasks SET item_seq = item_seq + 1 WHERE id = %s RETURNING item_seq",
+                (task_id,),
+            )).fetchone()
+            seq = seq_row["item_seq"]
+            prefix = _task_prefix(task_id)
+            item_id = f"{prefix}-{seq}"
+            await conn.execute(
+                "INSERT INTO items (id, seq, task_id, title, description, status, priority,"
+                " assignee_id, parent_id, labels, created_by, created_at, updated_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    item_id, seq, task_id,
+                    item["title"],
+                    item.get("description"),
+                    item.get("status", "backlog"),
+                    item.get("priority", "none"),
+                    item.get("assignee_id"),
+                    item.get("parent_id"),
+                    item.get("labels", []),
+                    agent_id,
+                    ts, ts,
+                ),
+            )
+            row = await (await conn.execute(
+                "SELECT * FROM items WHERE id = %s", (item_id,)
+            )).fetchone()
+            created.append(_item_response(dict(row), 0))
+    return JSONResponse({"items": created}, status_code=201)
+
+
+@router.patch("/bulk")
+async def bulk_update_items(task_id: str, body: dict, token: str = Query(...)):
+    items_data = body.get("items", [])
+    if len(items_data) == 0 or len(items_data) > 50:
+        raise HTTPException(400, "items must contain between 1 and 50 entries")
+    updates_list = []
+    for item in items_data:
+        if not item.get("id"):
+            raise HTTPException(400, "each item must have an id")
+        updates = {k: v for k, v in item.items() if k in _UPDATABLE_FIELDS}
+        _validate_fields(updates)
+        updates_list.append((item["id"], updates))
+    ts = now()
+    async with get_db() as conn:
+        await get_agent(token, conn)
+        await _check_task(task_id, conn)
+        results = []
+        for item_id, updates in updates_list:
+            await _get_item(item_id, task_id, conn)
+            if "parent_id" in updates and updates["parent_id"] is not None:
+                row = await (await conn.execute(
+                    "SELECT id FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL",
+                    (updates["parent_id"], task_id),
+                )).fetchone()
+                if not row:
+                    raise HTTPException(404, f"parent item '{updates['parent_id']}' not found")
+                await _check_cycle(item_id, updates["parent_id"], conn)
+            if "assignee_id" in updates and updates["assignee_id"] is not None:
+                row = await (await conn.execute(
+                    "SELECT id FROM agents WHERE id = %s", (updates["assignee_id"],)
+                )).fetchone()
+                if not row:
+                    raise HTTPException(404, f"assignee '{updates['assignee_id']}' not found")
+            if updates:
+                set_clauses = ", ".join(f"{k} = %s" for k in updates)
+                values = list(updates.values()) + [ts, item_id, task_id]
+                await conn.execute(
+                    f"UPDATE items SET {set_clauses}, updated_at = %s WHERE id = %s AND task_id = %s",
+                    values,
+                )
+            item = await _get_item(item_id, task_id, conn)
+            count = await _comment_count(item_id, conn)
+            results.append(_item_response(dict(item), count))
+    return JSONResponse({"items": results})
+
+
 @router.get("/{item_id}")
 async def get_item(task_id: str, item_id: str):
     async with get_db() as conn:
