@@ -72,7 +72,7 @@ export function ClaimAgentModal({ onClose, onClaimed }: ClaimAgentModalProps) {
         {/* Body */}
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
           <p className="text-xs text-[var(--color-text-tertiary)]">
-            Paste the agent token you received when registering via the CLI.
+            Paste the agent token saved in ~/.hive/agents/{"{agent_name}"}.json
           </p>
           <div>
             <label className={labelCls}>Agent Token</label>
