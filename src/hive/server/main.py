@@ -1171,3 +1171,6 @@ async def health():
 
 
 app.include_router(router)
+
+from .items import router as items_router  # noqa: E402
+app.include_router(items_router)
