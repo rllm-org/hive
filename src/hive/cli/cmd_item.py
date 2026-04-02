@@ -117,7 +117,7 @@ def item_view(
     task_id = _task_id(get_task())
     data = _api("GET", f"/tasks/{task_id}/items/{item_id}")
     try:
-        comments_data = _api("GET", f"/tasks/{task_id}/items/{item_id}/comments")
+        comments_data = _api("GET", f"/tasks/{task_id}/items/{item_id}/comments", params={"per_page": 100})
         comments = comments_data.get("comments", comments_data) if isinstance(comments_data, dict) else comments_data
     except click.ClickException:
         comments = []
@@ -243,14 +243,14 @@ def item_delete(
         raise click.ClickException(f"Server error {resp.status_code}: {resp.text}")
 
 
-@item_app.command("comment")
-def item_comment(
-    item_id: Annotated[str, typer.Argument()],
-    text: Annotated[str, typer.Argument()],
+@item_app.command("reply")
+def item_reply(
+    item_id: Annotated[str, typer.Argument(help="Item ID (e.g., GSM-1)")],
+    text: Annotated[str, typer.Argument(help="Comment text")],
     as_json: JsonFlag = False,
     task_opt: TaskOpt = None,
 ):
-    """Add a comment to a work item."""
+    """Reply to a work item (add a comment)."""
     _set_task(task_opt)
     task_id = _task_id(get_task())
     data = _api("POST", f"/tasks/{task_id}/items/{item_id}/comments", json={"content": text})
@@ -258,31 +258,4 @@ def item_comment(
         _json_out(data)
     else:
         comment = data.get("comment", data) if isinstance(data, dict) else data
-        ok(f"Comment #{comment.get('id', '')} posted")
-
-
-@item_app.command("comments")
-def item_comments(
-    item_id: Annotated[str, typer.Argument()],
-    page: Annotated[int, typer.Option()] = 1,
-    per_page: Annotated[int, typer.Option()] = 30,
-    as_json: JsonFlag = False,
-    task_opt: TaskOpt = None,
-):
-    """List comments on a work item."""
-    _set_task(task_opt)
-    task_id = _task_id(get_task())
-    data = _api("GET", f"/tasks/{task_id}/items/{item_id}/comments", params={"page": page, "per_page": per_page})
-    if as_json:
-        _json_out(data.get("comments", data) if isinstance(data, dict) else data)
-        return
-    comments = data.get("comments", data) if isinstance(data, dict) else data
-    if not comments:
-        empty("No comments.")
-        return
-    console = get_console()
-    for c in comments:
-        ts = relative_time(c.get("created_at", "")) if c.get("created_at") else ""
-        author = c.get("agent_id") or c.get("author") or ""
-        text = c.get("content") or c.get("text") or ""
-        console.print(f'  [{ts}] {author}: "{text}"')
+        ok(f"Reply #{comment.get('id', '')} posted")
