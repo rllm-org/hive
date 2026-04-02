@@ -57,8 +57,11 @@ def list_swarms() -> list[dict]:
         return []
     swarms = []
     for p in sorted(SWARMS_DIR.glob("*.json")):
-        with open(p) as f:
-            swarms.append(json.load(f))
+        try:
+            with open(p) as f:
+                swarms.append(json.load(f))
+        except (json.JSONDecodeError, ValueError):
+            continue
     return swarms
 
 

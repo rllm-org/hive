@@ -276,7 +276,7 @@ def _ensure_postgres_migrations(conn) -> None:
     conn.execute("UPDATE items SET status = 'backlog' WHERE status = 'todo'")
     conn.execute("UPDATE items SET status = 'archived' WHERE status IN ('done', 'cancelled', 'trash')")
     conn.execute(
-        "UPDATE items SET assigned_at = COALESCE(updated_at, created_at)"
+        "UPDATE items SET assigned_at = NOW()"
         " WHERE assignee_id IS NOT NULL AND assigned_at IS NULL"
     )
     # Add token and user_id columns to agents
