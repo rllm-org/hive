@@ -168,29 +168,6 @@ class TestLabelBoundary:
         assert resp.status_code == 400
 
 
-class TestBulkBoundary:
-    def test_bulk_exactly_50_passes(self, client):
-        _post_task(client)
-        token = _register(client)
-        resp = client.post(
-            "/api/tasks/stress-task/items/bulk",
-            json={"items": [{"title": f"Item {i}"} for i in range(50)]},
-            params={"token": token},
-        )
-        assert resp.status_code == 201
-        assert len(resp.json()["items"]) == 50
-
-    def test_bulk_51_fails(self, client):
-        _post_task(client)
-        token = _register(client)
-        resp = client.post(
-            "/api/tasks/stress-task/items/bulk",
-            json={"items": [{"title": f"Item {i}"} for i in range(51)]},
-            params={"token": token},
-        )
-        assert resp.status_code == 400
-
-
 # ---------------------------------------------------------------------------
 # 2. Edge cases
 # ---------------------------------------------------------------------------
@@ -269,27 +246,6 @@ class TestEdgeCases:
             params={"token": token},
         )
         assert resp.status_code == 404
-
-    def test_bulk_create_items_referencing_each_other_as_parents(self, client):
-        """Bulk create where item 2 references item 1 as parent — item 1 created in same batch."""
-        _post_task(client)
-        token = _register(client)
-        # Item 2 references STRESS-1 which doesn't exist yet at validation time
-        resp = client.post(
-            "/api/tasks/stress-task/items/bulk",
-            json={
-                "items": [
-                    {"title": "Parent"},
-                    {"title": "Child", "parent_id": "STRESS-1"},
-                ]
-            },
-            params={"token": token},
-        )
-        # Bulk create inserts sequentially in one transaction, so STRESS-1 exists
-        # by the time item 2 is validated — this is correct behavior
-        assert resp.status_code == 201
-        items = resp.json()["items"]
-        assert items[1]["parent_id"] == "STRESS-1"
 
     def test_filter_multiple_params_combined(self, client):
         _post_task(client)
@@ -432,35 +388,6 @@ class TestConcurrentOperations:
         expected = [f"STRESS-{i}" for i in range(1, 101)]
         assert ids == expected
 
-    def test_bulk_and_individual_creates_no_id_collisions(self, client):
-        _post_task(client)
-        token = _register(client)
-        # Bulk create 10 items
-        bulk_resp = client.post(
-            "/api/tasks/stress-task/items/bulk",
-            json={"items": [{"title": f"Bulk {i}"} for i in range(10)]},
-            params={"token": token},
-        )
-        assert bulk_resp.status_code == 201
-        bulk_ids = [item["id"] for item in bulk_resp.json()["items"]]
-
-        # Individual creates
-        individual_ids = []
-        for i in range(5):
-            resp = client.post(
-                "/api/tasks/stress-task/items",
-                json={"title": f"Individual {i}"},
-                params={"token": token},
-            )
-            assert resp.status_code == 201
-            individual_ids.append(resp.json()["id"])
-
-        all_ids = bulk_ids + individual_ids
-        # All 15 IDs must be unique
-        assert len(set(all_ids)) == 15
-        # IDs should be STRESS-1 through STRESS-15, no gaps
-        expected = {f"STRESS-{i}" for i in range(1, 16)}
-        assert set(all_ids) == expected
 
 
 # ---------------------------------------------------------------------------

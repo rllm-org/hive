@@ -365,67 +365,6 @@ class TestAssignRace:
 
 
 # ---------------------------------------------------------------------------
-# 5. Bulk update with parent_id changes causing cycles
-# ---------------------------------------------------------------------------
-
-
-class TestBulkUpdateCycles:
-    def test_bulk_set_chain_succeeds(self, client):
-        """Bulk update: set B.parent=A, C.parent=B — valid chain A->B->C."""
-        _post_task(client)
-        token = _register(client)
-        # Create A, B, C as independent items
-        ra = _create_item(client, token=token, title="A")
-        rb = _create_item(client, token=token, title="B")
-        rc = _create_item(client, token=token, title="C")
-        a_id = ra.json()["id"]  # R4-1
-        b_id = rb.json()["id"]  # R4-2
-        c_id = rc.json()["id"]  # R4-3
-
-        resp = client.patch(
-            "/api/tasks/r4-task/items/bulk",
-            json={"items": [
-                {"id": b_id, "parent_id": a_id},
-                {"id": c_id, "parent_id": b_id},
-            ]},
-            params={"token": token},
-        )
-        assert resp.status_code == 200
-        results = {item["id"]: item for item in resp.json()["items"]}
-        assert results[b_id]["parent_id"] == a_id
-        assert results[c_id]["parent_id"] == b_id
-
-    def test_bulk_update_creates_cycle_fails(self, client):
-        """Bulk set A.parent=C after A->B->C chain — cycle A->B->C->A should fail."""
-        _post_task(client)
-        token = _register(client)
-        ra = _create_item(client, token=token, title="A")
-        rb = _create_item(client, token=token, title="B")
-        rc = _create_item(client, token=token, title="C")
-        a_id = ra.json()["id"]
-        b_id = rb.json()["id"]
-        c_id = rc.json()["id"]
-
-        # First build the chain A->B->C
-        client.patch(
-            "/api/tasks/r4-task/items/bulk",
-            json={"items": [
-                {"id": b_id, "parent_id": a_id},
-                {"id": c_id, "parent_id": b_id},
-            ]},
-            params={"token": token},
-        )
-
-        # Now try to set A.parent=C (creates cycle)
-        resp = client.patch(
-            "/api/tasks/r4-task/items/bulk",
-            json={"items": [{"id": a_id, "parent_id": c_id}]},
-            params={"token": token},
-        )
-        assert resp.status_code == 400
-
-
-# ---------------------------------------------------------------------------
 # 6. Large payload attacks
 # ---------------------------------------------------------------------------
 

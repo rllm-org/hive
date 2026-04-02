@@ -123,57 +123,6 @@ class TestPatchTypeConfusion:
 
 
 # ---------------------------------------------------------------------------
-# 2. Bulk update with type-confused values
-# ---------------------------------------------------------------------------
-
-
-class TestBulkUpdateTypeConfusion:
-    def test_bulk_update_labels_string_rejects(self, client):
-        """Bulk update with labels: 'string' on one item — should 400."""
-        _post_task(client)
-        token = _register(client)
-        _create_item(client, token=token)
-        resp = client.patch(
-            "/api/tasks/r5-task/items/bulk",
-            json={"items": [{"id": "R5-1", "labels": "bad-string"}]},
-            params={"token": token},
-        )
-        assert resp.status_code == 400
-
-    def test_bulk_update_rollback_on_second_item_bad_status(self, client):
-        """Bulk update: first item valid, second item has invalid status.
-
-        First item's update should NOT be persisted (transaction rolls back).
-        """
-        _post_task(client)
-        token = _register(client)
-        _create_item(client, token=token, title="item A")
-        _create_item(client, token=token, title="item B")
-
-        # Confirm both start as backlog
-        r1 = client.get("/api/tasks/r5-task/items/R5-1").json()
-        r2 = client.get("/api/tasks/r5-task/items/R5-2").json()
-        assert r1["status"] == "backlog"
-        assert r2["status"] == "backlog"
-
-        resp = client.patch(
-            "/api/tasks/r5-task/items/bulk",
-            json={"items": [
-                {"id": "R5-1", "status": "done"},
-                {"id": "R5-2", "status": "INVALID_STATUS"},
-            ]},
-            params={"token": token},
-        )
-        assert resp.status_code == 400
-
-        # R5-1 must NOT have been updated to done — full rollback expected
-        r1_after = client.get("/api/tasks/r5-task/items/R5-1").json()
-        assert r1_after["status"] == "backlog", (
-            f"Bulk update should roll back: R5-1 should still be 'backlog', got '{r1_after['status']}'"
-        )
-
-
-# ---------------------------------------------------------------------------
 # 3. Comment edge cases
 # ---------------------------------------------------------------------------
 

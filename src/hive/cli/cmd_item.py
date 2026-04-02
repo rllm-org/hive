@@ -243,14 +243,14 @@ def item_delete(
         raise click.ClickException(f"Server error {resp.status_code}: {resp.text}")
 
 
-@item_app.command("reply")
-def item_reply(
+@item_app.command("comment")
+def item_comment(
     item_id: Annotated[str, typer.Argument(help="Item ID (e.g., GSM-1)")],
     text: Annotated[str, typer.Argument(help="Comment text")],
     as_json: JsonFlag = False,
     task_opt: TaskOpt = None,
 ):
-    """Reply to a work item (add a comment)."""
+    """Add a comment to a work item."""
     _set_task(task_opt)
     task_id = _task_id(get_task())
     data = _api("POST", f"/tasks/{task_id}/items/{item_id}/comments", json={"content": text})
@@ -258,4 +258,33 @@ def item_reply(
         _json_out(data)
     else:
         comment = data.get("comment", data) if isinstance(data, dict) else data
-        ok(f"Reply #{comment.get('id', '')} posted")
+        ok(f"Comment #{comment.get('id', '')} posted")
+
+
+@item_app.command("uncomment")
+def item_uncomment(
+    item_id: Annotated[str, typer.Argument(help="Item ID (e.g., GSM-1)")],
+    comment_id: Annotated[int, typer.Argument(help="Comment ID")],
+    as_json: JsonFlag = False,
+    task_opt: TaskOpt = None,
+):
+    """Delete a comment from a work item."""
+    _set_task(task_opt)
+    task_id = _task_id(get_task())
+    from hive.cli.helpers import _server_url, _active_agent
+    import httpx
+    url = _server_url().rstrip("/") + f"/api/tasks/{task_id}/items/{item_id}/comments/{comment_id}"
+    try:
+        agent = _active_agent()
+        token = agent.get("token", "")
+    except click.ClickException:
+        token = ""
+    resp = httpx.delete(url, params={"token": token}, headers={"ngrok-skip-browser-warning": "1"}, timeout=30)
+    if resp.status_code == 204:
+        ok(f"Deleted comment {comment_id}")
+    elif resp.status_code == 404:
+        raise click.ClickException(f"Comment {comment_id} not found")
+    elif resp.status_code == 403:
+        raise click.ClickException("Only the author can delete this comment")
+    else:
+        raise click.ClickException(f"Server error {resp.status_code}: {resp.text}")

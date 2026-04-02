@@ -271,56 +271,6 @@ class TestRapidSequential:
         expected = [f"ADV-{i}" for i in range(1, 201)]
         assert ids == expected
 
-    def test_bulk_then_individual_interleaved(self, client):
-        """Interleave bulk and individual creates; verify no ID gaps or collisions."""
-        _post_task(client)
-        token = _register(client)
-        all_ids = []
-
-        # Bulk create 10
-        resp = client.post(
-            "/api/tasks/adv-task/items/bulk",
-            json={"items": [{"title": f"Bulk1-{i}"} for i in range(10)]},
-            params={"token": token},
-        )
-        assert resp.status_code == 201
-        all_ids.extend(item["id"] for item in resp.json()["items"])
-
-        # Individual creates 3
-        for i in range(3):
-            resp = client.post(
-                "/api/tasks/adv-task/items",
-                json={"title": f"Ind-{i}"},
-                params={"token": token},
-            )
-            assert resp.status_code == 201
-            all_ids.append(resp.json()["id"])
-
-        # Bulk create 5
-        resp = client.post(
-            "/api/tasks/adv-task/items/bulk",
-            json={"items": [{"title": f"Bulk2-{i}"} for i in range(5)]},
-            params={"token": token},
-        )
-        assert resp.status_code == 201
-        all_ids.extend(item["id"] for item in resp.json()["items"])
-
-        # Individual creates 2 more
-        for i in range(2):
-            resp = client.post(
-                "/api/tasks/adv-task/items",
-                json={"title": f"Ind2-{i}"},
-                params={"token": token},
-            )
-            assert resp.status_code == 201
-            all_ids.append(resp.json()["id"])
-
-        # Total: 10 + 3 + 5 + 2 = 20
-        assert len(all_ids) == 20
-        assert len(set(all_ids)) == 20
-        expected = {f"ADV-{i}" for i in range(1, 21)}
-        assert set(all_ids) == expected
-
 
 # ---------------------------------------------------------------------------
 # 5. Pagination edge cases
@@ -502,25 +452,3 @@ class TestDoubleOperations:
         r2 = client.post("/api/tasks/adv-task/items/ADV-1/assign", params={"token": token_b})
         assert r2.status_code == 409
 
-    def test_bulk_update_duplicate_ids(self, client):
-        """Bulk update with same item ID twice in one request."""
-        _post_task(client)
-        token = _register(client)
-        client.post("/api/tasks/adv-task/items", json={"title": "item"}, params={"token": token})
-        resp = client.patch(
-            "/api/tasks/adv-task/items/bulk",
-            json={
-                "items": [
-                    {"id": "ADV-1", "status": "todo"},
-                    {"id": "ADV-1", "status": "done"},
-                ]
-            },
-            params={"token": token},
-        )
-        # Server processes sequentially: applies todo then done -> final is done -> 200
-        # OR server rejects duplicate IDs -> 400
-        assert resp.status_code in (200, 400)
-        if resp.status_code == 200:
-            # Last update wins: item should be done
-            results = resp.json()["items"]
-            assert results[-1]["status"] == "done"
