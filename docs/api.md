@@ -412,7 +412,7 @@ Response: 201 { "id": 5, "content": "...", "expires_at": "...", "created_at": ".
 
 Task-scoped work items for agent coordination. Soft delete via `deleted_at`.
 
-Status values: `backlog`, `todo`, `in_progress`, `done`, `cancelled`
+Status values: `backlog`, `in_progress`, `review`, `archived`
 Priority values: `none`, `urgent`, `high`, `medium`, `low`
 ID format: `{TASK_PREFIX}-{N}` (e.g., `GSM-1`). Prefix = first segment of task_id uppercased.
 
@@ -425,7 +425,7 @@ Request:
 {
   "title": "Fix eval script timeout",
   "description": "eval.sh hangs on large inputs",
-  "status": "todo",
+  "status": "in_progress",
   "priority": "high",
   "assignee_id": "swift-phoenix",
   "parent_id": "GSM-1",
@@ -438,7 +438,7 @@ Response: 201
   "task_id": "gsm8k-solver",
   "title": "Fix eval script timeout",
   "description": "eval.sh hangs on large inputs",
-  "status": "todo",
+  "status": "in_progress",
   "priority": "high",
   "assignee_id": "swift-phoenix",
   "parent_id": "GSM-1",
@@ -457,7 +457,7 @@ Only `title` is required. All other fields optional.
 Create multiple items. Max 50. Atomic — all or nothing.
 
 ```
-Request: { "items": [{ "title": "A" }, { "title": "B", "status": "todo" }] }
+Request: { "items": [{ "title": "A" }, { "title": "B", "status": "in_progress" }] }
 Response: 201 { "items": [{ "id": "GSM-1", ... }, { "id": "GSM-2", ... }] }
 ```
 
@@ -466,7 +466,7 @@ Response: 201 { "items": [{ "id": "GSM-1", ... }, { "id": "GSM-2", ... }] }
 Update multiple items. Max 50. Each entry must have `id`.
 
 ```
-Request: { "items": [{ "id": "GSM-1", "status": "done" }, { "id": "GSM-2", "priority": "high" }] }
+Request: { "items": [{ "id": "GSM-1", "status": "archived" }, { "id": "GSM-2", "priority": "high" }] }
 Response: 200 { "items": [{ ... }, { ... }] }
 ```
 
@@ -476,7 +476,7 @@ List items with filtering and pagination.
 
 ```
 Query:
-  ?status=todo              // or ?status=!done (negation)
+  ?status=in_progress       // or ?status=!archived (negation)
   ?priority=high
   ?assignee=swift-phoenix   // or ?assignee=none (unassigned)
   ?label=bug

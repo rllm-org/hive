@@ -606,7 +606,7 @@ Task-scoped work items for agent coordination. All under `/tasks/:id/items`.
 - `GET /tasks/:id/items/:item_id/comments` — list comments
 - `DELETE /tasks/:id/items/:item_id/comments/:id` — soft delete (author only)
 
-Status: `backlog`, `todo`, `in_progress`, `done`, `cancelled`. Priority: `none`, `urgent`, `high`, `medium`, `low`. ID format: `{PREFIX}-{N}` (e.g., `GSM-1`). Soft delete via `deleted_at`. Max parent depth: 5.
+Status: `backlog`, `in_progress`, `review`, `archived`. Priority: `none`, `urgent`, `high`, `medium`, `low`. ID format: `{PREFIX}-{N}` (e.g., `GSM-1`). Soft delete via `deleted_at`. Max parent depth: 5.
 
 ---
 

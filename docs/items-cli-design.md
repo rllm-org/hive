@@ -47,7 +47,7 @@ CREATE TABLE item_comments (
 ALTER TABLE tasks ADD COLUMN item_seq INTEGER NOT NULL DEFAULT 0;
 ```
 
-**Status values**: `backlog`, `todo`, `in_progress`, `done`, `cancelled`
+**Status values**: `backlog`, `in_progress`, `review`, `archived`
 **Priority values**: `none`, `urgent`, `high`, `medium`, `low`
 **ID format**: `{PREFIX}-{N}` where prefix = first segment of task_id uppercased (e.g., `gsm8k-solver` -> `GSM-1`)
 **Soft delete**: `deleted_at` timestamp, filtered from all queries
@@ -69,7 +69,7 @@ Request:
 {
   "title": "Fix eval script timeout",       // required, max 500 chars
   "description": "Details here",            // optional, max 10000 chars
-  "status": "todo",                         // optional, default "backlog"
+  "status": "in_progress",                   // optional, default "backlog"
   "priority": "high",                       // optional, default "none"
   "assignee_id": "swift-phoenix",           // optional
   "parent_id": "GSM-1",                     // optional, same task only
@@ -82,7 +82,7 @@ Response: 201
   "task_id": "gsm8k-solver",
   "title": "Fix eval script timeout",
   "description": "Details here",
-  "status": "todo",
+  "status": "in_progress",
   "priority": "high",
   "assignee_id": "swift-phoenix",
   "parent_id": "GSM-1",
@@ -99,7 +99,7 @@ Response: 201
 Bulk create. Max 50 items. Atomic — all or nothing.
 
 ```
-Request: { "items": [{ "title": "A" }, { "title": "B", "status": "todo" }] }
+Request: { "items": [{ "title": "A" }, { "title": "B", "status": "in_progress" }] }
 Response: 201 { "items": [{ "id": "GSM-1", ... }, { "id": "GSM-2", ... }] }
 ```
 
@@ -109,8 +109,8 @@ List items with filtering, sorting, pagination.
 
 ```
 Query:
-  ?status=todo                  // filter by status
-  ?status=!done                 // negation filter
+  ?status=in_progress            // filter by status
+  ?status=!archived              // negation filter
   ?priority=high
   ?assignee=swift-phoenix       // or ?assignee=none for unassigned
   ?label=bug                    // label containment
@@ -160,7 +160,7 @@ Cycle detection and max depth (5) enforced on `parent_id` changes.
 Bulk update. Max 50 items. Each entry must have `id`.
 
 ```
-Request: { "items": [{ "id": "GSM-1", "status": "done" }, { "id": "GSM-2", "priority": "high" }] }
+Request: { "items": [{ "id": "GSM-1", "status": "archived" }, { "id": "GSM-2", "priority": "high" }] }
 Response: 200 { "items": [{ ... }, { ... }] }
 ```
 
@@ -226,7 +226,7 @@ Create a work item.
 
 ```bash
 $ hive item create --title "Fix eval timeout" --priority high --label bug --label eval
-Created GSM-3 "Fix eval timeout" (todo, high)
+Created GSM-3 "Fix eval timeout" (in_progress, high)
 
 $ hive item create --title "Subtask" --parent GSM-3
 Created GSM-4 "Subtask" (backlog) -> parent GSM-3
@@ -247,25 +247,25 @@ List items with optional filters.
 ```bash
 $ hive item list
 ID       STATUS       PRIORITY  ASSIGNEE        TITLE
-GSM-1    done         none      swift-phoenix   Set up dev environment
+GSM-1    archived     none      swift-phoenix   Set up dev environment
 GSM-2    in_progress  high      swift-phoenix   Fix eval timeout bug
-GSM-3    todo         medium                    Add retry logic
+GSM-3    backlog      medium                    Add retry logic
 GSM-4    backlog      none                      Improve scoring pipeline
 GSM-5    backlog      none                      Write documentation
 
-$ hive item list --status todo --assignee none
-ID       STATUS  PRIORITY  TITLE
-GSM-3    todo    medium    Add retry logic
+$ hive item list --status backlog --assignee none
+ID       STATUS   PRIORITY  TITLE
+GSM-3    backlog  medium    Add retry logic
 
-$ hive item list --status !done --sort priority
+$ hive item list --status !archived --sort priority
 ID       STATUS       PRIORITY  TITLE
 GSM-2    in_progress  high      Fix eval timeout bug
-GSM-3    todo         medium    Add retry logic
+GSM-3    backlog      medium    Add retry logic
 GSM-4    backlog      none      Improve scoring pipeline
 GSM-5    backlog      none      Write documentation
 ```
 
-- `--status` — filter. Prefix with `!` to negate (e.g., `--status !done`)
+- `--status` — filter. Prefix with `!` to negate (e.g., `--status !archived`)
 - `--assignee none` — show unassigned items only
 - `--sort` — `recent` (default), `updated`, `priority`
 
@@ -298,8 +298,8 @@ Update one or more fields on an item.
 $ hive item update GSM-3 --status in_progress --assignee swift-phoenix
 Updated GSM-3: status -> in_progress, assignee -> swift-phoenix
 
-$ hive item update GSM-2 --status done
-Updated GSM-2: status -> done
+$ hive item update GSM-2 --status archived
+Updated GSM-2: status -> archived
 ```
 
 - Only specified fields are changed
@@ -361,7 +361,7 @@ Bulk create items from a JSON file. Max 50 items. Atomic.
 
 ```bash
 $ cat items.json
-{"items": [{"title": "Task A", "status": "todo"}, {"title": "Task B", "labels": ["feature"]}]}
+{"items": [{"title": "Task A", "status": "in_progress"}, {"title": "Task B", "labels": ["feature"]}]}
 
 $ hive item bulk-create --file items.json
 Created 2 items: GSM-6, GSM-7
@@ -373,7 +373,7 @@ Bulk update items from a JSON file. Max 50 items. Each entry must have `id`.
 
 ```bash
 $ cat updates.json
-{"items": [{"id": "GSM-6", "status": "done"}, {"id": "GSM-7", "priority": "high"}]}
+{"items": [{"id": "GSM-6", "status": "archived"}, {"id": "GSM-7", "priority": "high"}]}
 
 $ hive item bulk-update --file updates.json
 Updated 2 items: GSM-6, GSM-7
