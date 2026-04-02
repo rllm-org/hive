@@ -94,41 +94,81 @@ async def _comment_count(item_id: str, conn) -> int:
     return row["cnt"]
 
 
+_ITEM_KEYS = ["id", "task_id", "title", "description", "status", "priority",
+              "assignee_id", "parent_id", "labels", "created_by", "created_at", "updated_at"]
+
 def _item_response(item: dict, comment_count: int) -> dict:
-    return {
-        "id": item["id"],
-        "task_id": item["task_id"],
-        "title": item["title"],
-        "description": item["description"],
-        "status": item["status"],
-        "priority": item["priority"],
-        "assignee_id": item["assignee_id"],
-        "parent_id": item["parent_id"],
-        "labels": item["labels"] if item["labels"] is not None else [],
-        "created_by": item["created_by"],
-        "comment_count": comment_count,
-        "created_at": item["created_at"],
-        "updated_at": item["updated_at"],
-    }
+    r = {k: item[k] for k in _ITEM_KEYS}
+    r["labels"] = r["labels"] or []
+    r["comment_count"] = comment_count
+    return r
 
 
 _UPDATABLE_FIELDS = {"title", "description", "status", "priority", "assignee_id", "parent_id", "labels"}
 
+_INSERT_SQL = ("INSERT INTO items (id, seq, task_id, title, description, status, priority,"
+               " assignee_id, parent_id, labels, created_by, created_at, updated_at)"
+               " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+
+async def _validate_refs(body: dict, task_id: str, conn):
+    if body.get("assignee_id"):
+        if not await (await conn.execute("SELECT id FROM agents WHERE id = %s", (body["assignee_id"],))).fetchone():
+            raise HTTPException(404, f"assignee '{body['assignee_id']}' not found")
+    if body.get("parent_id"):
+        if not await (await conn.execute(
+            "SELECT id FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL", (body["parent_id"], task_id),
+        )).fetchone():
+            raise HTTPException(404, f"parent item '{body['parent_id']}' not found")
+        await _check_parent_depth(body["parent_id"], conn)
+
+async def _insert_item(body: dict, task_id: str, agent_id: str, ts, conn) -> dict:
+    seq_row = await (await conn.execute(
+        "UPDATE tasks SET item_seq = item_seq + 1 WHERE id = %s RETURNING item_seq", (task_id,),
+    )).fetchone()
+    seq = seq_row["item_seq"]
+    item_id = f"{_task_prefix(task_id)}-{seq}"
+    await conn.execute(_INSERT_SQL, (
+        item_id, seq, task_id, body["title"], body.get("description"),
+        body.get("status", "backlog"), body.get("priority", "none"),
+        body.get("assignee_id"), body.get("parent_id"), body.get("labels", []),
+        agent_id, ts, ts,
+    ))
+    return dict(await (await conn.execute("SELECT * FROM items WHERE id = %s", (item_id,))).fetchone())
+
+
+_PARENT_Q = "SELECT parent_id FROM items WHERE id = %s AND deleted_at IS NULL"
+
+async def _depth_above(node_id: str, conn) -> int:
+    current, depth = node_id, 0
+    while current is not None:
+        row = await (await conn.execute(_PARENT_Q, (current,))).fetchone()
+        current = row["parent_id"] if row else None
+        if current is not None: depth += 1
+    return depth
+
+async def _depth_below(node_id: str, conn) -> int:
+    rows = await (await conn.execute(
+        "SELECT id FROM items WHERE parent_id = %s AND deleted_at IS NULL", (node_id,)
+    )).fetchall()
+    if not rows: return 0
+    return 1 + max([await _depth_below(r["id"], conn) for r in rows])
 
 async def _check_cycle(item_id: str, new_parent_id: str, conn):
     if new_parent_id == item_id:
         raise HTTPException(400, "cycle detected: item cannot be its own parent")
     current = new_parent_id
-    depth = 0
-    while current is not None and depth < 5:
+    while current is not None:
         if current == item_id:
             raise HTTPException(400, "cycle detected: would create circular parent chain")
-        row = await (await conn.execute(
-            "SELECT parent_id FROM items WHERE id = %s AND deleted_at IS NULL", (current,)
-        )).fetchone()
+        row = await (await conn.execute(_PARENT_Q, (current,))).fetchone()
         current = row["parent_id"] if row else None
-        depth += 1
-    if depth >= 5:
+    above = await _depth_above(new_parent_id, conn)
+    below = await _depth_below(item_id, conn)
+    if above + 1 + below >= 5:
+        raise HTTPException(400, "max depth of 5 exceeded")
+
+async def _check_parent_depth(parent_id: str, conn):
+    if await _depth_above(parent_id, conn) + 1 >= 5:
         raise HTTPException(400, "max depth of 5 exceeded")
 
 
@@ -141,54 +181,9 @@ async def create_item(task_id: str, body: dict, token: str = Query(...)):
     async with get_db() as conn:
         agent_id = await _get_agent(token, conn)
         await _check_task(task_id, conn)
-
-        if body.get("assignee_id"):
-            row = await (await conn.execute(
-                "SELECT id FROM agents WHERE id = %s", (body["assignee_id"],)
-            )).fetchone()
-            if not row:
-                raise HTTPException(404, f"assignee '{body['assignee_id']}' not found")
-
-        if body.get("parent_id"):
-            row = await (await conn.execute(
-                "SELECT id FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL",
-                (body["parent_id"], task_id),
-            )).fetchone()
-            if not row:
-                raise HTTPException(404, f"parent item '{body['parent_id']}' not found")
-
-        seq_row = await (await conn.execute(
-            "UPDATE tasks SET item_seq = item_seq + 1 WHERE id = %s RETURNING item_seq",
-            (task_id,),
-        )).fetchone()
-        seq = seq_row["item_seq"]
-        prefix = _task_prefix(task_id)
-        item_id = f"{prefix}-{seq}"
-
-        await conn.execute(
-            "INSERT INTO items (id, seq, task_id, title, description, status, priority,"
-            " assignee_id, parent_id, labels, created_by, created_at, updated_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (
-                item_id, seq, task_id,
-                body["title"],
-                body.get("description"),
-                body.get("status", "backlog"),
-                body.get("priority", "none"),
-                body.get("assignee_id"),
-                body.get("parent_id"),
-                body.get("labels", []),
-                agent_id,
-                ts, ts,
-            ),
-        )
-
-        item = await (await conn.execute(
-            "SELECT * FROM items WHERE id = %s", (item_id,)
-        )).fetchone()
-
-    resp = _item_response(dict(item), 0)
-    return JSONResponse(resp, status_code=201)
+        await _validate_refs(body, task_id, conn)
+        item = await _insert_item(body, task_id, agent_id, ts, conn)
+    return JSONResponse(_item_response(dict(item), 0), status_code=201)
 
 
 _SORT_KEYS = {
@@ -272,46 +267,8 @@ async def bulk_create_items(task_id: str, body: dict, token: str = Query(...)):
         await _check_task(task_id, conn)
         created = []
         for item in items_data:
-            if item.get("assignee_id"):
-                row = await (await conn.execute(
-                    "SELECT id FROM agents WHERE id = %s", (item["assignee_id"],)
-                )).fetchone()
-                if not row:
-                    raise HTTPException(404, f"assignee '{item['assignee_id']}' not found")
-            if item.get("parent_id"):
-                row = await (await conn.execute(
-                    "SELECT id FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL",
-                    (item["parent_id"], task_id),
-                )).fetchone()
-                if not row:
-                    raise HTTPException(404, f"parent item '{item['parent_id']}' not found")
-            seq_row = await (await conn.execute(
-                "UPDATE tasks SET item_seq = item_seq + 1 WHERE id = %s RETURNING item_seq",
-                (task_id,),
-            )).fetchone()
-            seq = seq_row["item_seq"]
-            prefix = _task_prefix(task_id)
-            item_id = f"{prefix}-{seq}"
-            await conn.execute(
-                "INSERT INTO items (id, seq, task_id, title, description, status, priority,"
-                " assignee_id, parent_id, labels, created_by, created_at, updated_at)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (
-                    item_id, seq, task_id,
-                    item["title"],
-                    item.get("description"),
-                    item.get("status", "backlog"),
-                    item.get("priority", "none"),
-                    item.get("assignee_id"),
-                    item.get("parent_id"),
-                    item.get("labels", []),
-                    agent_id,
-                    ts, ts,
-                ),
-            )
-            row = await (await conn.execute(
-                "SELECT * FROM items WHERE id = %s", (item_id,)
-            )).fetchone()
+            await _validate_refs(item, task_id, conn)
+            row = await _insert_item(item, task_id, agent_id, ts, conn)
             created.append(_item_response(dict(row), 0))
     return JSONResponse({"items": created}, status_code=201)
 
