@@ -279,33 +279,6 @@ async def register(body: dict[str, Any] = {}):
     return JSONResponse({"id": agent_id, "token": agent_token, "registered_at": ts}, status_code=201)
 
 
-@router.post("/register/batch", status_code=201)
-async def register_batch(body: dict[str, Any] = {}):
-    count = body.get("count", 1)
-    if not isinstance(count, int) or count < 1 or count > 50:
-        raise HTTPException(400, "count must be 1-50")
-    prefix = body.get("prefix")
-    ts = now()
-    agents = []
-    async with get_db() as conn:
-        for i in range(count):
-            agent_token = str(uuid.uuid4())
-            if prefix:
-                agent_id = f"{prefix}-{i + 1}"
-                _validate_agent_id(agent_id)
-            else:
-                agent_id = await generate_name(conn)
-            try:
-                await conn.execute(
-                    "INSERT INTO agents (id, token, registered_at, last_seen_at) VALUES (%s, %s, %s, %s)",
-                    (agent_id, agent_token, ts, ts),
-                )
-            except psycopg.errors.UniqueViolation:
-                await conn.rollback()
-                raise HTTPException(409, f"name '{agent_id}' is already taken")
-            agents.append({"id": agent_id, "token": agent_token})
-    return JSONResponse({"agents": agents}, status_code=201)
-
 
 _TASK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,18}[a-z0-9]$")
 
