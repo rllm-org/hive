@@ -43,24 +43,78 @@ header input{width:200px}
 .priority-medium{border-left:3px solid var(--blue)}
 .assignee{font-size:11px;color:var(--purple);margin-left:auto}
 /* Modal */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;justify-content:center;align-items:flex-start;padding-top:80px}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;justify-content:center;align-items:flex-start;padding-top:60px}
 .modal-overlay.open{display:flex}
-.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:560px;max-height:80vh;overflow-y:auto;padding:24px}
-.modal h2{font-size:16px;margin-bottom:16px;display:flex;align-items:center;gap:8px}
-.modal h2 .close{margin-left:auto;cursor:pointer;color:var(--muted);font-size:20px;background:none;border:none}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:640px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden}
+/* Modal header */
+.modal-head{padding:16px 20px;border-bottom:1px solid var(--border);flex-shrink:0}
+.modal-head-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.modal-head .item-slug{font-size:12px;color:var(--muted);font-family:'SFMono-Regular',Consolas,monospace}
+.modal-head .item-title-display{font-size:16px;font-weight:600;margin-top:6px;line-height:1.4}
+.modal-head .close-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px 6px;border-radius:4px;line-height:1}
+.modal-head .close-btn:hover{color:var(--text);background:var(--border)}
+.modal-head-actions{display:flex;gap:6px;align-items:center}
+.modal-head-actions .icon-btn{background:none;border:none;color:var(--muted);cursor:pointer;padding:4px 6px;border-radius:4px;font-size:12px}
+.modal-head-actions .icon-btn:hover{color:var(--text);background:var(--border)}
+.modal-head-actions .icon-btn.danger:hover{color:var(--red);background:rgba(248,81,73,.1)}
+/* Modal body */
+.modal-body{flex:1;overflow-y:auto;padding:0}
+/* Detail view */
+.detail-section{padding:16px 20px}
+.detail-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px}
+.badge{font-size:11px;padding:3px 10px;border-radius:12px;font-weight:500;display:inline-flex;align-items:center;gap:5px}
+.badge .dot{width:7px;height:7px;border-radius:50%}
+.badge-status{background:var(--bg);border:1px solid var(--border)}
+.badge-status.backlog .dot{background:#484f58}
+.badge-status.in_progress .dot{background:var(--yellow)}
+.badge-status.review .dot{background:var(--blue)}
+.badge-status.archived .dot{background:var(--green)}
+.badge-priority{background:var(--bg);border:1px solid var(--border)}
+.badge-priority.urgent{color:var(--red);border-color:rgba(248,81,73,.3)}
+.badge-priority.high{color:var(--yellow);border-color:rgba(210,153,34,.3)}
+.badge-priority.medium{color:var(--blue);border-color:rgba(88,166,255,.3)}
+.badge-priority.low,.badge-priority.none{color:var(--muted)}
+.detail-agent{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:16px}
+.agent-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.agent-name{font-weight:600;color:var(--text)}
+.detail-labels{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:16px}
+.detail-desc{padding:14px 16px;background:var(--bg);border-radius:8px;margin-bottom:4px}
+.detail-desc-empty{color:var(--muted);font-size:13px;font-style:italic}
+.detail-assignee{font-size:12px;color:var(--muted);margin-bottom:16px;display:flex;align-items:center;gap:6px}
+.detail-assignee .agent-name{color:var(--purple)}
+/* Subtasks */
+.subtask-list{margin-bottom:16px}
+.subtask-list h4{font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+.subtask-row{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg);border-radius:6px;margin-bottom:4px;font-size:13px;cursor:pointer}
+.subtask-row:hover{border-color:var(--muted)}
+.subtask-row .subtask-id{font-family:monospace;font-size:11px;color:var(--muted)}
+/* Edit form */
+.edit-section{padding:16px 20px;border-top:1px solid var(--border);background:rgba(22,27,34,.5)}
+.edit-section h3{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
 .form-group{margin-bottom:12px}
 .form-group label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
 .form-group input,.form-group textarea,.form-group select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;font-size:13px;font-family:inherit}
 .form-group textarea{resize:vertical;min-height:60px}
-.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
-.comments-section{margin-top:20px;border-top:1px solid var(--border);padding-top:16px}
-.comments-section h3{font-size:13px;color:var(--muted);margin-bottom:10px}
-.comment{padding:8px 10px;background:var(--bg);border-radius:6px;margin-bottom:6px;font-size:13px}
-.comment .comment-meta{font-size:11px;color:var(--muted);margin-bottom:4px;display:flex;justify-content:space-between}
-.comment .delete-comment{cursor:pointer;color:var(--red);opacity:.5;font-size:11px;background:none;border:none}
-.comment .delete-comment:hover{opacity:1}
-.comment-form{display:flex;gap:6px;margin-top:8px}
-.comment-form input{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:13px}
+.form-row{display:flex;gap:12px}
+.form-row>div{flex:1}
+.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+/* Comments */
+.comments-section{border-top:1px solid var(--border);padding:16px 20px}
+.comments-header{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
+.comment{padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;font-size:13px}
+.comment-header{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.comment-header .agent-dot{width:6px;height:6px}
+.comment-header .agent-name{font-size:12px;font-weight:600;color:var(--text)}
+.comment-header .comment-time{font-size:11px;color:var(--muted);margin-left:auto}
+.comment-header .delete-comment{cursor:pointer;color:var(--red);opacity:.4;font-size:11px;background:none;border:none;margin-left:4px}
+.comment-header .delete-comment:hover{opacity:1}
+.comment-body{line-height:1.5}
+.comment-form{display:flex;gap:8px;margin-top:12px;align-items:flex-end}
+.comment-form textarea{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:8px;font-size:13px;font-family:inherit;resize:none;min-height:36px;max-height:120px}
+.comment-form textarea:focus{outline:none;border-color:var(--blue)}
+.comment-form .send-btn{background:#238636;border:none;color:#fff;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap}
+.comment-form .send-btn:hover{background:#2ea043}
+.no-comments{text-align:center;color:var(--muted);font-size:12px;padding:12px 0}
 .status-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
 .status-backlog .status-dot{background:#484f58}
 .status-in_progress .status-dot{background:var(--yellow)}
@@ -74,7 +128,7 @@ header input{width:200px}
 .md-content p{margin:0 0 8px}
 .md-content p:last-child{margin-bottom:0}
 .md-content code{background:var(--bg);padding:2px 5px;border-radius:4px;font-size:12px;font-family:'SFMono-Regular',Consolas,monospace}
-.md-content pre{background:var(--bg);padding:10px 12px;border-radius:6px;overflow-x:auto;margin:8px 0}
+.md-content pre{background:var(--surface);padding:10px 12px;border-radius:6px;overflow-x:auto;margin:8px 0}
 .md-content pre code{background:none;padding:0}
 .md-content ul,.md-content ol{margin:4px 0 8px 20px}
 .md-content li{margin:2px 0}
@@ -103,31 +157,42 @@ header input{width:200px}
 
 <div class="board" id="board"></div>
 
-<!-- Create / Edit Modal -->
+<!-- Detail / Edit Modal -->
 <div class="modal-overlay" id="modal">
+  <div class="modal" id="modalInner"></div>
+</div>
+
+<!-- Create Modal -->
+<div class="modal-overlay" id="createModal">
   <div class="modal">
-    <h2><span id="modalTitle">New Item</span><button class="close" onclick="closeModal()">&times;</button></h2>
-    <form id="itemForm" onsubmit="return saveItem(event)">
-      <input type="hidden" id="editId">
-      <div class="form-group"><label>Title</label><input id="fTitle" required></div>
-      <div class="form-group"><label>Description <small style="color:var(--muted)">(Markdown)</small></label><textarea id="fDesc" oninput="updateDescPreview()"></textarea><div id="descPreview" class="md-content" style="margin-top:6px;padding:8px 10px;border-radius:6px;min-height:0;display:none;background:var(--bg)"></div></div>
-      <div class="form-group" style="display:flex;gap:12px">
-        <div style="flex:1"><label>Status</label>
-          <select id="fStatus"><option>backlog</option><option>in_progress</option><option>review</option><option>archived</option></select>
-        </div>
-        <div style="flex:1"><label>Priority</label>
-          <select id="fPriority"><option>none</option><option>urgent</option><option>high</option><option>medium</option><option>low</option></select>
-        </div>
+    <div class="modal-head">
+      <div class="modal-head-row">
+        <span style="font-size:16px;font-weight:600">New Item</span>
+        <button class="close-btn" onclick="closeCreateModal()">&times;</button>
       </div>
-      <div class="form-group"><label>Labels (comma-separated)</label><input id="fLabels" placeholder="bug, feature"></div>
-      <div class="form-group"><label>Assignee</label><input id="fAssignee" placeholder="agent-id"></div>
-      <div id="commentsArea"></div>
-      <div class="form-actions">
-        <button type="button" class="btn" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn" style="color:var(--red)" id="deleteBtn" onclick="deleteItem()">Delete</button>
-        <button type="submit" class="btn btn-primary" id="saveBtn">Create</button>
-      </div>
-    </form>
+    </div>
+    <div class="modal-body" style="padding:16px 20px">
+      <form id="createForm" onsubmit="return createItem(event)">
+        <div class="form-group"><label>Title</label><input id="cTitle" required placeholder="Item title"></div>
+        <div class="form-group"><label>Description <small style="color:var(--muted)">(Markdown)</small></label><textarea id="cDesc" placeholder="Describe the item..."></textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label>Status</label>
+            <select id="cStatus"><option>backlog</option><option>in_progress</option><option>review</option><option>archived</option></select>
+          </div>
+          <div class="form-group"><label>Priority</label>
+            <select id="cPriority"><option>none</option><option>urgent</option><option>high</option><option>medium</option><option>low</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Labels</label><input id="cLabels" placeholder="bug, feature"></div>
+          <div class="form-group"><label>Assignee</label><input id="cAssignee" placeholder="agent-id"></div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" onclick="closeCreateModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 
@@ -138,28 +203,43 @@ header input{width:200px}
 const API_BASE_STORAGE_KEY = 'hive-kanban-api-base';
 const STATUSES = ['backlog','in_progress','review','archived'];
 const STATUS_LABELS = {backlog:'Backlog',in_progress:'In Progress',review:'Review',archived:'Archived'};
+const PRIORITY_LABELS = {none:'None',urgent:'Urgent',high:'High',medium:'Medium',low:'Low'};
 let currentTask = '';
 let items = [];
 let draggedItemId = null;
 let suppressClickUntil = 0;
+let currentDetailId = null;
 
 const $ = id => document.getElementById(id);
 const token = () => $('tokenInput').value;
 
+// --- Agent colors (deterministic from name) ---
+function agentColor(name) {
+  if (!name) return '#484f58';
+  const colors = ['#f97583','#79c0ff','#56d364','#d2a8ff','#ffa657','#ff7b72','#7ee787','#a5d6ff','#d29922','#bc8cff'];
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
+  return colors[Math.abs(h) % colors.length];
+}
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  if (s < 86400) return Math.floor(s/3600) + 'h ago';
+  return Math.floor(s/86400) + 'd ago';
+}
+
+// --- API / infra ---
 function defaultApiBase() {
   const isLocalHost = ['127.0.0.1', 'localhost', '::1'].includes(location.hostname);
   if (location.protocol === 'file:') return 'https://hive.rllm-project.com';
   if (isLocalHost) return 'https://hive.rllm-project.com';
   return location.origin;
 }
-
-function normalizeApiBase(raw) {
-  return (raw || '').trim().replace(/\/+$/,'');
-}
-
-function apiBase() {
-  return normalizeApiBase($('apiBaseInput').value) || defaultApiBase();
-}
+function normalizeApiBase(raw) { return (raw || '').trim().replace(/\/+$/,''); }
+function apiBase() { return normalizeApiBase($('apiBaseInput').value) || defaultApiBase(); }
 
 function applyApiTarget() {
   const value = normalizeApiBase($('apiBaseInput').value);
@@ -167,8 +247,7 @@ function applyApiTarget() {
   else localStorage.removeItem(API_BASE_STORAGE_KEY);
   $('apiBaseInput').value = value || defaultApiBase();
   toast(`API target: ${apiBase()}`);
-  loadTasks();
-  loadItems();
+  loadTasks(); loadItems();
 }
 
 function toast(msg) {
@@ -178,31 +257,29 @@ function toast(msg) {
 
 async function api(path, opts = {}) {
   const sep = path.includes('?') ? '&' : '?';
-  const base = apiBase();
-  const url = `${base}/api${path}${token() ? sep + 'token=' + token() : ''}`;
+  const url = `${apiBase()}/api${path}${token() ? sep + 'token=' + token() : ''}`;
   const res = await fetch(url, {headers: {'Content-Type': 'application/json'}, ...opts});
   if (res.status === 204) return null;
-  const contentType = res.headers.get('content-type') || '';
-  const data = contentType.includes('application/json') ? await res.json() : await res.text();
-  if (!res.ok) {
-    const detail = typeof data === 'string' ? data : (data.detail || 'Error');
-    toast(detail);
-    throw new Error(detail);
-  }
+  const ct = res.headers.get('content-type') || '';
+  const data = ct.includes('application/json') ? await res.json() : await res.text();
+  if (!res.ok) { const d = typeof data === 'string' ? data : (data.detail || 'Error'); toast(d); throw new Error(d); }
   return data;
 }
 
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function renderMd(s) {
+  if (!s) return '';
+  try { return marked.parse(s, {breaks: true, gfm: true}); } catch { return esc(s); }
+}
+
+// --- Data loading ---
 async function loadTasks() {
   const sel = $('taskSelect');
   sel.innerHTML = '<option value="">Select task...</option>';
   let page = 1;
   while (true) {
     const data = await api(`/tasks?page=${page}&per_page=100`);
-    data.tasks.forEach(t => {
-      const o = document.createElement('option');
-      o.value = t.id; o.textContent = `${t.name} (${t.id})`;
-      sel.appendChild(o);
-    });
+    data.tasks.forEach(t => { const o = document.createElement('option'); o.value = t.id; o.textContent = `${t.name} (${t.id})`; sel.appendChild(o); });
     if (!data.has_next) break;
     page++;
   }
@@ -215,6 +292,7 @@ async function loadItems() {
   renderBoard();
 }
 
+// --- Board rendering ---
 function renderBoard() {
   const board = $('board');
   board.innerHTML = '';
@@ -244,28 +322,21 @@ function renderBoard() {
         card.addEventListener('dragstart', e => {
           draggedItemId = item.id;
           card.classList.add('dragging');
-          if (e.dataTransfer) {
-            e.dataTransfer.setData('text/plain', item.id);
-            e.dataTransfer.effectAllowed = 'move';
-          }
+          if (e.dataTransfer) { e.dataTransfer.setData('text/plain', item.id); e.dataTransfer.effectAllowed = 'move'; }
           suppressClickUntil = Date.now() + 250;
         });
         card.addEventListener('dragend', () => {
-          draggedItemId = null;
-          card.classList.remove('dragging');
+          draggedItemId = null; card.classList.remove('dragging');
           document.querySelectorAll('.col-body.drag-over').forEach(el => el.classList.remove('drag-over'));
           suppressClickUntil = Date.now() + 250;
         });
-        card.onclick = () => {
-          if (Date.now() < suppressClickUntil) return;
-          openEditModal(item.id);
-        };
+        card.onclick = () => { if (Date.now() < suppressClickUntil) return; openDetailModal(item.id); };
         const labels = (item.labels||[]).map(l => `<span class="label">${l}</span>`).join('');
         const canDelete = item.created_by === token();
         card.innerHTML = `
           <div class="card-header">
             <div class="card-title">${esc(item.title)}</div>
-            ${canDelete ? `<button class="card-delete" title="Delete" data-delete="${item.id}">&times;</button>` : ''}
+            ${canDelete ? `<button class="card-delete" title="Delete">&times;</button>` : ''}
           </div>
           <div class="card-meta">
             <span class="drag-handle" title="Drag to move">::</span>
@@ -277,117 +348,173 @@ function renderBoard() {
         body.appendChild(card);
       });
     }
-    // Drop zone
-    const dropZone = col.querySelector('.col-body');
-    dropZone.ondragenter = e => {
-      e.preventDefault();
-      dropZone.classList.add('drag-over');
-    };
-    dropZone.ondragover = e => {
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-      dropZone.classList.add('drag-over');
-    };
-    dropZone.ondragleave = e => {
-      if (e.target === dropZone) dropZone.classList.remove('drag-over');
-    };
-    dropZone.ondrop = async e => {
-      e.preventDefault();
-      dropZone.classList.remove('drag-over');
+    // Drop zones
+    const dz = col.querySelector('.col-body');
+    dz.ondragenter = e => { e.preventDefault(); dz.classList.add('drag-over'); };
+    dz.ondragover = e => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; dz.classList.add('drag-over'); };
+    dz.ondragleave = e => { if (e.target === dz) dz.classList.remove('drag-over'); };
+    dz.ondrop = async e => {
+      e.preventDefault(); dz.classList.remove('drag-over');
       const id = e.dataTransfer?.getData('text/plain') || draggedItemId;
-      if (!id) return;
-      if (items.find(i => i.id === id)?.status === status) return;
+      if (!id || items.find(i => i.id === id)?.status === status) return;
       await api(`/tasks/${currentTask}/items/${id}`, {method:'PATCH', body: JSON.stringify({status})});
-      toast(`Moved to ${STATUS_LABELS[status]}`);
-      loadItems();
+      toast(`Moved to ${STATUS_LABELS[status]}`); loadItems();
     };
     board.appendChild(col);
   });
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+// --- Detail modal (post-style) ---
+async function openDetailModal(id) {
+  currentDetailId = id;
+  const [data, cData] = await Promise.all([
+    api(`/tasks/${currentTask}/items/${id}`),
+    api(`/tasks/${currentTask}/items/${id}/comments?per_page=100`)
+  ]);
+  const item = data.item || data;
+  const comments = (cData.comments || cData) || [];
+  const children = item.children || item.subtasks || [];
+  const canDelete = item.created_by === token();
+  const isOwner = item.assignee_id === token();
 
-function renderMd(s) {
-  if (!s) return '';
-  try { return marked.parse(s, {breaks: true, gfm: true}); }
-  catch { return esc(s); }
-}
+  const inner = $('modalInner');
+  inner.innerHTML = `
+    <!-- Header -->
+    <div class="modal-head">
+      <div class="modal-head-row">
+        <div>
+          <span class="item-slug">${esc(item.slug || item.id)}</span>
+          <span style="font-size:11px;color:var(--muted);margin-left:6px">&middot; ${timeAgo(item.created_at)}</span>
+        </div>
+        <div class="modal-head-actions">
+          <button class="icon-btn" onclick="toggleEditSection()" title="Edit">&#9998;</button>
+          ${canDelete ? `<button class="icon-btn danger" onclick="deleteItemFromDetail('${item.id}')" title="Delete">&#128465;</button>` : ''}
+          <button class="close-btn" onclick="closeModal()">&times;</button>
+        </div>
+      </div>
+      <div class="item-title-display">${esc(item.title)}</div>
+    </div>
 
-function updateDescPreview() {
-  const v = $('fDesc').value;
-  const pre = $('descPreview');
-  if (v.trim()) { pre.innerHTML = renderMd(v); pre.style.display = 'block'; }
-  else { pre.innerHTML = ''; pre.style.display = 'none'; }
-}
+    <!-- Body -->
+    <div class="modal-body">
+      <!-- Meta badges -->
+      <div class="detail-section" style="padding-bottom:0">
+        <div class="detail-meta">
+          <span class="badge badge-status ${item.status}"><span class="dot"></span>${STATUS_LABELS[item.status] || item.status}</span>
+          <span class="badge badge-priority ${item.priority}">${PRIORITY_LABELS[item.priority] || item.priority}</span>
+          ${(item.labels||[]).map(l => `<span class="label">${esc(l)}</span>`).join('')}
+        </div>
 
-function openCreateModal() {
-  if (!currentTask) { toast('Select a task first'); return; }
-  $('modalTitle').textContent = 'New Item';
-  $('editId').value = '';
-  $('fTitle').value = ''; $('fDesc').value = ''; $('fStatus').value = 'backlog';
-  $('fPriority').value = 'none'; $('fLabels').value = ''; $('fAssignee').value = '';
-  $('deleteBtn').style.display = 'none';
-  $('saveBtn').textContent = 'Create';
-  $('commentsArea').innerHTML = '';
+        <!-- Agent info -->
+        <div class="detail-agent">
+          <span class="agent-dot" style="background:${agentColor(item.created_by)}"></span>
+          <span class="agent-name">${esc(item.created_by || '')}</span>
+          <span>created</span>
+          ${item.assignee_id ? `
+            <span style="margin-left:8px">&middot;</span>
+            <span class="agent-dot" style="background:${agentColor(item.assignee_id)}"></span>
+            <span class="agent-name" style="color:var(--purple)">${esc(item.assignee_id)}</span>
+            <span>assigned</span>
+          ` : '<span style="margin-left:8px">&middot; unassigned</span>'}
+        </div>
+
+        <!-- Description -->
+        ${item.description
+          ? `<div class="detail-desc"><div class="md-content">${renderMd(item.description)}</div></div>`
+          : `<div class="detail-desc"><div class="detail-desc-empty">No description</div></div>`
+        }
+      </div>
+
+      <!-- Subtasks -->
+      ${children.length ? `
+        <div class="detail-section" style="padding-top:8px">
+          <div class="subtask-list">
+            <h4>Subtasks (${children.length})</h4>
+            ${children.map(s => `
+              <div class="subtask-row" onclick="openDetailModal('${s.id || s.slug}')">
+                <span class="badge badge-status ${s.status}"><span class="dot"></span></span>
+                <span class="subtask-id">${esc(s.slug || s.id)}</span>
+                <span>${esc(s.title)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- Edit section (collapsed by default) -->
+      <div class="edit-section" id="editSection" style="display:none">
+        <h3>Edit</h3>
+        <form onsubmit="return saveItemFromDetail(event, '${item.id}')">
+          <div class="form-group"><label>Title</label><input id="eTitle" value="${esc(item.title)}"></div>
+          <div class="form-group"><label>Description <small style="color:var(--muted)">(Markdown)</small></label><textarea id="eDesc">${esc(item.description || '')}</textarea></div>
+          <div class="form-row">
+            <div class="form-group"><label>Status</label>
+              <select id="eStatus">${STATUSES.map(s => `<option ${s===item.status?'selected':''}>${s}</option>`).join('')}</select>
+            </div>
+            <div class="form-group"><label>Priority</label>
+              <select id="ePriority">${['none','urgent','high','medium','low'].map(p => `<option ${p===item.priority?'selected':''}>${p}</option>`).join('')}</select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Labels</label><input id="eLabels" value="${esc((item.labels||[]).join(', '))}"></div>
+            <div class="form-group"><label>Assignee</label><input id="eAssignee" value="${esc(item.assignee_id || '')}" placeholder="agent-id"></div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn" onclick="toggleEditSection()">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Comments -->
+      <div class="comments-section">
+        <div class="comments-header">Comments (${comments.length})</div>
+        ${comments.length ? comments.map(c => `
+          <div class="comment">
+            <div class="comment-header">
+              <span class="agent-dot" style="background:${agentColor(c.agent_id)}"></span>
+              <span class="agent-name">${esc(c.agent_id)}</span>
+              <span class="comment-time">${timeAgo(c.created_at)}</span>
+              ${c.agent_id === token() ? `<button class="delete-comment" onclick="deleteComment('${item.id}',${c.id})">delete</button>` : ''}
+            </div>
+            <div class="comment-body md-content">${renderMd(c.content)}</div>
+          </div>
+        `).join('') : '<div class="no-comments">No comments yet</div>'}
+        <div class="comment-form">
+          <textarea id="commentInput" placeholder="Write a comment..." rows="1" onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)){event.preventDefault();addComment('${item.id}')}"></textarea>
+          <button class="send-btn" onclick="addComment('${item.id}')">Send</button>
+        </div>
+      </div>
+    </div>`;
+
   $('modal').classList.add('open');
-  $('fTitle').focus();
 }
 
-async function openEditModal(id) {
-  const data = await api(`/tasks/${currentTask}/items/${id}`);
-  $('modalTitle').textContent = data.id;
-  $('editId').value = data.id;
-  $('fTitle').value = data.title;
-  $('fDesc').value = data.description || '';
-  $('fStatus').value = data.status;
-  $('fPriority').value = data.priority;
-  $('fLabels').value = (data.labels||[]).join(', ');
-  $('fAssignee').value = data.assignee_id || '';
-  $('deleteBtn').style.display = data.created_by === token() ? '' : 'none';
-  $('saveBtn').textContent = 'Save';
-  updateDescPreview();
-  // Load comments
-  const cData = await api(`/tasks/${currentTask}/items/${id}/comments?per_page=100`);
-  let html = '<div class="comments-section"><h3>Comments (' + cData.comments.length + ')</h3>';
-  cData.comments.forEach(c => {
-    const canDel = c.agent_id === token();
-    html += `<div class="comment"><div class="comment-meta"><span>${c.agent_id} &middot; ${new Date(c.created_at).toLocaleString()}</span>
-      ${canDel ? `<button type="button" class="delete-comment" onclick="deleteComment('${id}',${c.id})">delete</button>` : ''}</div>
-      <div class="md-content">${renderMd(c.content)}</div></div>`;
-  });
-  html += `<div class="comment-form"><input id="commentInput" placeholder="Add a comment..." onkeydown="if(event.key==='Enter'){event.preventDefault();addComment('${id}')}">
-    <button class="btn" type="button" onclick="addComment('${id}')">Send</button></div></div>`;
-  $('commentsArea').innerHTML = html;
-  $('modal').classList.add('open');
+function toggleEditSection() {
+  const es = $('editSection');
+  es.style.display = es.style.display === 'none' ? '' : 'none';
+  if (es.style.display !== 'none') $('eTitle').focus();
 }
 
-function closeModal() { $('modal').classList.remove('open'); }
-
-async function saveItem(e) {
+async function saveItemFromDetail(e, id) {
   e.preventDefault();
-  const labels = $('fLabels').value.split(',').map(l=>l.trim()).filter(Boolean);
+  const labels = $('eLabels').value.split(',').map(l=>l.trim()).filter(Boolean);
   const body = {
-    title: $('fTitle').value,
-    description: $('fDesc').value || null,
-    status: $('fStatus').value,
-    priority: $('fPriority').value,
+    title: $('eTitle').value,
+    description: $('eDesc').value || null,
+    status: $('eStatus').value,
+    priority: $('ePriority').value,
     labels,
+    assignee_id: $('eAssignee').value || null,
   };
-  body.assignee_id = $('fAssignee').value || null;
-  const editId = $('editId').value;
-  if (editId) {
-    await api(`/tasks/${currentTask}/items/${editId}`, {method:'PATCH', body: JSON.stringify(body)});
-    toast('Updated');
-  } else {
-    await api(`/tasks/${currentTask}/items`, {method:'POST', body: JSON.stringify(body)});
-    toast('Created');
-  }
-  closeModal(); loadItems();
+  await api(`/tasks/${currentTask}/items/${id}`, {method:'PATCH', body: JSON.stringify(body)});
+  toast('Updated');
+  loadItems();
+  openDetailModal(id);
 }
 
-async function deleteItem() {
-  const id = $('editId').value;
-  if (!id || !confirm(`Delete ${id}?`)) return;
+async function deleteItemFromDetail(id) {
+  if (!confirm(`Delete ${id}?`)) return;
   await api(`/tasks/${currentTask}/items/${id}`, {method:'DELETE'});
   toast('Deleted'); closeModal(); loadItems();
 }
@@ -398,29 +525,58 @@ async function deleteItemDirect(id) {
   toast('Deleted'); loadItems();
 }
 
+function closeModal() { $('modal').classList.remove('open'); currentDetailId = null; }
+
+// --- Create modal ---
+function openCreateModal() {
+  if (!currentTask) { toast('Select a task first'); return; }
+  $('cTitle').value = ''; $('cDesc').value = ''; $('cStatus').value = 'backlog';
+  $('cPriority').value = 'none'; $('cLabels').value = ''; $('cAssignee').value = '';
+  $('createModal').classList.add('open');
+  $('cTitle').focus();
+}
+function closeCreateModal() { $('createModal').classList.remove('open'); }
+
+async function createItem(e) {
+  e.preventDefault();
+  const labels = $('cLabels').value.split(',').map(l=>l.trim()).filter(Boolean);
+  const body = {
+    title: $('cTitle').value,
+    description: $('cDesc').value || null,
+    status: $('cStatus').value,
+    priority: $('cPriority').value,
+    labels,
+    assignee_id: $('cAssignee').value || null,
+  };
+  await api(`/tasks/${currentTask}/items`, {method:'POST', body: JSON.stringify(body)});
+  toast('Created');
+  closeCreateModal(); loadItems();
+}
+
+// --- Comments ---
 async function addComment(itemId) {
   const input = $('commentInput');
   if (!input.value.trim()) return;
   await api(`/tasks/${currentTask}/items/${itemId}/comments`, {method:'POST', body: JSON.stringify({content: input.value})});
-  openEditModal(itemId);
+  openDetailModal(itemId);
 }
 
 async function deleteComment(itemId, commentId) {
   await api(`/tasks/${currentTask}/items/${itemId}/comments/${commentId}`, {method:'DELETE'});
-  openEditModal(itemId);
+  openDetailModal(itemId);
 }
 
-// Init
+// --- Init ---
 $('apiBaseInput').value = normalizeApiBase(localStorage.getItem(API_BASE_STORAGE_KEY)) || defaultApiBase();
 $('taskSelect').onchange = e => { currentTask = e.target.value; loadItems(); };
 $('tokenInput').onchange = () => loadItems();
-$('apiBaseInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    applyApiTarget();
+$('apiBaseInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyApiTarget(); } });
+document.onkeydown = e => {
+  if (e.key === 'Escape') {
+    if ($('createModal').classList.contains('open')) closeCreateModal();
+    else closeModal();
   }
-});
-document.onkeydown = e => { if (e.key === 'Escape') closeModal(); };
+};
 loadTasks();
 </script>
 </body></html>
