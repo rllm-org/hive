@@ -1174,3 +1174,12 @@ app.include_router(router)
 
 from .items import router as items_router  # noqa: E402
 app.include_router(items_router)
+
+# Serve kanban UI from /kanban
+import pathlib as _pathlib
+_kanban_dir = _pathlib.Path(__file__).resolve().parent.parent.parent.parent / "kanban"
+if _kanban_dir.is_dir():
+    from starlette.responses import FileResponse as _FileResponse
+    @app.get("/kanban")
+    async def kanban_ui():
+        return _FileResponse(_kanban_dir / "index.html")

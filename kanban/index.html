@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hive Kanban</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;--muted:#8b949e;--blue:#58a6ff;--green:#3fb950;--yellow:#d29922;--red:#f85149;--purple:#bc8cff}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;display:flex;flex-direction:column}
+header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;flex-shrink:0}
+header h1{font-size:18px;font-weight:600}
+header select,header input{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:6px;font-size:13px}
+header select{min-width:180px}
+header input{width:200px}
+.toolbar{margin-left:auto;display:flex;gap:8px}
+.btn{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 14px;border-radius:6px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.btn:hover{border-color:var(--muted)}
+.btn-primary{background:#238636;border-color:#238636;color:#fff}
+.btn-primary:hover{background:#2ea043}
+.board{display:flex;gap:12px;padding:16px 24px;flex:1;overflow-x:auto;min-height:0}
+.column{min-width:260px;width:260px;background:var(--surface);border-radius:10px;display:flex;flex-direction:column;max-height:100%}
+.col-header{padding:12px 14px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);flex-shrink:0}
+.col-header .count{background:var(--border);border-radius:10px;padding:1px 8px;font-size:11px;font-weight:500;color:var(--muted)}
+.col-body{padding:8px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:6px}
+.card{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;transition:border-color .15s}
+.card:hover{border-color:var(--muted)}
+.card-title{font-size:13px;font-weight:500;margin-bottom:6px;line-height:1.4}
+.card-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.card-id{font-size:11px;color:var(--muted);font-family:monospace}
+.label{font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(88,166,255,0.15);color:var(--blue)}
+.priority-urgent{border-left:3px solid var(--red)}
+.priority-high{border-left:3px solid var(--yellow)}
+.priority-medium{border-left:3px solid var(--blue)}
+.assignee{font-size:11px;color:var(--purple);margin-left:auto}
+/* Modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;justify-content:center;align-items:flex-start;padding-top:80px}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:560px;max-height:80vh;overflow-y:auto;padding:24px}
+.modal h2{font-size:16px;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.modal h2 .close{margin-left:auto;cursor:pointer;color:var(--muted);font-size:20px;background:none;border:none}
+.form-group{margin-bottom:12px}
+.form-group label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.form-group input,.form-group textarea,.form-group select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;font-size:13px;font-family:inherit}
+.form-group textarea{resize:vertical;min-height:60px}
+.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.comments-section{margin-top:20px;border-top:1px solid var(--border);padding-top:16px}
+.comments-section h3{font-size:13px;color:var(--muted);margin-bottom:10px}
+.comment{padding:8px 10px;background:var(--bg);border-radius:6px;margin-bottom:6px;font-size:13px}
+.comment .comment-meta{font-size:11px;color:var(--muted);margin-bottom:4px;display:flex;justify-content:space-between}
+.comment .delete-comment{cursor:pointer;color:var(--red);opacity:.5;font-size:11px;background:none;border:none}
+.comment .delete-comment:hover{opacity:1}
+.comment-form{display:flex;gap:6px;margin-top:8px}
+.comment-form input{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:13px}
+.status-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.status-backlog .status-dot{background:#484f58}
+.status-todo .status-dot{background:var(--blue)}
+.status-in_progress .status-dot{background:var(--yellow)}
+.status-done .status-dot{background:var(--green)}
+.status-cancelled .status-dot{background:var(--red)}
+.empty{text-align:center;color:var(--muted);font-size:12px;padding:20px 0}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--surface);border:1px solid var(--border);padding:10px 16px;border-radius:8px;font-size:13px;z-index:200;opacity:0;transition:opacity .3s}
+.toast.show{opacity:1}
+</style>
+</head><body>
+
+<header>
+  <h1>Hive Kanban</h1>
+  <select id="taskSelect"><option value="">Select task...</option></select>
+  <input id="tokenInput" placeholder="Agent token" value="local-dev">
+  <div class="toolbar">
+    <button class="btn btn-primary" onclick="openCreateModal()">+ New Item</button>
+  </div>
+</header>
+
+<div class="board" id="board"></div>
+
+<!-- Create / Edit Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h2><span id="modalTitle">New Item</span><button class="close" onclick="closeModal()">&times;</button></h2>
+    <form id="itemForm" onsubmit="return saveItem(event)">
+      <input type="hidden" id="editId">
+      <div class="form-group"><label>Title</label><input id="fTitle" required></div>
+      <div class="form-group"><label>Description</label><textarea id="fDesc"></textarea></div>
+      <div class="form-group" style="display:flex;gap:12px">
+        <div style="flex:1"><label>Status</label>
+          <select id="fStatus"><option>backlog</option><option>todo</option><option>in_progress</option><option>done</option><option>cancelled</option></select>
+        </div>
+        <div style="flex:1"><label>Priority</label>
+          <select id="fPriority"><option>none</option><option>urgent</option><option>high</option><option>medium</option><option>low</option></select>
+        </div>
+      </div>
+      <div class="form-group"><label>Labels (comma-separated)</label><input id="fLabels" placeholder="bug, feature"></div>
+      <div class="form-group"><label>Assignee</label><input id="fAssignee" placeholder="agent-id"></div>
+      <div id="commentsArea"></div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeModal()">Cancel</button>
+        <button type="button" class="btn" style="color:var(--red)" id="deleteBtn" onclick="deleteItem()">Delete</button>
+        <button type="submit" class="btn btn-primary" id="saveBtn">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = (location.protocol === 'file:' ? 'http://127.0.0.1:8888' : '') + '/api';
+const STATUSES = ['backlog','todo','in_progress','done','cancelled'];
+const STATUS_LABELS = {backlog:'Backlog',todo:'To Do',in_progress:'In Progress',done:'Done',cancelled:'Cancelled'};
+let currentTask = '';
+let items = [];
+
+const $ = id => document.getElementById(id);
+const token = () => $('tokenInput').value;
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+async function api(path, opts = {}) {
+  const sep = path.includes('?') ? '&' : '?';
+  const url = `${API}${path}${token() ? sep + 'token=' + token() : ''}`;
+  const res = await fetch(url, {headers: {'Content-Type': 'application/json'}, ...opts});
+  if (res.status === 204) return null;
+  const data = await res.json();
+  if (!res.ok) { toast(data.detail || 'Error'); throw new Error(data.detail); }
+  return data;
+}
+
+async function loadTasks() {
+  const sel = $('taskSelect');
+  sel.innerHTML = '<option value="">Select task...</option>';
+  let page = 1;
+  while (true) {
+    const data = await api(`/tasks?page=${page}&per_page=100`);
+    data.tasks.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t.id; o.textContent = `${t.name} (${t.id})`;
+      sel.appendChild(o);
+    });
+    if (!data.has_next) break;
+    page++;
+  }
+}
+
+async function loadItems() {
+  if (!currentTask) { items = []; renderBoard(); return; }
+  const data = await api(`/tasks/${currentTask}/items?per_page=100`);
+  items = data.items;
+  renderBoard();
+}
+
+function renderBoard() {
+  const board = $('board');
+  board.innerHTML = '';
+  STATUSES.forEach(status => {
+    const col = document.createElement('div');
+    col.className = 'column';
+    const statusItems = items.filter(i => i.status === status);
+    col.innerHTML = `
+      <div class="col-header status-${status}">
+        <span class="status-dot"></span>${STATUS_LABELS[status]}
+        <span class="count">${statusItems.length}</span>
+      </div>
+      <div class="col-body" data-status="${status}"></div>`;
+    const body = col.querySelector('.col-body');
+    if (!statusItems.length) {
+      body.innerHTML = '<div class="empty">No items</div>';
+    } else {
+      statusItems.forEach(item => {
+        const card = document.createElement('div');
+        let cls = 'card';
+        if (item.priority === 'urgent') cls += ' priority-urgent';
+        else if (item.priority === 'high') cls += ' priority-high';
+        else if (item.priority === 'medium') cls += ' priority-medium';
+        card.className = cls;
+        card.draggable = true;
+        card.dataset.id = item.id;
+        card.ondragstart = e => e.dataTransfer.setData('text/plain', item.id);
+        card.onclick = () => openEditModal(item.id);
+        const labels = (item.labels||[]).map(l => `<span class="label">${l}</span>`).join('');
+        card.innerHTML = `
+          <div class="card-title">${esc(item.title)}</div>
+          <div class="card-meta">
+            <span class="card-id">${item.id}</span>${labels}
+            ${item.assignee_id ? `<span class="assignee">${item.assignee_id}</span>` : ''}
+          </div>`;
+        body.appendChild(card);
+      });
+    }
+    // Drop zone
+    const dropZone = col.querySelector('.col-body');
+    dropZone.ondragover = e => { e.preventDefault(); dropZone.style.background = 'rgba(88,166,255,0.05)'; };
+    dropZone.ondragleave = () => dropZone.style.background = '';
+    dropZone.ondrop = async e => {
+      e.preventDefault(); dropZone.style.background = '';
+      const id = e.dataTransfer.getData('text/plain');
+      if (!id) return;
+      await api(`/tasks/${currentTask}/items/${id}`, {method:'PATCH', body: JSON.stringify({status})});
+      toast(`Moved to ${STATUS_LABELS[status]}`);
+      loadItems();
+    };
+    board.appendChild(col);
+  });
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function openCreateModal() {
+  if (!currentTask) { toast('Select a task first'); return; }
+  $('modalTitle').textContent = 'New Item';
+  $('editId').value = '';
+  $('fTitle').value = ''; $('fDesc').value = ''; $('fStatus').value = 'backlog';
+  $('fPriority').value = 'none'; $('fLabels').value = ''; $('fAssignee').value = '';
+  $('deleteBtn').style.display = 'none';
+  $('saveBtn').textContent = 'Create';
+  $('commentsArea').innerHTML = '';
+  $('modal').classList.add('open');
+  $('fTitle').focus();
+}
+
+async function openEditModal(id) {
+  const data = await api(`/tasks/${currentTask}/items/${id}`);
+  $('modalTitle').textContent = data.id;
+  $('editId').value = data.id;
+  $('fTitle').value = data.title;
+  $('fDesc').value = data.description || '';
+  $('fStatus').value = data.status;
+  $('fPriority').value = data.priority;
+  $('fLabels').value = (data.labels||[]).join(', ');
+  $('fAssignee').value = data.assignee_id || '';
+  $('deleteBtn').style.display = data.created_by === token() ? '' : 'none';
+  $('saveBtn').textContent = 'Save';
+  // Load comments
+  const cData = await api(`/tasks/${currentTask}/items/${id}/comments?per_page=100`);
+  let html = '<div class="comments-section"><h3>Comments (' + cData.comments.length + ')</h3>';
+  cData.comments.forEach(c => {
+    const canDel = c.agent_id === token();
+    html += `<div class="comment"><div class="comment-meta"><span>${c.agent_id} &middot; ${new Date(c.created_at).toLocaleString()}</span>
+      ${canDel ? `<button type="button" class="delete-comment" onclick="deleteComment('${id}',${c.id})">delete</button>` : ''}</div>
+      <div>${esc(c.content)}</div></div>`;
+  });
+  html += `<div class="comment-form"><input id="commentInput" placeholder="Add a comment..." onkeydown="if(event.key==='Enter'){event.preventDefault();addComment('${id}')}">
+    <button class="btn" type="button" onclick="addComment('${id}')">Send</button></div></div>`;
+  $('commentsArea').innerHTML = html;
+  $('modal').classList.add('open');
+}
+
+function closeModal() { $('modal').classList.remove('open'); }
+
+async function saveItem(e) {
+  e.preventDefault();
+  const labels = $('fLabels').value.split(',').map(l=>l.trim()).filter(Boolean);
+  const body = {
+    title: $('fTitle').value,
+    description: $('fDesc').value || null,
+    status: $('fStatus').value,
+    priority: $('fPriority').value,
+    labels,
+  };
+  body.assignee_id = $('fAssignee').value || null;
+  const editId = $('editId').value;
+  if (editId) {
+    await api(`/tasks/${currentTask}/items/${editId}`, {method:'PATCH', body: JSON.stringify(body)});
+    toast('Updated');
+  } else {
+    await api(`/tasks/${currentTask}/items`, {method:'POST', body: JSON.stringify(body)});
+    toast('Created');
+  }
+  closeModal(); loadItems();
+}
+
+async function deleteItem() {
+  const id = $('editId').value;
+  if (!id || !confirm(`Delete ${id}?`)) return;
+  await api(`/tasks/${currentTask}/items/${id}`, {method:'DELETE'});
+  toast('Deleted'); closeModal(); loadItems();
+}
+
+async function addComment(itemId) {
+  const input = $('commentInput');
+  if (!input.value.trim()) return;
+  await api(`/tasks/${currentTask}/items/${itemId}/comments`, {method:'POST', body: JSON.stringify({content: input.value})});
+  openEditModal(itemId);
+}
+
+async function deleteComment(itemId, commentId) {
+  await api(`/tasks/${currentTask}/items/${itemId}/comments/${commentId}`, {method:'DELETE'});
+  openEditModal(itemId);
+}
+
+// Init
+$('taskSelect').onchange = e => { currentTask = e.target.value; loadItems(); };
+$('tokenInput').onchange = () => loadItems();
+document.onkeydown = e => { if (e.key === 'Escape') closeModal(); };
+loadTasks();
+</script>
+</body></html>
