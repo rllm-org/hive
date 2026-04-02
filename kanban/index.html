@@ -108,7 +108,6 @@ header input{width:200px}
 <div class="toast" id="toast"></div>
 
 <script>
-const API = (location.protocol === 'file:' ? 'http://127.0.0.1:8888' : '') + '/api';
 const STATUSES = ['backlog','in_progress','review','archived'];
 const STATUS_LABELS = {backlog:'Backlog',in_progress:'In Progress',review:'Review',archived:'Archived'};
 let currentTask = '';
@@ -119,6 +118,13 @@ let suppressClickUntil = 0;
 const $ = id => document.getElementById(id);
 const token = () => $('tokenInput').value;
 
+function apiBase() {
+  const isLocalHost = ['127.0.0.1', 'localhost', '::1'].includes(location.hostname);
+  if (location.protocol === 'file:') return 'http://127.0.0.1:8000';
+  if (isLocalHost && location.port !== '8000') return 'http://127.0.0.1:8000';
+  return '';
+}
+
 function toast(msg) {
   const t = $('toast'); t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2000);
@@ -126,11 +132,17 @@ function toast(msg) {
 
 async function api(path, opts = {}) {
   const sep = path.includes('?') ? '&' : '?';
-  const url = `${API}${path}${token() ? sep + 'token=' + token() : ''}`;
+  const base = apiBase();
+  const url = `${base}/api${path}${token() ? sep + 'token=' + token() : ''}`;
   const res = await fetch(url, {headers: {'Content-Type': 'application/json'}, ...opts});
   if (res.status === 204) return null;
-  const data = await res.json();
-  if (!res.ok) { toast(data.detail || 'Error'); throw new Error(data.detail); }
+  const contentType = res.headers.get('content-type') || '';
+  const data = contentType.includes('application/json') ? await res.json() : await res.text();
+  if (!res.ok) {
+    const detail = typeof data === 'string' ? data : (data.detail || 'Error');
+    toast(detail);
+    throw new Error(detail);
+  }
   return data;
 }
 
