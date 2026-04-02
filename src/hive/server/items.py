@@ -170,10 +170,11 @@ _PARENT_Q = "SELECT parent_id FROM items WHERE id = %s AND deleted_at IS NULL"
 
 async def _depth_above(node_id: str, conn) -> int:
     current, depth = node_id, 0
-    while current is not None:
+    for _ in range(10):
         row = await (await conn.execute(_PARENT_Q, (current,))).fetchone()
         current = row["parent_id"] if row else None
-        if current is not None: depth += 1
+        if current is None: break
+        depth += 1
     return depth
 
 async def _depth_below(node_id: str, conn) -> int:
@@ -187,7 +188,8 @@ async def _check_cycle(item_id: str, new_parent_id: str, conn):
     if new_parent_id == item_id:
         raise HTTPException(400, "cycle detected: item cannot be its own parent")
     current = new_parent_id
-    while current is not None:
+    for _ in range(10):
+        if current is None: break
         if current == item_id:
             raise HTTPException(400, "cycle detected: would create circular parent chain")
         row = await (await conn.execute(_PARENT_Q, (current,))).fetchone()
