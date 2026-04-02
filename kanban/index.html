@@ -29,6 +29,11 @@ header input{width:200px}
 .card.dragging{opacity:.55;transform:scale(.98)}
 .card:hover{border-color:var(--muted)}
 .card-title{font-size:13px;font-weight:500;margin-bottom:6px;line-height:1.4}
+.card-header{display:flex;align-items:flex-start;gap:4px}
+.card-header .card-title{flex:1}
+.card-delete{background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 2px;opacity:0;transition:opacity .15s;line-height:1;flex-shrink:0}
+.card:hover .card-delete{opacity:.5}
+.card-delete:hover{opacity:1!important}
 .card-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .card-id{font-size:11px;color:var(--muted);font-family:monospace}
 .drag-handle{font-size:11px;color:var(--muted);letter-spacing:1px;margin-right:2px;user-select:none}
@@ -64,6 +69,24 @@ header input{width:200px}
 .empty{text-align:center;color:var(--muted);font-size:12px;padding:20px 0}
 .toast{position:fixed;bottom:20px;right:20px;background:var(--surface);border:1px solid var(--border);padding:10px 16px;border-radius:8px;font-size:13px;z-index:200;opacity:0;transition:opacity .3s}
 .toast.show{opacity:1}
+/* Markdown rendered content */
+.md-content{font-size:13px;line-height:1.6;color:var(--text)}
+.md-content p{margin:0 0 8px}
+.md-content p:last-child{margin-bottom:0}
+.md-content code{background:var(--bg);padding:2px 5px;border-radius:4px;font-size:12px;font-family:'SFMono-Regular',Consolas,monospace}
+.md-content pre{background:var(--bg);padding:10px 12px;border-radius:6px;overflow-x:auto;margin:8px 0}
+.md-content pre code{background:none;padding:0}
+.md-content ul,.md-content ol{margin:4px 0 8px 20px}
+.md-content li{margin:2px 0}
+.md-content blockquote{border-left:3px solid var(--border);padding-left:12px;color:var(--muted);margin:8px 0}
+.md-content h1,.md-content h2,.md-content h3{margin:12px 0 6px;font-weight:600}
+.md-content h1{font-size:16px} .md-content h2{font-size:14px} .md-content h3{font-size:13px}
+.md-content a{color:var(--blue);text-decoration:none}
+.md-content a:hover{text-decoration:underline}
+.md-content hr{border:none;border-top:1px solid var(--border);margin:12px 0}
+.md-content table{border-collapse:collapse;margin:8px 0;font-size:12px}
+.md-content th,.md-content td{border:1px solid var(--border);padding:4px 8px}
+.md-content th{background:var(--bg)}
 </style>
 </head><body>
 
@@ -87,7 +110,7 @@ header input{width:200px}
     <form id="itemForm" onsubmit="return saveItem(event)">
       <input type="hidden" id="editId">
       <div class="form-group"><label>Title</label><input id="fTitle" required></div>
-      <div class="form-group"><label>Description</label><textarea id="fDesc"></textarea></div>
+      <div class="form-group"><label>Description <small style="color:var(--muted)">(Markdown)</small></label><textarea id="fDesc" oninput="updateDescPreview()"></textarea><div id="descPreview" class="md-content" style="margin-top:6px;padding:8px 10px;border-radius:6px;min-height:0;display:none;background:var(--bg)"></div></div>
       <div class="form-group" style="display:flex;gap:12px">
         <div style="flex:1"><label>Status</label>
           <select id="fStatus"><option>backlog</option><option>in_progress</option><option>review</option><option>archived</option></select>
@@ -110,6 +133,7 @@ header input{width:200px}
 
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
 <script>
 const API_BASE_STORAGE_KEY = 'hive-kanban-api-base';
 const STATUSES = ['backlog','in_progress','review','archived'];
@@ -124,8 +148,8 @@ const token = () => $('tokenInput').value;
 
 function defaultApiBase() {
   const isLocalHost = ['127.0.0.1', 'localhost', '::1'].includes(location.hostname);
-  if (location.protocol === 'file:') return 'http://127.0.0.1:8000';
-  if (isLocalHost && location.port !== '8000') return 'http://127.0.0.1:8000';
+  if (location.protocol === 'file:') return 'https://hive.rllm-project.com';
+  if (isLocalHost) return 'https://hive.rllm-project.com';
   return location.origin;
 }
 
@@ -237,13 +261,19 @@ function renderBoard() {
           openEditModal(item.id);
         };
         const labels = (item.labels||[]).map(l => `<span class="label">${l}</span>`).join('');
+        const canDelete = item.created_by === token();
         card.innerHTML = `
-          <div class="card-title">${esc(item.title)}</div>
+          <div class="card-header">
+            <div class="card-title">${esc(item.title)}</div>
+            ${canDelete ? `<button class="card-delete" title="Delete" data-delete="${item.id}">&times;</button>` : ''}
+          </div>
           <div class="card-meta">
             <span class="drag-handle" title="Drag to move">::</span>
             <span class="card-id">${item.id}</span>${labels}
             ${item.assignee_id ? `<span class="assignee">${item.assignee_id}</span>` : ''}
           </div>`;
+        const delBtn = card.querySelector('.card-delete');
+        if (delBtn) delBtn.onclick = e => { e.stopPropagation(); deleteItemDirect(item.id); };
         body.appendChild(card);
       });
     }
@@ -277,6 +307,19 @@ function renderBoard() {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
+function renderMd(s) {
+  if (!s) return '';
+  try { return marked.parse(s, {breaks: true, gfm: true}); }
+  catch { return esc(s); }
+}
+
+function updateDescPreview() {
+  const v = $('fDesc').value;
+  const pre = $('descPreview');
+  if (v.trim()) { pre.innerHTML = renderMd(v); pre.style.display = 'block'; }
+  else { pre.innerHTML = ''; pre.style.display = 'none'; }
+}
+
 function openCreateModal() {
   if (!currentTask) { toast('Select a task first'); return; }
   $('modalTitle').textContent = 'New Item';
@@ -302,6 +345,7 @@ async function openEditModal(id) {
   $('fAssignee').value = data.assignee_id || '';
   $('deleteBtn').style.display = data.created_by === token() ? '' : 'none';
   $('saveBtn').textContent = 'Save';
+  updateDescPreview();
   // Load comments
   const cData = await api(`/tasks/${currentTask}/items/${id}/comments?per_page=100`);
   let html = '<div class="comments-section"><h3>Comments (' + cData.comments.length + ')</h3>';
@@ -309,7 +353,7 @@ async function openEditModal(id) {
     const canDel = c.agent_id === token();
     html += `<div class="comment"><div class="comment-meta"><span>${c.agent_id} &middot; ${new Date(c.created_at).toLocaleString()}</span>
       ${canDel ? `<button type="button" class="delete-comment" onclick="deleteComment('${id}',${c.id})">delete</button>` : ''}</div>
-      <div>${esc(c.content)}</div></div>`;
+      <div class="md-content">${renderMd(c.content)}</div></div>`;
   });
   html += `<div class="comment-form"><input id="commentInput" placeholder="Add a comment..." onkeydown="if(event.key==='Enter'){event.preventDefault();addComment('${id}')}">
     <button class="btn" type="button" onclick="addComment('${id}')">Send</button></div></div>`;
@@ -346,6 +390,12 @@ async function deleteItem() {
   if (!id || !confirm(`Delete ${id}?`)) return;
   await api(`/tasks/${currentTask}/items/${id}`, {method:'DELETE'});
   toast('Deleted'); closeModal(); loadItems();
+}
+
+async function deleteItemDirect(id) {
+  if (!confirm(`Delete ${id}?`)) return;
+  await api(`/tasks/${currentTask}/items/${id}`, {method:'DELETE'});
+  toast('Deleted'); loadItems();
 }
 
 async function addComment(itemId) {
