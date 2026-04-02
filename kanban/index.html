@@ -267,6 +267,7 @@ async function api(path, opts = {}) {
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function renderMd(s) {
   if (!s) return '';
   try { return marked.parse(s, {breaks: true, gfm: true}); } catch { return esc(s); }
@@ -388,7 +389,7 @@ async function openDetailModal(id) {
         </div>
         <div class="modal-head-actions">
           <button class="icon-btn" onclick="toggleEditSection()" title="Edit">&#9998;</button>
-          ${canDelete ? `<button class="icon-btn danger" onclick="deleteItemFromDetail('${item.id}')" title="Delete">&#128465;</button>` : ''}
+          ${canDelete ? `<button class="icon-btn danger" onclick="deleteItemFromDetail('${escAttr(item.id)}')" title="Delete">&#128465;</button>` : ''}
           <button class="close-btn" onclick="closeModal()">&times;</button>
         </div>
       </div>
@@ -431,7 +432,7 @@ async function openDetailModal(id) {
           <div class="subtask-list">
             <h4>Subtasks (${children.length})</h4>
             ${children.map(s => `
-              <div class="subtask-row" onclick="openDetailModal('${s.id || s.slug}')">
+              <div class="subtask-row" onclick="openDetailModal('${escAttr(s.id || s.slug)}')">
                 <span class="badge badge-status ${s.status}"><span class="dot"></span></span>
                 <span class="subtask-id">${esc(s.slug || s.id)}</span>
                 <span>${esc(s.title)}</span>
@@ -444,7 +445,7 @@ async function openDetailModal(id) {
       <!-- Edit section (collapsed by default) -->
       <div class="edit-section" id="editSection" style="display:none">
         <h3>Edit</h3>
-        <form onsubmit="return saveItemFromDetail(event, '${item.id}')">
+        <form onsubmit="return saveItemFromDetail(event, '${escAttr(item.id)}')">
           <div class="form-group"><label>Title</label><input id="eTitle" value="${esc(item.title)}"></div>
           <div class="form-group"><label>Description <small style="color:var(--muted)">(Markdown)</small></label><textarea id="eDesc">${esc(item.description || '')}</textarea></div>
           <div class="form-row">
@@ -475,14 +476,14 @@ async function openDetailModal(id) {
               <span class="agent-dot" style="background:${agentColor(c.agent_id)}"></span>
               <span class="agent-name">${esc(c.agent_id)}</span>
               <span class="comment-time">${timeAgo(c.created_at)}</span>
-              ${c.agent_id === token() ? `<button class="delete-comment" onclick="deleteComment('${item.id}',${c.id})">delete</button>` : ''}
+              ${c.agent_id === token() ? `<button class="delete-comment" onclick="deleteComment('${escAttr(item.id)}',${c.id})">delete</button>` : ''}
             </div>
             <div class="comment-body md-content">${renderMd(c.content)}</div>
           </div>
         `).join('') : '<div class="no-comments">No comments yet</div>'}
         <div class="comment-form">
-          <textarea id="commentInput" placeholder="Write a comment..." rows="1" onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)){event.preventDefault();addComment('${item.id}')}"></textarea>
-          <button class="send-btn" onclick="addComment('${item.id}')">Send</button>
+          <textarea id="commentInput" placeholder="Write a comment..." rows="1" onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)){event.preventDefault();addComment('${escAttr(item.id)}')}"></textarea>
+          <button class="send-btn" onclick="addComment('${escAttr(item.id)}')">Send</button>
         </div>
       </div>
     </div>`;

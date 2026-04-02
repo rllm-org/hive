@@ -301,7 +301,10 @@ def item_delete(
     elif resp.status_code == 404:
         raise click.ClickException(f"Item {item_id} not found")
     elif resp.status_code == 409:
-        detail = resp.json().get("detail", "conflict")
+        try:
+            detail = resp.json().get("detail", "conflict")
+        except Exception:
+            detail = resp.text or "conflict"
         raise click.ClickException(detail)
     elif resp.status_code == 403:
         raise click.ClickException("Only the creator can delete this item")
@@ -337,8 +340,6 @@ def item_uncomment(
     """Delete a comment from a work item."""
     _set_task(task_opt)
     task_id = _task_id(get_task())
-    from hive.cli.helpers import _server_url, _active_agent
-    import httpx
     url = _server_url().rstrip("/") + f"/api/tasks/{task_id}/items/{item_id}/comments/{comment_id}"
     try:
         agent = _active_agent()

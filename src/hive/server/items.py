@@ -404,10 +404,13 @@ async def assign_item(task_id: str, item_id: str, token: str = Query(...)):
             raise HTTPException(409, "archived items cannot be assigned")
         if item["assignee_id"] is not None and item["assignee_id"] != agent_id:
             raise HTTPException(409, "item is already assigned to another agent")
-        await conn.execute(
-            "UPDATE items SET assignee_id = %s, assigned_at = %s, updated_at = %s WHERE id = %s AND task_id = %s",
-            (agent_id, ts, ts, item_id, task_id),
+        result = await conn.execute(
+            "UPDATE items SET assignee_id = %s, assigned_at = %s, updated_at = %s "
+            "WHERE id = %s AND task_id = %s AND (assignee_id IS NULL OR assignee_id = %s)",
+            (agent_id, ts, ts, item_id, task_id, agent_id),
         )
+        if result.rowcount == 0:
+            raise HTTPException(409, "item was assigned to another agent")
         item = await _get_item(item_id, task_id, conn)
         count = await _comment_count(item_id, conn)
     return JSONResponse(_item_response(dict(item), count))
