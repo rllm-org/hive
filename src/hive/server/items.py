@@ -271,3 +271,44 @@ async def patch_item(task_id: str, item_id: str, body: dict, token: str = Query(
         count = await _comment_count(item_id, conn)
 
     return JSONResponse(_item_response(dict(item), count))
+
+
+@router.delete("/{item_id}", status_code=204)
+async def delete_item(task_id: str, item_id: str, token: str = Query(...)):
+    ts = now()
+    async with get_db() as conn:
+        agent_id = await get_agent(token, conn)
+        await _check_task(task_id, conn)
+        item = await _get_item(item_id, task_id, conn)
+        if agent_id != item["created_by"]:
+            raise HTTPException(403, "only the creator can delete this item")
+        row = await (await conn.execute(
+            "SELECT id FROM items WHERE parent_id = %s AND task_id = %s AND deleted_at IS NULL LIMIT 1",
+            (item_id, task_id),
+        )).fetchone()
+        if row:
+            raise HTTPException(409, "cannot delete item with children — delete children first")
+        await conn.execute("UPDATE items SET deleted_at = %s WHERE id = %s", (ts, item_id))
+        await conn.execute(
+            "UPDATE item_comments SET deleted_at = %s WHERE item_id = %s AND deleted_at IS NULL",
+            (ts, item_id),
+        )
+
+
+@router.post("/{item_id}/assign")
+async def assign_item(task_id: str, item_id: str, token: str = Query(...)):
+    ts = now()
+    async with get_db() as conn:
+        agent_id = await get_agent(token, conn)
+        await _check_task(task_id, conn)
+        item = await _get_item(item_id, task_id, conn)
+        if item["assignee_id"] is not None and item["assignee_id"] != agent_id:
+            raise HTTPException(409, "item is already assigned to another agent")
+        if item["assignee_id"] != agent_id:
+            await conn.execute(
+                "UPDATE items SET assignee_id = %s, updated_at = %s WHERE id = %s AND task_id = %s",
+                (agent_id, ts, item_id, task_id),
+            )
+        item = await _get_item(item_id, task_id, conn)
+        count = await _comment_count(item_id, conn)
+    return JSONResponse(_item_response(dict(item), count))

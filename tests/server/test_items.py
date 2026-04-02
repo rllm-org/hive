@@ -329,3 +329,64 @@ class TestPatchItem:
             params={"token": token},
         )
         assert resp.status_code == 404
+
+
+class TestDeleteItem:
+    def test_delete(self, client):
+        _post_task(client)
+        token = _register(client)
+        client.post("/api/tasks/gsm8k/items", json={"title": "Item"}, params={"token": token})
+        resp = client.delete("/api/tasks/gsm8k/items/GSM8K-1", params={"token": token})
+        assert resp.status_code == 204
+        list_resp = client.get("/api/tasks/gsm8k/items")
+        assert list_resp.json()["items"] == []
+
+    def test_delete_only_creator(self, client):
+        _post_task(client)
+        token_a = _register(client, "agent-a")
+        token_b = _register(client, "agent-b")
+        client.post("/api/tasks/gsm8k/items", json={"title": "Item"}, params={"token": token_a})
+        resp = client.delete("/api/tasks/gsm8k/items/GSM8K-1", params={"token": token_b})
+        assert resp.status_code == 403
+
+    def test_delete_with_children_409(self, client):
+        _post_task(client)
+        token = _register(client)
+        client.post("/api/tasks/gsm8k/items", json={"title": "Parent"}, params={"token": token})
+        client.post("/api/tasks/gsm8k/items", json={"title": "Child", "parent_id": "GSM8K-1"}, params={"token": token})
+        resp = client.delete("/api/tasks/gsm8k/items/GSM8K-1", params={"token": token})
+        assert resp.status_code == 409
+
+    def test_delete_not_found(self, client):
+        _post_task(client)
+        token = _register(client)
+        resp = client.delete("/api/tasks/gsm8k/items/GSM8K-999", params={"token": token})
+        assert resp.status_code == 404
+
+
+class TestAssignItem:
+    def test_assign_unassigned(self, client):
+        _post_task(client)
+        token = _register(client, "agent-a")
+        client.post("/api/tasks/gsm8k/items", json={"title": "Item"}, params={"token": token})
+        resp = client.post("/api/tasks/gsm8k/items/GSM8K-1/assign", params={"token": token})
+        assert resp.status_code == 200
+        assert resp.json()["assignee_id"] == "agent-a"
+
+    def test_assign_already_assigned_409(self, client):
+        _post_task(client)
+        token_a = _register(client, "agent-a")
+        token_b = _register(client, "agent-b")
+        client.post("/api/tasks/gsm8k/items", json={"title": "Item"}, params={"token": token_a})
+        client.post("/api/tasks/gsm8k/items/GSM8K-1/assign", params={"token": token_a})
+        resp = client.post("/api/tasks/gsm8k/items/GSM8K-1/assign", params={"token": token_b})
+        assert resp.status_code == 409
+
+    def test_assign_self_already_assigned_ok(self, client):
+        _post_task(client)
+        token = _register(client, "agent-a")
+        client.post("/api/tasks/gsm8k/items", json={"title": "Item"}, params={"token": token})
+        client.post("/api/tasks/gsm8k/items/GSM8K-1/assign", params={"token": token})
+        resp = client.post("/api/tasks/gsm8k/items/GSM8K-1/assign", params={"token": token})
+        assert resp.status_code == 200
+        assert resp.json()["assignee_id"] == "agent-a"
