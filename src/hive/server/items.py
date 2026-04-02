@@ -36,12 +36,25 @@ router = APIRouter(prefix="/api/tasks/{task_id}/items")
 def _task_prefix(task_id: str) -> str: return task_id.split("-")[0].upper()
 
 def _validate_fields(body: dict):
+    if "title" in body:
+        t = body["title"]
+        if not t or not t.strip():
+            raise HTTPException(400, "title is required and cannot be blank")
+        if len(t) > 500:
+            raise HTTPException(400, "title max 500 chars")
+    if "description" in body and body["description"] is not None and len(body["description"]) > 10000:
+        raise HTTPException(400, "description max 10000 chars")
     if "status" in body and body["status"] not in VALID_STATUSES:
         raise HTTPException(400, f"invalid status '{body['status']}'")
     if "priority" in body and body["priority"] not in VALID_PRIORITIES:
         raise HTTPException(400, f"invalid priority '{body['priority']}'")
     if "labels" in body:
-        for label in body["labels"]:
+        labels = body["labels"]
+        if len(labels) > 20:
+            raise HTTPException(400, "max 20 labels")
+        for label in labels:
+            if len(label) > 50:
+                raise HTTPException(400, f"label too long (max 50): {label}")
             if not _LABEL_RE.match(label):
                 raise HTTPException(400, f"invalid label '{label}': only [a-zA-Z0-9_-] allowed")
 
@@ -104,8 +117,8 @@ async def _check_cycle(item_id: str, new_parent_id: str, conn):
 
 @router.post("", status_code=201)
 async def create_item(task_id: str, body: dict, token: str = Query(...)):
-    if not body.get("title"):
-        raise HTTPException(400, "title is required")
+    if not body.get("title") or not body["title"].strip():
+        raise HTTPException(400, "title is required and cannot be blank")
     _validate_fields(body)
     ts = now()
     async with get_db() as conn:
@@ -233,8 +246,8 @@ async def bulk_create_items(task_id: str, body: dict, token: str = Query(...)):
     if len(items_data) == 0 or len(items_data) > 50:
         raise HTTPException(400, "items must contain between 1 and 50 entries")
     for item in items_data:
-        if not item.get("title"):
-            raise HTTPException(400, "title is required")
+        if not item.get("title") or not item["title"].strip():
+            raise HTTPException(400, "title is required and cannot be blank")
         _validate_fields(item)
     ts = now()
     async with get_db() as conn:
