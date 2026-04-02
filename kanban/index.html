@@ -22,11 +22,15 @@ header input{width:200px}
 .col-header{padding:12px 14px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);flex-shrink:0}
 .col-header .count{background:var(--border);border-radius:10px;padding:1px 8px;font-size:11px;font-weight:500;color:var(--muted)}
 .col-body{padding:8px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:6px}
-.card{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;transition:border-color .15s}
+.col-body.drag-over{background:rgba(88,166,255,0.05)}
+.card{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:grab;transition:border-color .15s,opacity .15s,transform .15s}
+.card:active{cursor:grabbing}
+.card.dragging{opacity:.55;transform:scale(.98)}
 .card:hover{border-color:var(--muted)}
 .card-title{font-size:13px;font-weight:500;margin-bottom:6px;line-height:1.4}
 .card-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .card-id{font-size:11px;color:var(--muted);font-family:monospace}
+.drag-handle{font-size:11px;color:var(--muted);letter-spacing:1px;margin-right:2px;user-select:none}
 .label{font-size:10px;padding:1px 6px;border-radius:3px;background:rgba(88,166,255,0.15);color:var(--blue)}
 .priority-urgent{border-left:3px solid var(--red)}
 .priority-high{border-left:3px solid var(--yellow)}
@@ -109,6 +113,8 @@ const STATUSES = ['backlog','in_progress','review','archived'];
 const STATUS_LABELS = {backlog:'Backlog',in_progress:'In Progress',review:'Review',archived:'Archived'};
 let currentTask = '';
 let items = [];
+let draggedItemId = null;
+let suppressClickUntil = 0;
 
 const $ = id => document.getElementById(id);
 const token = () => $('tokenInput').value;
@@ -177,12 +183,30 @@ function renderBoard() {
         card.className = cls;
         card.draggable = true;
         card.dataset.id = item.id;
-        card.ondragstart = e => e.dataTransfer.setData('text/plain', item.id);
-        card.onclick = () => openEditModal(item.id);
+        card.addEventListener('dragstart', e => {
+          draggedItemId = item.id;
+          card.classList.add('dragging');
+          if (e.dataTransfer) {
+            e.dataTransfer.setData('text/plain', item.id);
+            e.dataTransfer.effectAllowed = 'move';
+          }
+          suppressClickUntil = Date.now() + 250;
+        });
+        card.addEventListener('dragend', () => {
+          draggedItemId = null;
+          card.classList.remove('dragging');
+          document.querySelectorAll('.col-body.drag-over').forEach(el => el.classList.remove('drag-over'));
+          suppressClickUntil = Date.now() + 250;
+        });
+        card.onclick = () => {
+          if (Date.now() < suppressClickUntil) return;
+          openEditModal(item.id);
+        };
         const labels = (item.labels||[]).map(l => `<span class="label">${l}</span>`).join('');
         card.innerHTML = `
           <div class="card-title">${esc(item.title)}</div>
           <div class="card-meta">
+            <span class="drag-handle" title="Drag to move">::</span>
             <span class="card-id">${item.id}</span>${labels}
             ${item.assignee_id ? `<span class="assignee">${item.assignee_id}</span>` : ''}
           </div>`;
@@ -191,12 +215,24 @@ function renderBoard() {
     }
     // Drop zone
     const dropZone = col.querySelector('.col-body');
-    dropZone.ondragover = e => { e.preventDefault(); dropZone.style.background = 'rgba(88,166,255,0.05)'; };
-    dropZone.ondragleave = () => dropZone.style.background = '';
+    dropZone.ondragenter = e => {
+      e.preventDefault();
+      dropZone.classList.add('drag-over');
+    };
+    dropZone.ondragover = e => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      dropZone.classList.add('drag-over');
+    };
+    dropZone.ondragleave = e => {
+      if (e.target === dropZone) dropZone.classList.remove('drag-over');
+    };
     dropZone.ondrop = async e => {
-      e.preventDefault(); dropZone.style.background = '';
-      const id = e.dataTransfer.getData('text/plain');
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      const id = e.dataTransfer?.getData('text/plain') || draggedItemId;
       if (!id) return;
+      if (items.find(i => i.id === id)?.status === status) return;
       await api(`/tasks/${currentTask}/items/${id}`, {method:'PATCH', body: JSON.stringify({status})});
       toast(`Moved to ${STATUS_LABELS[status]}`);
       loadItems();
