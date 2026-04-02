@@ -53,10 +53,10 @@ def _validate_fields(body: dict):
         _reject_null_bytes(body["description"], "description")
         if len(body["description"]) > 10000:
             raise HTTPException(400, "description max 10000 chars")
-    if "status" in body and body["status"] not in VALID_STATUSES:
-        raise HTTPException(400, f"invalid status '{body['status']}'")
-    if "priority" in body and body["priority"] not in VALID_PRIORITIES:
-        raise HTTPException(400, f"invalid priority '{body['priority']}'")
+    if "status" in body and (not isinstance(body["status"], str) or body["status"] not in VALID_STATUSES):
+        raise HTTPException(400, f"invalid status")
+    if "priority" in body and (not isinstance(body["priority"], str) or body["priority"] not in VALID_PRIORITIES):
+        raise HTTPException(400, f"invalid priority")
     if "parent_id" in body and body["parent_id"] is not None and not isinstance(body["parent_id"], str):
         raise HTTPException(400, "parent_id must be a string")
     if "assignee_id" in body and body["assignee_id"] is not None and not isinstance(body["assignee_id"], str):
