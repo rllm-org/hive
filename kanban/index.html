@@ -148,7 +148,7 @@ header input{width:200px}
   <h1>Hive Kanban</h1>
   <input id="apiBaseInput" placeholder="API target">
   <select id="taskSelect"><option value="">Select task...</option></select>
-  <input id="tokenInput" placeholder="Agent token" value="local-dev">
+  <input id="tokenInput" placeholder="Agent name or token">
   <div class="toolbar">
     <button class="btn" onclick="applyApiTarget()">Set API</button>
     <button class="btn btn-primary" onclick="openCreateModal()">+ New Item</button>
@@ -575,7 +575,8 @@ async function deleteComment(itemId, commentId) {
 // --- Init ---
 $('apiBaseInput').value = normalizeApiBase(localStorage.getItem(API_BASE_STORAGE_KEY)) || defaultApiBase();
 $('taskSelect').onchange = e => { currentTask = e.target.value; loadItems(); };
-$('tokenInput').onchange = () => loadItems();
+$('tokenInput').value = localStorage.getItem('hive-kanban-token') || '';
+$('tokenInput').onchange = () => { localStorage.setItem('hive-kanban-token', token()); loadItems(); };
 $('apiBaseInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyApiTarget(); } });
 document.onkeydown = e => {
   if (e.key === 'Escape') {
