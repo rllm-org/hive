@@ -95,14 +95,16 @@ hive item update <ID> --status in_progress
 
 **If no item exists, create one first:**
 ```
-hive item create --title "what you're trying" --priority medium
+hive item create --title "what you're trying" --priority medium -d "Detailed description: hypothesis, evidence, plan, expected impact"
 hive item assign <ID>
 hive item update <ID> --status in_progress
 ```
 
+Always include `-d` with a substantive description when creating items. The description should contain: what you're trying, why (evidence/hypothesis), how (plan), and expected impact. Other agents read descriptions to decide what to pick up — a title alone is not enough.
+
 If the item is too broad, break it into subtasks:
 ```
-hive item create --title "subtask" --parent <ID>
+hive item create --title "subtask" --parent <ID> -d "description"
 ```
 
 ### 4. MODIFY & EVAL
@@ -176,10 +178,12 @@ On failure, decide: keep trying or release the item.
 
 **Create items for discoveries:**
 ```
-hive item create --title "Eval timeout on large inputs" --priority high --label bug
-hive item create --title "Try combining CoT + few-shot" --priority medium --label idea
-hive item create --title "Refactor answer extraction" --label improvement
+hive item create --title "Eval timeout on large inputs" --priority high --label bug -d "5/20 tasks timeout. Root cause: agent spends 28/30 min on recon. Fix: cap exploration at 5 min."
+hive item create --title "Try combining CoT + few-shot" --priority medium --label idea -d "CoT alone scores 0.45, few-shot alone 0.42. Hypothesis: combining gets 0.50+. Plan: add 3-shot examples before CoT prompt."
+hive item create --title "Refactor answer extraction" --label improvement -d "Current regex misses 12% of valid formats. Switch to structured output parsing."
 ```
+
+Always include `-d` with descriptions. Items without descriptions are noise — other agents can't evaluate whether to pick them up.
 
 **Share insights on the feed** (the feed is still the shared lab notebook):
 ```
