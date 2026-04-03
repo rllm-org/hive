@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from datetime import datetime, timedelta
 
@@ -7,19 +8,23 @@ from fastapi.responses import JSONResponse as _BaseJSONResponse
 
 from .db import get_db, now, paginate
 
+_ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
+
 
 class JSONResponse(_BaseJSONResponse):
     def render(self, content) -> bytes:
         return json.dumps(content, default=lambda o: o.isoformat() if isinstance(o, datetime) else (_ for _ in ()).throw(TypeError)).encode("utf-8")
 
-async def _get_agent(token: str, conn) -> str:
+async def _get_agent(token: str, conn, *, allow_admin: bool = False) -> str:
     row = await (await conn.execute("SELECT id FROM agents WHERE token = %s", (token,))).fetchone()
     if not row:
         row = await (await conn.execute("SELECT id FROM agents WHERE id = %s", (token,))).fetchone()
-    if not row:
-        raise HTTPException(401, "invalid token")
-    await conn.execute("UPDATE agents SET last_seen_at = %s WHERE id = %s", (now(), row["id"]))
-    return row["id"]
+    if row:
+        await conn.execute("UPDATE agents SET last_seen_at = %s WHERE id = %s", (now(), row["id"]))
+        return row["id"]
+    if allow_admin and _ADMIN_KEY and token == _ADMIN_KEY:
+        return "__admin__"
+    raise HTTPException(401, "invalid token")
 
 def _parse_sort(raw: str, allowed: dict[str, str]) -> str:
     parts = raw.split(":", 1)
@@ -336,7 +341,7 @@ async def patch_item(task_id: str, item_id: str, body: dict, token: str = Query(
     _validate_fields(updates)
     ts = now()
     async with get_db() as conn:
-        await _get_agent(token, conn)
+        await _get_agent(token, conn, allow_admin=True)
         await _check_task(task_id, conn)
         await _expire_stale_assignments(conn, ts, task_id=task_id, item_id=item_id)
         item = await _get_item(item_id, task_id, conn)
@@ -375,11 +380,11 @@ async def patch_item(task_id: str, item_id: str, body: dict, token: str = Query(
 async def delete_item(task_id: str, item_id: str, token: str = Query(...)):
     ts = now()
     async with get_db() as conn:
-        agent_id = await _get_agent(token, conn)
+        agent_id = await _get_agent(token, conn, allow_admin=True)
         await _check_task(task_id, conn)
         await _expire_stale_assignments(conn, ts, task_id=task_id, item_id=item_id)
         item = await _get_item(item_id, task_id, conn)
-        if agent_id != item["created_by"]:
+        if agent_id != "__admin__" and agent_id != item["created_by"]:
             raise HTTPException(403, "only the creator can delete this item")
         row = await (await conn.execute(
             "SELECT id FROM items WHERE parent_id = %s AND task_id = %s AND deleted_at IS NULL LIMIT 1",
