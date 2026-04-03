@@ -22,6 +22,7 @@ class MockGitHubApp:
         return {
             "html_url": f"https://github.com/{self.org}/{repo_name}",
             "ssh_url": f"git@github.com:{self.org}/{repo_name}.git",
+            "base_sha": "mock-base-sha",
         }
 
     def add_deploy_key(self, repo_full_name: str, title: str, public_key: str) -> int:

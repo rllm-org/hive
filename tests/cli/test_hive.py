@@ -74,7 +74,7 @@ class TestTaskCreate:
         assert result.exit_code == 0
         assert "gsm8k" in result.output
 
-    def test_shows_in_list(self, cli_env, tmp_path):
+    def test_draft_create_does_not_show_in_task_list(self, cli_env, tmp_path):
         task_dir = tmp_path / "my_task"
         task_dir.mkdir()
         (task_dir / "program.md").write_text("solve it")
@@ -85,8 +85,8 @@ class TestTaskCreate:
                                "--description", "Math benchmark",
                                "--admin-key", "test-key"])
         result = cli_env.invoke(hive, ["task", "list"])
-        assert "gsm8k" in result.output
-        assert "GSM8K Solver" in result.output
+        assert result.exit_code == 0
+        assert "No tasks" in result.output
 
 
 class TestJsonErrorIntegration:

@@ -59,6 +59,21 @@ class GitHubApp:
         """Return an HTTPS clone URL with a fresh installation token."""
         return f"https://x-access-token:{self.get_token()}@github.com/{self.org}/{repo_name}.git"
 
+    def _read_bare_head_sha(self, bare_repo_path: str) -> str:
+        """Read HEAD from the bare repo we are about to mirror-push."""
+
+        result = subprocess.run(
+            ["git", "--git-dir", bare_repo_path, "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        sha = result.stdout.strip()
+        if not sha:
+            raise RuntimeError(f"Could not resolve HEAD for bare repo {bare_repo_path}")
+        return sha
+
     def add_deploy_key(self, repo_full_name: str, title: str, public_key: str) -> int:
         """Add a deploy key with write access to a repo. Returns key ID."""
         resp = httpx.post(
@@ -113,10 +128,10 @@ class GitHubApp:
         )
         if existing.status_code == 200:
             data = existing.json()
-            # If repo exists and has content, return it
             if data.get("size", 0) > 0:
-                return {"html_url": data["html_url"], "ssh_url": data["ssh_url"]}
-            # Repo exists but is empty — need to push content
+                raise RuntimeError(
+                    f"Refusing to reuse existing repo {self.org}/{repo_name}: content already exists and base SHA cannot be trusted"
+                )
         else:
             resp = httpx.post(
                 f"{_GITHUB_API}/orgs/{self.org}/repos",
@@ -132,13 +147,14 @@ class GitHubApp:
             bare = os.path.join(tmpdir, "repo.git")
             subprocess.run(["git", "clone", "--bare", source_url, bare],
                            check=True, capture_output=True, timeout=120)
+            base_sha = self._read_bare_head_sha(bare)
             subprocess.run(["git", "remote", "set-url", "origin", push_url],
                            cwd=bare, check=True, capture_output=True)
             subprocess.run(["git", "push", "--mirror", push_url],
                            cwd=bare, check=True, capture_output=True, timeout=120)
         info = httpx.get(f"{_GITHUB_API}/repos/{self.org}/{repo_name}",
                          headers=self.headers(), timeout=15).json()
-        return {"html_url": info["html_url"], "ssh_url": info["ssh_url"]}
+        return {"html_url": info["html_url"], "ssh_url": info["ssh_url"], "base_sha": base_sha}
 
     def create_task_repo(self, task_id: str, archive_bytes: bytes, description: str = "") -> str:
         """Create task--{task_id} repo under org from uploaded archive (tar.gz or zip). Returns repo URL."""

@@ -16,6 +16,13 @@ from hive.cli.state import _set_task, get_task, TaskOpt, JsonFlag
 task_app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 
 
+def _admin_headers() -> dict[str, str]:
+    """Return admin headers for CLI calls that hit admin-only endpoints."""
+
+    admin_key = os.environ.get("HIVE_ADMIN_KEY") or _config().get("admin_key") or os.environ.get("ADMIN_KEY")
+    return {"X-Admin-Key": admin_key} if admin_key else {}
+
+
 @task_app.callback()
 def task_callback(task_opt: TaskOpt = None):
     """Task management commands.
@@ -59,7 +66,7 @@ def task_create(
     data = _api("POST", "/tasks",
                 data={"id": task_id, "name": name, "description": description},
                 files={"archive": ("task.tar.gz", buf, "application/gzip")},
-                headers={"X-Admin-Key": admin_key})
+                headers=_admin_headers(admin_key))
     if as_json:
         _json_out(data)
     else:

@@ -1,3 +1,5 @@
+from typing import Any
+
 from rich import box
 from rich.markup import escape
 from rich.panel import Panel
@@ -57,12 +59,13 @@ def print_clone_instructions(task_id: str, agent_id: str):
     console.print(panel)
 
 
-def print_context(data: dict, task_id: str):
+def print_context(data: dict[str, Any], task_id: str) -> None:
     """Print all-in-one task context view."""
     console = get_console()
 
     t = data.get("task", {})
     s = t.get("stats", {})
+    verification_enabled = bool((t.get("config") or {}).get("verify"))
     task_name = escape(t.get("name", task_id))
     desc = escape(t.get("description", ""))
     console.rule(f"[bold cyan]TASK: {task_name}[/bold cyan]")
@@ -103,10 +106,12 @@ def print_context(data: dict, task_id: str):
         print_skills_list(skills)
 
     console.print()
+    # The final step text changes with task verification so agents know whether
+    # the score they report is the official one or just a local hint.
     next_steps = (
         "1. hive feed claim \"what you're trying\"        \u2014 avoid duplicate work\n"
         "2. Modify code, run eval\n"
-        "3. hive run submit -m \"what I did\" --score X   \u2014 report result \\[unverified]\n"
+        f"3. hive run submit -m \"what I did\" --score X   \u2014 {'queue server verification' if verification_enabled else 'report result [unverified]'}\n"
         "4. hive feed post \"what I learned\"             \u2014 share insight"
     )
     console.print(Panel(next_steps, title="[dim]Next steps[/dim]", border_style="dim", box=box.SIMPLE))
