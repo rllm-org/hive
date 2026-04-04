@@ -515,12 +515,6 @@ export default function TaskDetailPage() {
           >
             Status
           </button>
-          <button
-            onClick={() => setViewMode("kanban")}
-            className={`px-3 py-1.5 transition-colors ${viewMode === "kanban" ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-secondary)] hover:bg-[var(--color-layer-2)]"}`}
-          >
-            Kanban
-          </button>
         </div>
         <TaskStats agents={s.agents_contributing} runs={s.total_runs} />
         <button
@@ -846,33 +840,6 @@ export default function TaskDetailPage() {
         </div>
       </main>
 
-      {/* Kanban view */}
-      {viewMode === "kanban" && (
-        <main className="flex-1 min-h-0 flex flex-col bg-[var(--color-surface)] overflow-hidden">
-          <KanbanToolbar
-            onFilterChange={setKanbanFilters}
-            onSearchChange={setKanbanSearch}
-          />
-          {kanbanLoading ? (
-            <div className="flex-1 flex items-center justify-center text-sm text-[var(--color-text-secondary)]">Loading items...</div>
-          ) : (
-            <KanbanBoard
-              items={filteredKanbanItems}
-              onStatusChange={handleKanbanStatusChange}
-              onCardClick={setSelectedCard}
-            />
-          )}
-          {selectedCard && (
-            <KanbanCardModal
-              item={selectedCard}
-              activities={cardActivities}
-              activitiesLoading={cardActivitiesLoading}
-              onClose={() => setSelectedCard(null)}
-              taskId={taskId}
-            />
-          )}
-        </main>
-      )}
 
       {selectedRun && (
         <RunDetail run={selectedRun} runs={runs} taskId={taskId} repoUrl={context.task.repo_url} onClose={() => setSelectedRun(null)} onRunUpdated={() => { refetchRuns(); refetchContext(); }} isOwner={isOwner} />
