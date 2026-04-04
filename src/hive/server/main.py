@@ -367,22 +367,28 @@ async def auth_verify_code(body: dict[str, Any]):
         raise HTTPException(400, "email and code required")
     async with get_db() as conn:
         row = await (await conn.execute(
-            "SELECT email, password, code, expires_at FROM pending_signups WHERE email = %s", (email,)
+            "SELECT email, password, code, expires_at, attempts FROM pending_signups WHERE email = %s", (email,)
         )).fetchone()
-        if not row:
-            raise HTTPException(404, "no pending signup found — please sign up first")
-        if row["code"] != code:
-            raise HTTPException(400, "invalid code")
-        if row["expires_at"] < now():
-            raise HTTPException(400, "code expired — please request a new one")
-        # Create the real user
-        user_uuid = str(uuid.uuid4())
+    if not row:
+        raise HTTPException(404, "no pending signup found — please sign up first")
+    if row["attempts"] >= 5:
+        raise HTTPException(429, "too many attempts — request a new code")
+    if row["code"] != code:
+        async with get_db() as conn:
+            await conn.execute(
+                "UPDATE pending_signups SET attempts = attempts + 1 WHERE email = %s", (email,)
+            )
+        raise HTTPException(400, "invalid code")
+    if row["expires_at"] < now():
+        raise HTTPException(400, "code expired — please request a new one")
+    # Create the real user
+    user_uuid = str(uuid.uuid4())
+    async with get_db() as conn:
         user_row = await (await conn.execute(
             "INSERT INTO users (email, password, uuid, created_at)"
             " VALUES (%s, %s, %s, %s) RETURNING id, role",
             (row["email"], row["password"], user_uuid, now()),
         )).fetchone()
-        # Clean up pending signup
         await conn.execute("DELETE FROM pending_signups WHERE email = %s", (email,))
     token = _create_jwt(user_row["id"], email, user_row["role"])
     return {"token": token, "user": {"id": user_row["id"], "email": email, "role": user_row["role"]}}
@@ -402,7 +408,7 @@ async def auth_resend_code(body: dict[str, Any]):
         if not row:
             raise HTTPException(404, "no pending signup found")
         await conn.execute(
-            "UPDATE pending_signups SET code = %s, expires_at = %s WHERE email = %s",
+            "UPDATE pending_signups SET code = %s, expires_at = %s, attempts = 0 WHERE email = %s",
             (code, expires, email),
         )
     try:
@@ -488,24 +494,44 @@ async def auth_config():
 
 @router.get("/auth/github/authorize")
 async def auth_github_authorize(mode: str = Query("login"), redirect_uri: str = Query(...)):
-    """Return the GitHub OAuth authorization URL."""
+    """Return the GitHub OAuth authorization URL with CSRF-safe state token."""
     if not GITHUB_USER_APP_CLIENT_ID:
         raise HTTPException(501, "GitHub OAuth not configured")
+    import secrets
+    state_token = secrets.token_urlsafe(32)
+    async with get_db() as conn:
+        # Clean up expired states, then insert new one
+        await conn.execute("DELETE FROM oauth_states WHERE expires_at < %s", (now(),))
+        await conn.execute(
+            "INSERT INTO oauth_states (token, mode, expires_at) VALUES (%s, %s, %s)",
+            (state_token, mode, now() + timedelta(minutes=10)),
+        )
     url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={GITHUB_USER_APP_CLIENT_ID}"
         f"&scope=repo,read:user,user:email"
         f"&redirect_uri={redirect_uri}"
-        f"&state={mode}"
+        f"&state={state_token}"
     )
-    return {"url": url}
+    return {"url": url, "state": state_token}
 
 
 @router.post("/auth/github")
 async def auth_github(body: dict[str, Any]):
     code = body.get("code", "")
+    state = body.get("state", "")
     if not code:
         raise HTTPException(400, "code required")
+    # Validate CSRF state token
+    if state:
+        async with get_db() as conn:
+            state_row = await (await conn.execute(
+                "SELECT mode FROM oauth_states WHERE token = %s AND expires_at > %s", (state, now())
+            )).fetchone()
+            if state_row:
+                await conn.execute("DELETE FROM oauth_states WHERE token = %s", (state,))
+            else:
+                raise HTTPException(400, "invalid or expired OAuth state")
     gh = await asyncio.to_thread(_exchange_github_code, code)
     gh_token_plain, gh_id, gh_username, gh_avatar = gh["token"], gh["id"], gh["username"], gh["avatar"]
     gh_refresh_plain = gh.get("refresh_token")
@@ -513,8 +539,10 @@ async def auth_github(body: dict[str, Any]):
     gh_token_enc, gh_refresh_enc = _encrypt(gh_token_plain), _encrypt(gh_refresh_plain)
     # Fetch email (may need separate call if private)
     def _fetch_email():
-        user_resp = httpx.get("https://api.github.com/user", headers=_gh_user_headers(gh_token_plain), timeout=15).json()
-        email = user_resp.get("email")
+        user_resp = httpx.get("https://api.github.com/user", headers=_gh_user_headers(gh_token_plain), timeout=15)
+        email = None
+        if user_resp.status_code == 200:
+            email = user_resp.json().get("email")
         if not email:
             emails_resp = httpx.get("https://api.github.com/user/emails", headers=_gh_user_headers(gh_token_plain), timeout=15)
             if emails_resp.status_code == 200:
@@ -1369,10 +1397,14 @@ async def post_to_feed(task_id: str, body: dict[str, Any], token: str = Query(..
                     raise HTTPException(404, "parent comment not found")
                 post_id = parent_comment["post_id"]
                 parent_comment_id = parent_comment["id"]
+            comment_item_id = body.get("item_id")
+            if comment_item_id:
+                ic = await (await conn.execute("SELECT id FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL", (comment_item_id, task_id))).fetchone()
+                if not ic: comment_item_id = None
             row = await (await conn.execute(
-                "INSERT INTO comments (post_id, parent_comment_id, agent_id, content, created_at)"
-                " VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                (post_id, parent_comment_id, agent_id, body.get("content", ""), ts)
+                "INSERT INTO comments (post_id, parent_comment_id, agent_id, content, created_at, item_id)"
+                " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                (post_id, parent_comment_id, agent_id, body.get("content", ""), ts, comment_item_id)
             )).fetchone()
             return JSONResponse(
                 {
@@ -1748,11 +1780,15 @@ async def add_skill(task_id: str, body: dict[str, Any], token: str = Query(...),
                 else: raise HTTPException(404, f"run '{source_run_id}' not found")
             else:
                 source_run_id = run_row["id"]
+        skill_item_id = body.get("item_id")
+        if skill_item_id:
+            si = await (await conn.execute("SELECT id FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL", (skill_item_id, task_id))).fetchone()
+            if not si: skill_item_id = None
         row = await (await conn.execute(
-            "INSERT INTO skills (task_id, agent_id, name, description, code_snippet, source_run_id, score_delta, upvotes, created_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s) RETURNING *",
+            "INSERT INTO skills (task_id, agent_id, name, description, code_snippet, source_run_id, score_delta, upvotes, created_at, item_id)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s, %s) RETURNING *",
             (task_id, agent_id, body.get("name", ""), body.get("description", ""),
-             body.get("code_snippet", ""), source_run_id, body.get("score_delta"), ts)
+             body.get("code_snippet", ""), source_run_id, body.get("score_delta"), ts, skill_item_id)
         )).fetchone()
     return JSONResponse(dict(row), status_code=201)
 

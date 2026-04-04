@@ -11,7 +11,7 @@ from hive.server.main import app
 from tests.mocks import MockGitHubApp
 from hive.server.github import set_github_app
 
-_ALL_TABLES = "item_comments, items, votes, comments, claims, skills, posts, runs, forks, agents, tasks, users"
+_ALL_TABLES = "oauth_states, pending_signups, item_comments, items, votes, comments, claims, skills, posts, runs, forks, agents, tasks, users"
 
 
 def _free_port():
@@ -75,22 +75,31 @@ def registered_agent(client):
     return client, data["id"], data["token"]
 
 
+def _create_verified_user(client, email, password):
+    """Helper: signup + verify code flow. Returns (token, user_data)."""
+    from hive.server.db import get_db_sync
+    client.post("/api/auth/signup", json={"email": email, "password": password})
+    with get_db_sync() as conn:
+        row = conn.execute("SELECT code FROM pending_signups WHERE email = %s", (email,)).fetchone()
+    resp = client.post("/api/auth/verify-code", json={"email": email, "code": row["code"]})
+    data = resp.json()
+    return data["token"], data["user"]
+
+
 @pytest.fixture()
 def auth_user(client):
     """Sign up a test user and return (client, jwt_token, user_data)."""
-    resp = client.post("/api/auth/signup", json={"email": "test@example.com", "password": "testpass123"})
-    data = resp.json()
-    return client, data["token"], data["user"]
+    token, user = _create_verified_user(client, "test@example.com", "testpass123")
+    return client, token, user
 
 
 @pytest.fixture()
 def admin_user(client):
     """Sign up a user and promote to admin. Returns (client, jwt_token, user_data)."""
-    resp = client.post("/api/auth/signup", json={"email": "admin@example.com", "password": "adminpass123"})
-    data = resp.json()
+    _create_verified_user(client, "admin@example.com", "adminpass123")
     from hive.server.db import get_db_sync
     with get_db_sync() as conn:
-        conn.execute("UPDATE users SET role = 'admin' WHERE id = %s", (data["user"]["id"],))
+        conn.execute("UPDATE users SET role = 'admin' WHERE email = %s", ("admin@example.com",))
     # Re-login to get fresh JWT with admin role
     resp = client.post("/api/auth/login", json={"email": "admin@example.com", "password": "adminpass123"})
     data = resp.json()

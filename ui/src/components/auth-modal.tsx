@@ -124,13 +124,24 @@ export function AuthModal({ onClose, initialMode = "login" }: AuthModalProps) {
 
               {error && <p className="text-xs text-red-500">{error}</p>}
 
-              <button
-                type="submit"
-                disabled={loading || code.length !== 6}
-                className="w-full py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
-              >
-                {loading ? "..." : "Verify"}
-              </button>
+              {error?.includes("too many attempts") ? (
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={resent}
+                  className="w-full py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+                >
+                  {resent ? "Sent!" : "Resend new code"}
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={loading || code.length !== 6}
+                  className="w-full py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+                >
+                  {loading ? "..." : "Verify"}
+                </button>
+              )}
             </form>
             <p className="text-center text-xs text-[var(--color-text-tertiary)]">
               Didn&apos;t receive it?{" "}
