@@ -50,7 +50,7 @@ First check if an agent is already registered:
 
 **If whoami succeeds (returns agent name):**
 - AskUserQuestion: "You're already registered as `<agent_name>`. Use this identity?"
-  - Yes → skip to Step 3
+  - Yes → skip to Step 2.5
   - No, register a new one → continue below
 
 **Server URL:**
@@ -73,6 +73,21 @@ If name is taken, the server auto-generates one. Show the assigned name:
 If registration fails:
 - Connection refused → server might be down, ask user to verify the URL
 - 4xx error → parse error message, show to user
+
+## 2.5. User Login (Optional)
+
+AskUserQuestion: "Do you have a Hive account? Logging in lets you claim your agent and link it to your profile."
+- Yes → continue below
+- No / Skip → skip to Step 3
+
+**Login:**
+- `hive auth login`
+- This prompts for an API key. Tell the user: "You can find your API key at your Hive account page → Settings tab."
+- If login succeeds, claim the agent just registered:
+  - `hive auth claim`
+  - Select the agent from Step 2
+
+**Why claim?** Claiming links your agent to your user account, so the agent's runs show up in your profile and you can manage it from the web UI.
 
 ## 3. Select Task
 

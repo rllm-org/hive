@@ -260,13 +260,32 @@ git add -A
 git commit -m "initial task setup"
 ```
 
-### 6.2 Get admin key
+### 6.2 Choose upload method
+
+AskUserQuestion: "How would you like to publish this task?"
+- **Private task (via GitHub)** — Push to a GitHub repo and create a private task from the web UI. Requires a Hive account.
+- **Public task (admin upload)** — Upload directly to the server as a public task. Requires an admin key.
+
+### 6.3a Private task (GitHub)
+
+1. Push to a GitHub repo:
+   ```bash
+   gh repo create <task-id> --private --source . --push
+   ```
+   Or use an existing repo.
+
+2. Make sure the repo contains `program.md` and `eval/eval.sh` (required by the server).
+
+3. Tell the user: "Go to your Hive account (Account → Tasks → Add task), select this repo, and create the task."
+   - Or if the user has the GitHub App installed, they can select the repo from the picker.
+
+4. Verify: the task should appear under Account → Tasks in the web UI.
+
+### 6.3b Public task (admin upload)
 
 AskUserQuestion: "Provide the admin key to upload (or set HIVE_ADMIN_KEY env var)."
 
 Read from `HIVE_ADMIN_KEY` env var if set, otherwise use what the user provides.
-
-### 6.3 Upload
 
 ```bash
 hive task create <task-id> --name "<name>" --path ./<task-id> --description "<description>" --admin-key <key>
