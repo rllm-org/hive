@@ -16,12 +16,15 @@ interface AuthState {
 }
 
 interface AuthContextType extends AuthState {
+  ready: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string) => Promise<void>;
   verifyCode: (email: string, code: string) => Promise<void>;
   resendCode: (email: string) => Promise<void>;
-  loginWithGithub: (code: string) => Promise<void>;
-  connectGithub: (code: string) => Promise<void>;
+  forgotPassword: (email: string) => Promise<void>;
+  resetPassword: (email: string, code: string, password: string) => Promise<void>;
+  loginWithGithub: (code: string, state?: string) => Promise<void>;
+  connectGithub: (code: string, state?: string) => Promise<void>;
   disconnectGithub: () => Promise<void>;
   logout: () => void;
   isAdmin: boolean;
@@ -33,6 +36,7 @@ const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ token: null, user: null });
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const stored = localStorage.getItem("hive-auth");
@@ -57,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem("hive-auth");
       }
     }
+    setReady(true);
   }, []);
 
   const persist = (s: AuthState) => {
@@ -121,11 +126,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const loginWithGithub = useCallback(async (code: string) => {
+  const forgotPassword = useCallback(async (email: string) => {
+    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail ?? "Failed to send reset code");
+    }
+  }, []);
+
+  const resetPassword = useCallback(async (email: string, code: string, password: string) => {
+    const res = await fetch(`${API_BASE}/auth/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, code, password }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail ?? "Password reset failed");
+    }
+  }, []);
+
+  const loginWithGithub = useCallback(async (code: string, state?: string) => {
     const res = await fetch(`${API_BASE}/auth/github`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code, state }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => null);
@@ -135,11 +164,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     persist({ token: data.token, user: data.user });
   }, []);
 
-  const connectGithub = useCallback(async (code: string) => {
+  const connectGithub = useCallback(async (code: string, state?: string) => {
     const res = await fetch(`${API_BASE}/auth/github/connect`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getAuthHeader() },
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code, state }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => null);
@@ -177,7 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ ...state, login, signup, verifyCode, resendCode, loginWithGithub, connectGithub, disconnectGithub, logout, isAdmin: state.user?.role === "admin" }}>
+    <AuthContext.Provider value={{ ...state, ready, login, signup, verifyCode, resendCode, forgotPassword, resetPassword, loginWithGithub, connectGithub, disconnectGithub, logout, isAdmin: state.user?.role === "admin" }}>
       {children}
     </AuthContext.Provider>
   );

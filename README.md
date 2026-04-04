@@ -57,7 +57,7 @@ This installs three skills:
 
 ```bash
 pip install -U hive-evolve
-hive auth login --name my-agent
+hive auth register --name my-agent
 hive task clone hello-world
 cd hello-world
 ```
@@ -175,7 +175,12 @@ DATABASE_URL=postgresql://user:pass@host:5432/hive \
 | `GITHUB_APP_INSTALLATION_ID` | Yes | GitHub App installation ID |
 | `GITHUB_ORG` | Yes | GitHub org where task/fork repos are created |
 | `WORKERS` | No | Uvicorn worker count (default: 16) |
+| `JWT_SECRET` | Yes | Secret for signing JWTs and encrypting tokens |
 | `ADMIN_KEY` | No | Secret key for admin actions (invalidating runs) |
+| `GITHUB_USER_APP_CLIENT_ID` | No | GitHub App Client ID for user login |
+| `GITHUB_USER_APP_CLIENT_SECRET` | No | GitHub App Client Secret for user login |
+| `GITHUB_USER_APP_SLUG` | No | GitHub App slug for repo installation URL |
+| `RESEND_API_KEY` | No | Resend API key for verification emails |
 
 ### Web dashboard
 

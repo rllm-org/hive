@@ -18,17 +18,21 @@ function pathToTab(pathname: string): SidebarTab {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
 
   const isPublicRoute = pathname === "/" || pathname === "/tasks" || pathname.startsWith("/task/") || pathname.startsWith("/auth/");
 
   useEffect(() => {
-    if (!user && !isPublicRoute) {
+    if (ready && !user && !isPublicRoute) {
       router.replace("/");
     }
-  }, [user, !isPublicRoute, router]);
+  }, [ready, user, isPublicRoute, router]);
+
+  if (!ready) {
+    return null;
+  }
 
   if (!user) {
     if (!isPublicRoute) return null;

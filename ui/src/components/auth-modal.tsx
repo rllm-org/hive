@@ -10,8 +10,8 @@ interface AuthModalProps {
 }
 
 export function AuthModal({ onClose, initialMode = "login" }: AuthModalProps) {
-  const { login, signup, verifyCode, resendCode } = useAuth();
-  const [mode, setMode] = useState<"login" | "signup" | "verify">(initialMode);
+  const { login, signup, verifyCode, resendCode, forgotPassword, resetPassword } = useAuth();
+  const [mode, setMode] = useState<"login" | "signup" | "verify" | "forgot" | "reset">(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -75,6 +75,48 @@ export function AuthModal({ onClose, initialMode = "login" }: AuthModalProps) {
     }
   };
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      await forgotPassword(email);
+      setMode("reset");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      await resetPassword(email, code, password);
+      setMode("login");
+      setPassword("");
+      setCode("");
+      setError("");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Password reset failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendReset = async () => {
+    setError("");
+    try {
+      await forgotPassword(email);
+      setResent(true);
+      setTimeout(() => setResent(false), 3000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to resend");
+    }
+  };
+
   const inputCls = "w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] outline-none";
   const labelCls = "block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5";
 
@@ -88,7 +130,7 @@ export function AuthModal({ onClose, initialMode = "login" }: AuthModalProps) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
           <h2 className="text-base font-semibold text-[var(--color-text)]">
-            {mode === "verify" ? "Verify your email" : mode === "login" ? "Log in" : "Sign up"}
+            {mode === "verify" ? "Verify your email" : mode === "forgot" ? "Forgot password" : mode === "reset" ? "Reset password" : mode === "login" ? "Log in" : "Sign up"}
           </h2>
           <button
             onClick={onClose}
@@ -100,7 +142,100 @@ export function AuthModal({ onClose, initialMode = "login" }: AuthModalProps) {
           </button>
         </div>
 
-        {mode === "verify" ? (
+        {mode === "forgot" ? (
+          /* ─── Forgot Password Screen ─── */
+          <div className="px-6 py-5 space-y-4">
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              Enter your email and we&apos;ll send a reset code.
+            </p>
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div>
+                <label className={labelCls}>Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  style={{ outline: "none", boxShadow: "none" }}
+                  className={inputCls}
+                  placeholder="you@example.com"
+                  autoFocus
+                />
+              </div>
+
+              {error && <p className="text-xs text-red-500">{error}</p>}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+              >
+                {loading ? "..." : "Send reset code"}
+              </button>
+            </form>
+            <p className="text-center text-xs text-[var(--color-text-tertiary)]">
+              <button onClick={() => { setMode("login"); setError(""); }} className="text-[var(--color-accent)] hover:underline">
+                Back to login
+              </button>
+            </p>
+          </div>
+        ) : mode === "reset" ? (
+          /* ─── Reset Password Screen ─── */
+          <div className="px-6 py-5 space-y-4">
+            <p className="text-sm text-[var(--color-text-secondary)]">
+              We sent a 6-digit code to <span className="font-medium text-[var(--color-text)]">{email}</span>
+            </p>
+            <form onSubmit={handleResetPassword} className="space-y-4">
+              <div>
+                <label className={labelCls}>Reset code</label>
+                <input
+                  type="text"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  required
+                  maxLength={6}
+                  style={{ outline: "none", boxShadow: "none" }}
+                  className={`${inputCls} text-center text-lg tracking-[0.3em] font-mono`}
+                  placeholder="000000"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className={labelCls}>New password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  style={{ outline: "none", boxShadow: "none" }}
+                  className={inputCls}
+                  placeholder="At least 8 characters"
+                />
+              </div>
+
+              {error && <p className="text-xs text-red-500">{error}</p>}
+
+              <button
+                type="submit"
+                disabled={loading || code.length !== 6}
+                className="w-full py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+              >
+                {loading ? "..." : "Reset password"}
+              </button>
+            </form>
+            <p className="text-center text-xs text-[var(--color-text-tertiary)]">
+              Didn&apos;t receive it?{" "}
+              <button
+                onClick={handleResendReset}
+                disabled={resent}
+                className="text-[var(--color-accent)] hover:underline disabled:opacity-50"
+              >
+                {resent ? "Sent!" : "Resend code"}
+              </button>
+            </p>
+          </div>
+        ) : mode === "verify" ? (
           /* ─── Verify Code Screen ─── */
           <div className="px-6 py-5 space-y-4">
             <p className="text-sm text-[var(--color-text-secondary)]">
@@ -124,13 +259,24 @@ export function AuthModal({ onClose, initialMode = "login" }: AuthModalProps) {
 
               {error && <p className="text-xs text-red-500">{error}</p>}
 
-              <button
-                type="submit"
-                disabled={loading || code.length !== 6}
-                className="w-full py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
-              >
-                {loading ? "..." : "Verify"}
-              </button>
+              {error?.includes("too many attempts") ? (
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={resent}
+                  className="w-full py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+                >
+                  {resent ? "Sent!" : "Resend new code"}
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={loading || code.length !== 6}
+                  className="w-full py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+                >
+                  {loading ? "..." : "Verify"}
+                </button>
+              )}
             </form>
             <p className="text-center text-xs text-[var(--color-text-tertiary)]">
               Didn&apos;t receive it?{" "}
@@ -189,6 +335,15 @@ export function AuthModal({ onClose, initialMode = "login" }: AuthModalProps) {
                     className={inputCls}
                     placeholder={mode === "signup" ? "At least 8 characters" : ""}
                   />
+                  {mode === "login" && (
+                    <button
+                      type="button"
+                      onClick={() => { setMode("forgot"); setError(""); }}
+                      className="mt-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] hover:underline"
+                    >
+                      Forgot password?
+                    </button>
+                  )}
                 </div>
 
                 {error && <p className="text-xs text-red-500">{error}</p>}

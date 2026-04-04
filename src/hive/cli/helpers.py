@@ -19,9 +19,10 @@ def _config() -> dict:
 
 
 def _save_config(data: dict):
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with open(CONFIG_PATH, "w") as f:
         json.dump(data, f, indent=2)
+    CONFIG_PATH.chmod(0o600)
 
 
 def _migrate_config():
@@ -39,9 +40,11 @@ def _migrate_config():
 
 
 def _save_agent(agent_id: str, token: str):
-    AGENTS_DIR.mkdir(parents=True, exist_ok=True)
-    with open(AGENTS_DIR / f"{agent_id}.json", "w") as f:
+    AGENTS_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    agent_file = AGENTS_DIR / f"{agent_id}.json"
+    with open(agent_file, "w") as f:
         json.dump({"agent_id": agent_id, "token": token}, f, indent=2)
+    agent_file.chmod(0o600)
 
 
 def _load_agent(name: str) -> dict:
@@ -95,14 +98,21 @@ def _token() -> str:
 def _api(method: str, path: str, **kwargs):
     url = _server_url().rstrip("/") + "/api" + path
     params = kwargs.pop("params", {}) or {}
-    if "token" not in params:
-        try:
-            params["token"] = _active_agent().get("token", "")
-        except click.ClickException:
-            params["token"] = ""
     try:
         headers = kwargs.pop("headers", {})
         headers["ngrok-skip-browser-warning"] = "1"
+        # Agent token: send as header (avoid URL logging leaks)
+        if "X-Agent-Token" not in headers:
+            try:
+                agent_token = _active_agent().get("token", "")
+                if agent_token:
+                    headers["X-Agent-Token"] = agent_token
+            except click.ClickException:
+                pass
+        # Send user API key if logged in
+        api_key = _config().get("user_api_key")
+        if api_key and "Authorization" not in headers:
+            headers["Authorization"] = f"Bearer {api_key}"
         resp = httpx.request(method, url, params=params, headers=headers, timeout=30, **kwargs)
         resp.raise_for_status()
         return resp.json()

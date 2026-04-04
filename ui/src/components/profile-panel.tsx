@@ -8,7 +8,7 @@ import { CreateTaskModal } from "@/components/create-task-modal";
 import { TaskExplorer } from "@/components/task-explorer";
 import { Avatar } from "@/components/shared";
 import { Task } from "@/types/api";
-import { LuBot, LuActivity, LuPlus, LuGithub, LuLogOut, LuLayoutGrid } from "react-icons/lu";
+import { LuBot, LuActivity, LuPlus, LuGithub, LuLogOut, LuLayoutGrid, LuRefreshCw } from "react-icons/lu";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -33,9 +33,120 @@ interface ProfileData {
 
 type ProfileTab = "tasks" | "agents" | "settings";
 
+function ApiKeySection() {
+  const [prefix, setPrefix] = useState<string | null>(null);
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/auth/api-key`, { headers: getAuthHeader() })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setPrefix(d.api_key_prefix); })
+      .catch(() => {});
+  }, []);
+
+  const handleCopy = () => {
+    if (newKey) {
+      navigator.clipboard.writeText(newKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const handleGenerate = () => {
+    if (prefix) {
+      setShowConfirm(true);
+    } else {
+      doGenerate();
+    }
+  };
+
+  const doGenerate = async () => {
+    setShowConfirm(false);
+    setRegenerating(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/api-key/regenerate`, { method: "POST", headers: getAuthHeader() });
+      if (res.ok) {
+        const data = await res.json();
+        setNewKey(data.api_key);
+        setPrefix(data.api_key.slice(0, 12));
+      }
+    } catch {}
+    setRegenerating(false);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="text-xs text-[var(--color-text-tertiary)]">Use this key to authenticate with the Hive CLI. Run <code className="px-1 py-0.5 bg-[var(--color-layer-1)] text-[var(--color-text)]">hive auth login</code></div>
+      {newKey ? (
+        <div className="px-4 py-3 border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40">
+          <p className="text-xs text-amber-800 dark:text-amber-300 mb-2">Copy this key now — it won&apos;t be shown again.</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-xs font-mono bg-white dark:bg-[var(--color-layer-1)] px-3 py-2 text-[var(--color-text)] truncate border border-amber-200 dark:border-amber-700">
+              {newKey}
+            </code>
+            <button onClick={handleCopy} className="px-3 py-2 text-xs font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors">
+              {copied ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        </div>
+      ) : prefix ? (
+        <code className="block text-xs font-mono bg-[var(--color-layer-1)] px-3 py-2 text-[var(--color-text-tertiary)]">
+          {prefix}{"•".repeat(24)}
+        </code>
+      ) : null}
+      <div className="flex justify-end">
+      <button
+        onClick={handleGenerate}
+        disabled={regenerating}
+        className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border disabled:opacity-50 transition-colors ${
+          prefix
+            ? "text-red-500 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40"
+            : "text-[var(--color-accent)] border-[var(--color-border)] hover:bg-[var(--color-layer-1)]"
+        }`}
+      >
+        <LuRefreshCw size={12} />
+        {regenerating ? "Generating..." : prefix ? "Regenerate key" : "Generate API key"}
+      </button>
+      </div>
+
+      {showConfirm && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center backdrop-blur-md bg-black/30" onClick={() => setShowConfirm(false)}>
+          <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[380px] animate-fade-in" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-[var(--color-border)]">
+              <h2 className="text-base font-semibold text-[var(--color-text)]">Regenerate API key?</h2>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-sm text-[var(--color-text-secondary)]">The current key will stop working immediately. Any CLI sessions using the old key will need to re-authenticate.</p>
+              <div className="flex items-center gap-2">
+                <button onClick={doGenerate} className="px-4 py-2 text-sm font-medium bg-red-500 text-white hover:bg-red-600 transition-colors">
+                  Regenerate
+                </button>
+                <button onClick={() => setShowConfirm(false)} className="px-4 py-2 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ProfilePanel() {
   const { user, logout } = useAuth();
-  const [tab, setTab] = useState<ProfileTab>("tasks");
+  const [tab, setTab] = useState<ProfileTab>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const t = params.get("tab");
+      if (t && ["tasks", "agents", "settings"].includes(t)) return t as ProfileTab;
+    }
+    return "tasks";
+  });
   const [showClaim, setShowClaim] = useState(false);
   const searchParams = useSearchParams();
   const [showCreateTask, setShowCreateTask] = useState(searchParams.get("create") === "1");
@@ -257,6 +368,14 @@ export function ProfilePanel() {
                   </div>
                   <ThemeToggle />
                 </div>
+              </div>
+            </div>
+
+            {/* API Key */}
+            <div>
+              <h3 className="text-base font-medium text-[var(--color-text)] mb-4">API Key</h3>
+              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] px-5 py-4">
+                <ApiKeySection />
               </div>
             </div>
 
