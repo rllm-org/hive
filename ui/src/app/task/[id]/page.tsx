@@ -6,14 +6,18 @@ import Link from "next/link";
 import { useContext } from "@/hooks/use-context";
 import { useRuns } from "@/hooks/use-runs";
 import { useFeed } from "@/hooks/use-feed";
+import { useItems, useItemActivity, useMutateAllItems } from "@/hooks/use-items";
 import { ChartToggle } from "@/components/chart-toggle";
 import { Leaderboard, LeaderboardToggle, LeaderboardView } from "@/components/leaderboard";
 import { Feed } from "@/components/feed";
+import { KanbanBoard, KanbanToolbar, KanbanCardModal } from "@/components/kanban";
+import type { KanbanFilters } from "@/components/kanban";
 import { RunDetail } from "@/components/run-detail";
 import { Run } from "@/types/api";
+import { Item, ItemStatus } from "@/types/items";
 import { useAuth } from "@/lib/auth";
 import { getAuthHeader } from "@/lib/auth";
-import { apiDelete } from "@/lib/api";
+import { apiDelete, apiPatch } from "@/lib/api";
 import { useTaskFiles, TaskFile } from "@/hooks/use-task-files";
 import { FileViewer } from "@/components/file-viewer";
 import { useCountUp } from "@/hooks/use-count-up";
@@ -219,8 +223,34 @@ export default function TaskDetailPage() {
   const { items, hasMore: feedHasMore, loadMore: feedLoadMore, loadingMore: feedLoadingMore } = useFeed(taskId);
   const { files: taskFiles, fetchFileContent } = useTaskFiles(context?.task.repo_url);
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
-  const [viewMode, setViewMode] = useState<"about" | "status">("about");
+  const [viewMode, setViewMode] = useState<"about" | "status" | "kanban">("about");
   const { content: readme, loading: readmeLoading } = useReadme(context?.task.repo_url);
+
+  // Kanban
+  const { items: kanbanItems, loading: kanbanLoading } = useItems(taskId);
+  const mutateAllItems = useMutateAllItems();
+  const [kanbanFilters, setKanbanFilters] = useState<KanbanFilters>({ status: "all", priority: "all" });
+  const [kanbanSearch, setKanbanSearch] = useState("");
+  const [selectedCard, setSelectedCard] = useState<Item | null>(null);
+  const { activities: cardActivities, loading: cardActivitiesLoading } = useItemActivity(taskId, selectedCard?.id ?? null);
+
+  const filteredKanbanItems = useMemo(() => {
+    let result = kanbanItems;
+    if (kanbanFilters.status !== "all") result = result.filter((i) => i.status === kanbanFilters.status);
+    if (kanbanFilters.priority !== "all") result = result.filter((i) => i.priority === kanbanFilters.priority);
+    if (kanbanSearch) {
+      const q = kanbanSearch.toLowerCase();
+      result = result.filter((i) => i.title.toLowerCase().includes(q) || i.id.toLowerCase().includes(q));
+    }
+    return result;
+  }, [kanbanItems, kanbanFilters, kanbanSearch]);
+
+  const handleKanbanStatusChange = useCallback(async (itemId: string, status: ItemStatus) => {
+    try {
+      await apiPatch(`/tasks/${taskId}/items/${itemId}?token=_`, { status }, getAuthHeader());
+      mutateAllItems(taskId);
+    } catch { mutateAllItems(taskId); }
+  }, [taskId, mutateAllItems]);
 
   // Admin / owner
   const { isAdmin, user } = useAuth();
@@ -484,6 +514,12 @@ export default function TaskDetailPage() {
             className={`px-3 py-1.5 transition-colors ${viewMode === "status" ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-secondary)] hover:bg-[var(--color-layer-2)]"}`}
           >
             Status
+          </button>
+          <button
+            onClick={() => setViewMode("kanban")}
+            className={`px-3 py-1.5 transition-colors ${viewMode === "kanban" ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-secondary)] hover:bg-[var(--color-layer-2)]"}`}
+          >
+            Kanban
           </button>
         </div>
         <TaskStats agents={s.agents_contributing} runs={s.total_runs} />
@@ -809,6 +845,34 @@ export default function TaskDetailPage() {
           </div>
         </div>
       </main>
+
+      {/* Kanban view */}
+      {viewMode === "kanban" && (
+        <main className="flex-1 min-h-0 flex flex-col bg-[var(--color-surface)] overflow-hidden">
+          <KanbanToolbar
+            onFilterChange={setKanbanFilters}
+            onSearchChange={setKanbanSearch}
+          />
+          {kanbanLoading ? (
+            <div className="flex-1 flex items-center justify-center text-sm text-[var(--color-text-secondary)]">Loading items...</div>
+          ) : (
+            <KanbanBoard
+              items={filteredKanbanItems}
+              onStatusChange={handleKanbanStatusChange}
+              onCardClick={setSelectedCard}
+            />
+          )}
+          {selectedCard && (
+            <KanbanCardModal
+              item={selectedCard}
+              activities={cardActivities}
+              activitiesLoading={cardActivitiesLoading}
+              onClose={() => setSelectedCard(null)}
+              taskId={taskId}
+            />
+          )}
+        </main>
+      )}
 
       {selectedRun && (
         <RunDetail run={selectedRun} runs={runs} taskId={taskId} repoUrl={context.task.repo_url} onClose={() => setSelectedRun(null)} onRunUpdated={() => { refetchRuns(); refetchContext(); }} isOwner={isOwner} />
