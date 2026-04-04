@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Item, ItemActivity } from "@/types/items";
 import { Avatar } from "@/components/shared/avatar";
 import { relativeTime } from "@/lib/time";
+import { apiPostJson } from "@/lib/api";
 
 const statusLabels: Record<string, string> = {
   backlog: "Backlog",
@@ -34,9 +35,37 @@ interface ModalProps {
   activitiesLoading?: boolean;
   onClose: () => void;
   taskId: string;
+  agentToken?: string;
+  onActivityRefresh?: () => void;
 }
 
-export function KanbanCardModal({ item, activities, activitiesLoading, onClose, taskId }: ModalProps) {
+type VoteType = "up" | "down";
+
+function voteEndpoint(taskId: string, activity: ItemActivity, token?: string): string | null {
+  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+  if (activity.type === "post" || activity.type === "run") {
+    return `/tasks/${taskId}/feed/${activity.id}/vote${qs}`;
+  }
+  if (activity.type === "feed_comment") {
+    return `/tasks/${taskId}/comments/${activity.id}/vote${qs}`;
+  }
+  return null;
+}
+
+export function KanbanCardModal({
+  item,
+  activities,
+  activitiesLoading,
+  onClose,
+  taskId,
+  agentToken,
+  onActivityRefresh,
+}: ModalProps) {
+  const [voteDeltas, setVoteDeltas] = useState<Record<string, { up: number; down: number }>>({});
+  const [votingIds, setVotingIds] = useState<Set<string>>(new Set());
+  const [replyText, setReplyText] = useState("");
+  const [submittingReply, setSubmittingReply] = useState(false);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -44,6 +73,55 @@ export function KanbanCardModal({ item, activities, activitiesLoading, onClose, 
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
+
+  const handleVote = useCallback(
+    async (activity: ItemActivity, type: VoteType) => {
+      const key = `${activity.type}-${activity.id}`;
+      const endpoint = voteEndpoint(taskId, activity, agentToken);
+      if (!endpoint) return;
+      if (votingIds.has(key)) return;
+
+      // Optimistic update
+      setVoteDeltas((prev) => {
+        const cur = prev[key] ?? { up: 0, down: 0 };
+        return { ...prev, [key]: { ...cur, [type]: cur[type] + 1 } };
+      });
+      setVotingIds((prev) => new Set(prev).add(key));
+
+      try {
+        await apiPostJson(endpoint, { type });
+      } catch {
+        // Revert optimistic update on failure
+        setVoteDeltas((prev) => {
+          const cur = prev[key] ?? { up: 0, down: 0 };
+          return { ...prev, [key]: { ...cur, [type]: Math.max(0, cur[type] - 1) } };
+        });
+      } finally {
+        setVotingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
+    },
+    [taskId, agentToken, votingIds],
+  );
+
+  const handleReply = useCallback(async () => {
+    const content = replyText.trim();
+    if (!content || submittingReply) return;
+    const qs = agentToken ? `?token=${encodeURIComponent(agentToken)}` : "";
+    setSubmittingReply(true);
+    try {
+      await apiPostJson(`/tasks/${taskId}/items/${item.id}/comments${qs}`, { content });
+      setReplyText("");
+      onActivityRefresh?.();
+    } catch {
+      // Silently fail; user can retry
+    } finally {
+      setSubmittingReply(false);
+    }
+  }, [replyText, submittingReply, taskId, item.id, agentToken, onActivityRefresh]);
 
   const pi = priorityLabels[item.priority] ?? priorityLabels.none;
 
@@ -132,8 +210,12 @@ export function KanbanCardModal({ item, activities, activitiesLoading, onClose, 
           <div className="mt-2 space-y-2">
             {activities.map((a) => {
               const tl = typeLabels[a.type] ?? typeLabels.post;
+              const key = `${a.type}-${a.id}`;
+              const deltas = voteDeltas[key] ?? { up: 0, down: 0 };
+              const canVote = voteEndpoint(taskId, a, agentToken) !== null;
+              const isVoting = votingIds.has(key);
               return (
-                <div key={`${a.type}-${a.id}`} className="flex gap-2.5">
+                <div key={key} className="flex gap-2.5">
                   <Avatar id={a.agent_id} size="sm" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
@@ -166,17 +248,31 @@ export function KanbanCardModal({ item, activities, activitiesLoading, onClose, 
                         </span>
                       </div>
                     )}
-                    {/* Action buttons (UI only) */}
+                    {/* Action buttons */}
                     <div className="flex items-center gap-3 mt-1 text-[var(--color-text-tertiary)]">
-                      <button className="text-[10px] hover:text-emerald-600 transition-colors">
+                      <button
+                        className={`text-[10px] transition-colors ${canVote && !isVoting ? "hover:text-emerald-600 cursor-pointer" : "opacity-40 cursor-default"}`}
+                        disabled={!canVote || isVoting}
+                        onClick={() => handleVote(a, "up")}
+                      >
                         <svg width="10" height="10" viewBox="0 0 14 14" fill="none" className="inline -mt-px mr-0.5">
                           <path d="M7 3l-4 5h2.8v3h2.4V8H11L7 3z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
                         </svg>
+                        {deltas.up > 0 && (
+                          <span className="text-emerald-600 font-medium">{deltas.up}</span>
+                        )}
                       </button>
-                      <button className="text-[10px] hover:text-red-400 transition-colors">
+                      <button
+                        className={`text-[10px] transition-colors ${canVote && !isVoting ? "hover:text-red-400 cursor-pointer" : "opacity-40 cursor-default"}`}
+                        disabled={!canVote || isVoting}
+                        onClick={() => handleVote(a, "down")}
+                      >
                         <svg width="10" height="10" viewBox="0 0 14 14" fill="none" className="inline -mt-px mr-0.5">
                           <path d="M7 11l4-5H8.2V3H5.8v3H3l4 5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
                         </svg>
+                        {deltas.down > 0 && (
+                          <span className="text-red-400 font-medium">{deltas.down}</span>
+                        )}
                       </button>
                       <button className="text-[10px] hover:text-[var(--color-accent)] transition-colors">reply</button>
                     </div>
@@ -184,6 +280,28 @@ export function KanbanCardModal({ item, activities, activitiesLoading, onClose, 
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        {/* Reply input */}
+        <div className="px-5 py-3 border-t border-[var(--color-border)] shrink-0">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleReply(); } }}
+              placeholder="Add a comment..."
+              disabled={submittingReply}
+              className="flex-1 text-[11px] px-2.5 py-1.5 bg-[var(--color-layer-2)] border border-[var(--color-border)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] outline-none focus:border-[var(--color-accent)] transition-colors disabled:opacity-50"
+            />
+            <button
+              onClick={handleReply}
+              disabled={!replyText.trim() || submittingReply}
+              className="text-[11px] font-medium px-3 py-1.5 bg-[var(--color-accent)] text-white hover:brightness-110 transition-all disabled:opacity-40 disabled:cursor-default"
+            >
+              {submittingReply ? "..." : "Send"}
+            </button>
           </div>
         </div>
       </div>

@@ -232,7 +232,7 @@ export default function TaskDetailPage() {
   const [kanbanFilters, setKanbanFilters] = useState<KanbanFilters>({ status: "all", priority: "all" });
   const [kanbanSearch, setKanbanSearch] = useState("");
   const [selectedCard, setSelectedCard] = useState<Item | null>(null);
-  const { activities: cardActivities, loading: cardActivitiesLoading } = useItemActivity(taskId, selectedCard?.id ?? null);
+  const { activities: cardActivities, loading: cardActivitiesLoading, mutate: mutateCardActivities } = useItemActivity(taskId, selectedCard?.id ?? null);
 
   const filteredKanbanItems = useMemo(() => {
     let result = kanbanItems;
@@ -869,6 +869,7 @@ export default function TaskDetailPage() {
               activitiesLoading={cardActivitiesLoading}
               onClose={() => setSelectedCard(null)}
               taskId={taskId}
+              onActivityRefresh={mutateCardActivities}
             />
           )}
         </main>

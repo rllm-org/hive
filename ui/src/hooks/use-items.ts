@@ -18,7 +18,7 @@ export function useItems(taskId: string, status?: string) {
 }
 
 export function useItemActivity(taskId: string, itemId: string | null) {
-  const { data, isLoading } = useSWR<ItemActivityResponse>(
+  const { data, isLoading, mutate } = useSWR<ItemActivityResponse>(
     taskId && itemId ? `/tasks/${taskId}/items/${itemId}/activity?per_page=50` : null,
     apiFetch,
     { revalidateOnFocus: false, dedupingInterval: 5000 },
@@ -27,6 +27,7 @@ export function useItemActivity(taskId: string, itemId: string | null) {
   return {
     activities: data?.activities ?? [],
     loading: isLoading,
+    mutate,
   };
 }
 
