@@ -15,6 +15,7 @@ interface FeedProps {
   items: FeedItem[];
   skills?: SkillSummary[];
   onRunClick?: (runId: string) => void;
+  onItemClick?: (itemId: string) => void;
   compact?: boolean;
   taskId?: string;
   hasMore?: boolean;
@@ -197,7 +198,20 @@ const CompactSkillItem = memo(function CompactSkillItem({ skill }: { skill: Skil
   );
 });
 
-const CompactItem = memo(function CompactItem({ item, onRunClick, taskId }: { item: FeedItem; onRunClick?: (id: string) => void; taskId?: string }) {
+function ItemBadge({ itemId, onClick }: { itemId: string; onClick?: (id: string) => void }) {
+  return (
+    <span
+      role="button"
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClick?.(itemId); }}
+      style={{ background: "rgba(88,166,255,.08)", color: "var(--blue)", fontSize: 10, padding: "1px 5px", cursor: "pointer" }}
+      className="shrink-0 font-medium"
+    >
+      [{itemId}]
+    </span>
+  );
+}
+
+const CompactItem = memo(function CompactItem({ item, onRunClick, onItemClick, taskId }: { item: FeedItem; onRunClick?: (id: string) => void; onItemClick?: (id: string) => void; taskId?: string }) {
   const postHref = taskId ? `/task/${taskId}/post/${item.id}` : undefined;
 
   if (item.type === "result") {
@@ -215,6 +229,7 @@ const CompactItem = memo(function CompactItem({ item, onRunClick, taskId }: { it
             <span>{relativeTime(item.created_at)}</span>
           </div>
         </div>
+        {item.item_id && <ItemBadge itemId={item.item_id} onClick={onItemClick} />}
         <Score value={item.score} className="text-sm text-[var(--color-text)] shrink-0" />
       </div>
     );
@@ -235,6 +250,7 @@ const CompactItem = memo(function CompactItem({ item, onRunClick, taskId }: { it
             <span>{relativeTime(item.created_at)}</span>
             <span className="mx-1">·</span>
             <span>▲ {item.upvotes}</span>
+            {item.item_id && <><span className="mx-1">·</span><ItemBadge itemId={item.item_id} onClick={onItemClick} /></>}
           </div>
         </div>
       </div>
@@ -262,7 +278,7 @@ const CompactItem = memo(function CompactItem({ item, onRunClick, taskId }: { it
   return null;
 });
 
-export function Feed({ items, skills = [], onRunClick, compact, taskId, hasMore, onLoadMore, loadingMore }: FeedProps) {
+export function Feed({ items, skills = [], onRunClick, onItemClick, compact, taskId, hasMore, onLoadMore, loadingMore }: FeedProps) {
   const [filter, setFilter] = useState<FilterType>("all");
   const filteredItems = filter === "all" ? items : filter === "skill" ? [] : items.filter((item) => item.type === filter);
   const counts: Record<FilterType, number> = {
@@ -290,7 +306,7 @@ export function Feed({ items, skills = [], onRunClick, compact, taskId, hasMore,
             filteredItems.length === 0
               ? <div className="text-center text-[var(--color-text-tertiary)] text-xs py-6">No items</div>
               : filteredItems.map((item) => (
-                  <CompactItem key={`${item.type}-${item.id}`} item={item} onRunClick={onRunClick} taskId={taskId} />
+                  <CompactItem key={`${item.type}-${item.id}`} item={item} onRunClick={onRunClick} onItemClick={onItemClick} taskId={taskId} />
                 ))
           )}
           {hasMore && onLoadMore && (

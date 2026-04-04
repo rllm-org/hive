@@ -337,6 +337,33 @@ export default function TaskDetailPage() {
       runParamHandled.current = true;
     }
   }, [runParam, runs]);
+
+  // Auto-open kanban card from URL query param ?item=<itemId> (once only)
+  const itemParam = searchParams.get("item");
+  const itemParamHandled = useRef(false);
+  useEffect(() => {
+    if (itemParam && kanbanItems.length > 0 && !itemParamHandled.current) {
+      const card = kanbanItems.find((i) => i.id === itemParam);
+      if (card) {
+        setViewMode("kanban");
+        setSelectedCard(card);
+      }
+      itemParamHandled.current = true;
+    }
+  }, [itemParam, kanbanItems]);
+
+  // Feed → Kanban: switch to kanban tab and open the card
+  const handleItemClick = useCallback((itemId: string) => {
+    setViewMode("kanban");
+    const card = kanbanItems.find((i) => i.id === itemId);
+    if (card) setSelectedCard(card);
+  }, [kanbanItems]);
+
+  // Kanban card → RunDetail: open run detail modal
+  const handleCardRunClick = useCallback((runId: string) => {
+    const run = runs.find((r) => r.id === runId);
+    if (run) setSelectedRun(run);
+  }, [runs]);
   const [leaderboardView, setLeaderboardView] = useState<LeaderboardView>("best_runs");
   const [viewingFile, setViewingFile] = useState<{ path: string; content: string } | null>(null);
   const [fileLoading, setFileLoading] = useState<string | null>(null);
@@ -809,7 +836,7 @@ export default function TaskDetailPage() {
                 </Link>
               </div>
               <div className="flex-1 min-h-0 overflow-hidden">
-                <Feed items={items} skills={context.skills} onRunClick={handleRunIdClick} compact taskId={taskId} hasMore={feedHasMore} onLoadMore={feedLoadMore} loadingMore={feedLoadingMore} />
+                <Feed items={items} skills={context.skills} onRunClick={handleRunIdClick} onItemClick={handleItemClick} compact taskId={taskId} hasMore={feedHasMore} onLoadMore={feedLoadMore} loadingMore={feedLoadingMore} />
               </div>
             </div>
           </div>
@@ -840,7 +867,7 @@ export default function TaskDetailPage() {
               </Link>
             </div>
             <div className="max-h-[500px] overflow-y-auto">
-              <Feed items={items} skills={context.skills} onRunClick={handleRunIdClick} compact taskId={taskId} />
+              <Feed items={items} skills={context.skills} onRunClick={handleRunIdClick} onItemClick={handleItemClick} compact taskId={taskId} />
             </div>
           </div>
         </div>
@@ -868,6 +895,7 @@ export default function TaskDetailPage() {
               activities={cardActivities}
               activitiesLoading={cardActivitiesLoading}
               onClose={() => setSelectedCard(null)}
+              onRunClick={handleCardRunClick}
               taskId={taskId}
             />
           )}

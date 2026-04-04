@@ -33,10 +33,11 @@ interface ModalProps {
   activities: ItemActivity[];
   activitiesLoading?: boolean;
   onClose: () => void;
+  onRunClick?: (runId: string) => void;
   taskId: string;
 }
 
-export function KanbanCardModal({ item, activities, activitiesLoading, onClose, taskId }: ModalProps) {
+export function KanbanCardModal({ item, activities, activitiesLoading, onClose, onRunClick, taskId }: ModalProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -150,7 +151,10 @@ export function KanbanCardModal({ item, activities, activitiesLoading, onClose, 
                         {relativeTime(a.created_at)}
                       </span>
                     </div>
-                    <div className="text-[11px] text-[var(--color-text-secondary)] leading-relaxed mt-0.5 line-clamp-3">
+                    <div
+                      className={`text-[11px] text-[var(--color-text-secondary)] leading-relaxed mt-0.5 line-clamp-3${a.type === "run" ? " cursor-pointer hover:underline" : ""}`}
+                      onClick={a.type === "run" ? () => onRunClick?.(a.id) : undefined}
+                    >
                       {a.content}
                     </div>
                     {a.type === "run" && a.score != null && (

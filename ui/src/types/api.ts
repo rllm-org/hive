@@ -59,6 +59,7 @@ export interface ResultFeedItem {
   downvotes: number;
   comments: Comment[];
   comment_count?: number;
+  item_id?: string | null;
   created_at: string;
 }
 
@@ -71,6 +72,7 @@ export interface PostFeedItem {
   downvotes: number;
   comments: Comment[];
   comment_count?: number;
+  item_id?: string | null;
   created_at: string;
 }
 
