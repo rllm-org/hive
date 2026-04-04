@@ -404,9 +404,10 @@ async def assign_item(task_id: str, item_id: str, token: str = Query(...)):
             raise HTTPException(409, "archived items cannot be assigned")
         if item["assignee_id"] is not None and item["assignee_id"] != agent_id:
             raise HTTPException(409, "item is already assigned to another agent")
+        new_status = "in_progress" if item["status"] == "backlog" else item["status"]
         await conn.execute(
-            "UPDATE items SET assignee_id = %s, assigned_at = %s, updated_at = %s WHERE id = %s AND task_id = %s",
-            (agent_id, ts, ts, item_id, task_id),
+            "UPDATE items SET assignee_id = %s, assigned_at = %s, status = %s, updated_at = %s WHERE id = %s AND task_id = %s",
+            (agent_id, ts, new_status, ts, item_id, task_id),
         )
         item = await _get_item(item_id, task_id, conn)
         count = await _comment_count(item_id, conn)
@@ -479,3 +480,33 @@ async def delete_comment(task_id: str, item_id: str, comment_id: int, token: str
             "UPDATE item_comments SET deleted_at = %s WHERE id = %s",
             (ts, comment_id),
         )
+
+
+@router.get("/{item_id}/activity")
+async def get_item_activity(task_id: str, item_id: str, page: int = 1, per_page: int = 30):
+    page, per_page, offset = paginate(page, per_page)
+    async with get_db() as conn:
+        await _check_task(task_id, conn)
+        await _get_item(item_id, task_id, conn)
+        rows = await (await conn.execute(
+            "SELECT * FROM ("
+            "  SELECT 'run' AS type, id::text, agent_id, tldr AS content, score, created_at"
+            "  FROM runs WHERE item_id = %s"
+            "  UNION ALL"
+            "  SELECT 'post' AS type, id::text, agent_id, content, NULL::float AS score, created_at"
+            "  FROM posts WHERE item_id = %s"
+            "  UNION ALL"
+            "  SELECT 'feed_comment' AS type, id::text, agent_id, content, NULL::float AS score, created_at"
+            "  FROM comments WHERE item_id = %s"
+            "  UNION ALL"
+            "  SELECT 'skill' AS type, id::text, agent_id, name AS content, score_delta AS score, created_at"
+            "  FROM skills WHERE item_id = %s"
+            "  UNION ALL"
+            "  SELECT 'item_comment' AS type, id::text, agent_id, content, NULL::float AS score, created_at"
+            "  FROM item_comments WHERE item_id = %s AND deleted_at IS NULL"
+            ") activity ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            (item_id, item_id, item_id, item_id, item_id, per_page + 1, offset),
+        )).fetchall()
+    has_next = len(rows) > per_page
+    entries = [dict(r) for r in rows[:per_page]]
+    return JSONResponse({"activity": entries, "page": page, "per_page": per_page, "has_next": has_next})

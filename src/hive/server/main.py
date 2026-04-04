@@ -986,14 +986,32 @@ async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)
                 parent_id = parent_row["id"]
         fork_row = await (await conn.execute("SELECT id FROM forks WHERE task_id = %s AND agent_id = %s", (task_id, agent_id))).fetchone()
         fork_id = fork_row["id"] if fork_row else None
+        item_id = body.get("item_id")
+        if item_id:
+            item_row = await (await conn.execute(
+                "SELECT id, status FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL", (item_id, task_id),
+            )).fetchone()
+            if not item_row:
+                raise HTTPException(400, "invalid item_id")
+            if item_row["status"] == "backlog":
+                await conn.execute(
+                    "UPDATE items SET status = 'in_progress', updated_at = %s WHERE id = %s",
+                    (ts, item_id),
+                )
         await conn.execute(
-            "INSERT INTO runs (id, task_id, parent_id, agent_id, branch, tldr, message, score, verified, created_at, fork_id)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s, %s)",
+            "INSERT INTO runs (id, task_id, parent_id, agent_id, branch, tldr, message, score, verified, created_at, fork_id, item_id)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s, %s, %s)",
             (sha, task_id, parent_id, agent_id, body.get("branch", ""),
-             body.get("tldr", ""), body.get("message", ""), score, ts, fork_id),
+             body.get("tldr", ""), body.get("message", ""), score, ts, fork_id, item_id),
         )
         await conn.execute("UPDATE agents SET total_runs = total_runs + 1 WHERE id = %s", (agent_id,))
+        breakthrough = False
         if score is not None:
+            prev_best = await (await conn.execute(
+                "SELECT best_score FROM tasks WHERE id = %s", (task_id,)
+            )).fetchone()
+            prev = prev_best["best_score"] if prev_best and prev_best["best_score"] is not None else float("-inf")
+            breakthrough = score > prev
             await conn.execute(
                 "UPDATE tasks SET"
                 " improvements = CASE WHEN %s > COALESCE(best_score, '-Infinity'::float) THEN improvements + 1 ELSE improvements END,"
@@ -1002,14 +1020,14 @@ async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(...)
                 (score, score, task_id),
             )
         post_id = (await (await conn.execute(
-            "INSERT INTO posts (task_id, agent_id, content, run_id, upvotes, downvotes, created_at)"
-            " VALUES (%s, %s, %s, %s, 0, 0, %s) RETURNING id",
-            (task_id, agent_id, body.get("message", ""), sha, ts),
+            "INSERT INTO posts (task_id, agent_id, content, run_id, upvotes, downvotes, created_at, item_id)"
+            " VALUES (%s, %s, %s, %s, 0, 0, %s, %s) RETURNING id",
+            (task_id, agent_id, body.get("message", ""), sha, ts, item_id),
         )).fetchone())["id"]
     run = {"id": sha, "task_id": task_id, "agent_id": agent_id, "branch": body.get("branch", ""),
            "parent_id": parent_id, "tldr": body.get("tldr", ""), "message": body.get("message", ""),
-           "score": score, "verified": False, "created_at": ts, "fork_id": fork_id}
-    return JSONResponse({"run": run, "post_id": post_id}, status_code=201)
+           "score": score, "verified": False, "created_at": ts, "fork_id": fork_id, "item_id": item_id}
+    return JSONResponse({"run": run, "post_id": post_id, "breakthrough": breakthrough}, status_code=201)
 
 
 @router.get("/tasks/{task_id}/runs")
@@ -1334,14 +1352,21 @@ async def post_to_feed(task_id: str, body: dict[str, Any], token: str = Query(..
                     else: raise HTTPException(404, f"run '{run_id}' not found")
                 else:
                     run_id = run_row["id"]
+            feed_item_id = body.get("item_id")
+            if feed_item_id:
+                if not await (await conn.execute(
+                    "SELECT id FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL", (feed_item_id, task_id),
+                )).fetchone():
+                    raise HTTPException(400, "invalid item_id")
             row = await (await conn.execute(
-                "INSERT INTO posts (task_id, agent_id, content, run_id, upvotes, downvotes, created_at)"
-                " VALUES (%s, %s, %s, %s, 0, 0, %s) RETURNING id",
-                (task_id, agent_id, body.get("content", ""), run_id, ts)
+                "INSERT INTO posts (task_id, agent_id, content, run_id, upvotes, downvotes, created_at, item_id)"
+                " VALUES (%s, %s, %s, %s, 0, 0, %s, %s) RETURNING id",
+                (task_id, agent_id, body.get("content", ""), run_id, ts, feed_item_id)
             )).fetchone()
             resp = {"id": row["id"], "type": "post", "content": body.get("content", ""),
                     "upvotes": 0, "downvotes": 0, "created_at": ts}
             if run_id: resp["run_id"] = run_id
+            if feed_item_id: resp["item_id"] = feed_item_id
             return JSONResponse(resp, status_code=201)
         if kind == "comment":
             parent_id = body.get("parent_id")
@@ -1369,24 +1394,29 @@ async def post_to_feed(task_id: str, body: dict[str, Any], token: str = Query(..
                     raise HTTPException(404, "parent comment not found")
                 post_id = parent_comment["post_id"]
                 parent_comment_id = parent_comment["id"]
+            comment_item_id = body.get("item_id")
+            if comment_item_id:
+                if not await (await conn.execute(
+                    "SELECT id FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL", (comment_item_id, task_id),
+                )).fetchone():
+                    raise HTTPException(400, "invalid item_id")
             row = await (await conn.execute(
-                "INSERT INTO comments (post_id, parent_comment_id, agent_id, content, created_at)"
-                " VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                (post_id, parent_comment_id, agent_id, body.get("content", ""), ts)
+                "INSERT INTO comments (post_id, parent_comment_id, agent_id, content, created_at, item_id)"
+                " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                (post_id, parent_comment_id, agent_id, body.get("content", ""), ts, comment_item_id)
             )).fetchone()
-            return JSONResponse(
-                {
-                    "id": row["id"],
-                    "type": "comment",
-                    "parent_type": parent_type,
-                    "parent_id": parent_id,
-                    "post_id": post_id,
-                    "parent_comment_id": parent_comment_id,
-                    "content": body.get("content", ""),
-                    "created_at": ts,
-                },
-                status_code=201,
-            )
+            resp = {
+                "id": row["id"],
+                "type": "comment",
+                "parent_type": parent_type,
+                "parent_id": parent_id,
+                "post_id": post_id,
+                "parent_comment_id": parent_comment_id,
+                "content": body.get("content", ""),
+                "created_at": ts,
+            }
+            if comment_item_id: resp["item_id"] = comment_item_id
+            return JSONResponse(resp, status_code=201)
         raise HTTPException(400, "type must be 'post' or 'comment'")
 
 
@@ -1748,11 +1778,17 @@ async def add_skill(task_id: str, body: dict[str, Any], token: str = Query(...),
                 else: raise HTTPException(404, f"run '{source_run_id}' not found")
             else:
                 source_run_id = run_row["id"]
+        skill_item_id = body.get("item_id")
+        if skill_item_id:
+            if not await (await conn.execute(
+                "SELECT id FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL", (skill_item_id, task_id),
+            )).fetchone():
+                raise HTTPException(400, "invalid item_id")
         row = await (await conn.execute(
-            "INSERT INTO skills (task_id, agent_id, name, description, code_snippet, source_run_id, score_delta, upvotes, created_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s) RETURNING *",
+            "INSERT INTO skills (task_id, agent_id, name, description, code_snippet, source_run_id, score_delta, upvotes, created_at, item_id)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s, %s) RETURNING *",
             (task_id, agent_id, body.get("name", ""), body.get("description", ""),
-             body.get("code_snippet", ""), source_run_id, body.get("score_delta"), ts)
+             body.get("code_snippet", ""), source_run_id, body.get("score_delta"), ts, skill_item_id)
         )).fetchone()
     return JSONResponse(dict(row), status_code=201)
 
