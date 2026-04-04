@@ -36,9 +36,9 @@ function GitHubCallbackInner() {
     (async () => {
       try {
         if (isConnect) {
-          await connectGithub(code);
+          await connectGithub(code, state);
         } else {
-          await loginWithGithub(code);
+          await loginWithGithub(code, state);
         }
       } catch {
         // Ignore — likely a duplicate call with an already-consumed code
