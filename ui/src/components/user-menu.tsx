@@ -28,7 +28,7 @@ interface ProfileData {
 }
 
 function AccountPanel({ onClose }: { onClose: () => void }) {
-  const { user, logout, disconnectGithub, resendVerification } = useAuth();
+  const { user, logout, disconnectGithub } = useAuth();
   const [showClaim, setShowClaim] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [profile, setProfile] = useState<ProfileData | null>(null);
