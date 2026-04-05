@@ -1631,6 +1631,7 @@ async def verify_old_runs(task_id: str, body: dict[str, Any] = {},
     """Admin-only. Backfill verification metadata on old runs and queue them."""
     await require_admin_or_task_owner(task_id, x_admin_key, authorization)
     limit = min(int(body.get("limit", 50)), 200)
+    fallback_sha = body.get("task_repo_sha")
     async with get_db() as conn:
         _, verification = await _load_task_or_404(conn, task_id)
         if not verification.enabled:
@@ -1658,7 +1659,7 @@ async def verify_old_runs(task_id: str, body: dict[str, Any] = {},
             if not fork:
                 skipped_no_fork.append(run["id"])
                 continue
-            base_sha = fork["base_sha"]
+            base_sha = fork["base_sha"] or fallback_sha
             if not base_sha:
                 skipped_no_sha.append(run["id"])
                 continue
