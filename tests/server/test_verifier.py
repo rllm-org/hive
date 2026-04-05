@@ -7,6 +7,7 @@ import pytest
 from hive.server.db import get_db_sync, now
 from hive.server.verification import DEFAULT_STALE_AFTER
 from hive.server.verifier import (
+    _create_sandbox_with_retry,
     _effective_pool_max,
     _run_one_job,
     claim_next_job,
@@ -870,3 +871,65 @@ class TestConcurrency:
         assert job1 is not None
         assert job2 is not None
         assert job1.id != job2.id
+
+
+class TestSandboxRetry:
+    """Tests for sandbox creation retry logic."""
+
+    def test_succeeds_on_first_try(self, registered_agent, mock_github):
+        client, _, token = registered_agent
+        _insert_verifiable_task("tv-retry-ok")
+        job = _submit_and_claim_job(client, token, "tv-retry-ok", "retryok1")
+
+        sandbox = FakeSandbox(FakeExecResult(0, "accuracy: 0.5"))
+        daytona = FakeDaytona(sandbox)
+        result = asyncio.run(_create_sandbox_with_retry(daytona, job))
+        assert result is sandbox
+        assert len(daytona.created) == 1
+
+    def test_retries_on_transient_failure(self, registered_agent, mock_github, monkeypatch):
+        monkeypatch.setattr("hive.server.verifier.SANDBOX_MAX_RETRIES", 3)
+        monkeypatch.setattr("hive.server.verifier.SANDBOX_RETRY_BACKOFF", 0)  # no delay in tests
+
+        client, _, token = registered_agent
+        _insert_verifiable_task("tv-retry-transient")
+        job = _submit_and_claim_job(client, token, "tv-retry-transient", "retrytrans1")
+
+        call_count = 0
+        sandbox = FakeSandbox(FakeExecResult(0, "accuracy: 0.5"))
+
+        class RetryDaytona:
+            def __init__(self):
+                self.created = []
+
+            async def create(self, *args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                self.created.append((args, kwargs))
+                if call_count < 3:
+                    raise RuntimeError("CPU limit exceeded")
+                return sandbox
+
+            async def delete(self, sb, timeout=60):
+                pass
+
+        daytona = RetryDaytona()
+        result = asyncio.run(_create_sandbox_with_retry(daytona, job))
+        assert result is sandbox
+        assert call_count == 3  # failed twice, succeeded on third
+
+    def test_gives_up_after_max_retries(self, registered_agent, mock_github, monkeypatch):
+        monkeypatch.setattr("hive.server.verifier.SANDBOX_MAX_RETRIES", 2)
+        monkeypatch.setattr("hive.server.verifier.SANDBOX_RETRY_BACKOFF", 0)
+
+        client, _, token = registered_agent
+        _insert_verifiable_task("tv-retry-giveup")
+        job = _submit_and_claim_job(client, token, "tv-retry-giveup", "retryfail1")
+
+        daytona = FakeDaytona(
+            FakeSandbox(FakeExecResult(0, "")),
+            create_error=RuntimeError("CPU limit exceeded"),
+        )
+        with pytest.raises(RuntimeError, match="CPU limit exceeded"):
+            asyncio.run(_create_sandbox_with_retry(daytona, job))
+        assert len(daytona.created) == 2  # tried max_retries times

@@ -56,6 +56,8 @@ AUTO_DELETE_INTERVAL = int(os.environ.get("VERIFY_AUTO_DELETE_INTERVAL", "120"))
 MAX_CONCURRENT_JOBS = max(1, int(os.environ.get("VERIFY_MAX_CONCURRENT_JOBS", "1")))
 DB_POOL_MIN = int(os.environ.get("VERIFY_DB_POOL_MIN", "1"))
 DB_POOL_MAX = int(os.environ.get("VERIFY_DB_POOL_MAX", "0"))  # 0 = auto-size
+SANDBOX_MAX_RETRIES = int(os.environ.get("VERIFY_SANDBOX_MAX_RETRIES", "3"))
+SANDBOX_RETRY_BACKOFF = int(os.environ.get("VERIFY_SANDBOX_RETRY_BACKOFF", "30"))
 
 TASK_DIR = "/home/daytona/task"
 AGENT_DIR = "/home/daytona/agent"
@@ -196,7 +198,7 @@ async def verify_run(daytona: AsyncDaytona, job: VerificationJob) -> None:
             await record_result(job, STATUS_ERROR, None, None, "No pinned task repo SHA found for this run")
             return
 
-        sandbox = await _create_sandbox(daytona, job.config)
+        sandbox = await _create_sandbox_with_retry(daytona, job)
         logs: list[str] = []
 
         # Clone the trusted task repo, then overlay only the agent-owned paths before running scripts.
@@ -265,6 +267,26 @@ class VerificationFailed(Exception):
         super().__init__(message)
         self.message = message
         self.logs = logs
+
+
+async def _create_sandbox_with_retry(daytona: AsyncDaytona, job: VerificationJob) -> Any:
+    """Create a sandbox with exponential backoff on transient failures."""
+
+    last_err: Exception | None = None
+    for attempt in range(1, SANDBOX_MAX_RETRIES + 1):
+        try:
+            return await _create_sandbox(daytona, job.config)
+        except Exception as exc:
+            last_err = exc
+            if attempt >= SANDBOX_MAX_RETRIES:
+                break
+            delay = SANDBOX_RETRY_BACKOFF * attempt
+            log.warning(
+                "sandbox creation failed for run %s (attempt %d/%d), retrying in %ds: %s",
+                job.id, attempt, SANDBOX_MAX_RETRIES, delay, exc,
+            )
+            await asyncio.sleep(delay)
+    raise last_err  # type: ignore[misc]
 
 
 async def _create_sandbox(daytona: AsyncDaytona, config: VerificationConfig) -> Any:
