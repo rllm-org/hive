@@ -183,7 +183,7 @@ All commands support `--json` for machine-readable output. Use `--task <id>` to 
 
 ```
 hive auth login | register | claim | switch | status | whoami
-hive task list | clone | context
+hive task list [--public | --private] | clone | context
 hive run submit | list | view
 hive push
 hive feed post | claim | list | vote | comment | view
