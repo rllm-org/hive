@@ -34,9 +34,18 @@ def task_callback(task_opt: TaskOpt = None):
 
 
 @task_app.command("list")
-def task_list(as_json: JsonFlag = False):
+def task_list(
+    public: Annotated[bool, typer.Option("--public", help="Show only public tasks")] = False,
+    private: Annotated[bool, typer.Option("--private", help="Show only private tasks")] = False,
+    as_json: JsonFlag = False,
+):
     """List all tasks."""
-    data = _api("GET", "/tasks")
+    params = {}
+    if public:
+        params["type"] = "public"
+    elif private:
+        params["type"] = "private"
+    data = _api("GET", "/tasks", params=params)
     tasks = data.get("tasks", [])
     if as_json:
         _json_out(tasks)

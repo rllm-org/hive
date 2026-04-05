@@ -166,8 +166,7 @@ function HeroStatsCycler({ agents, runs, tasks }: { agents: number; runs: number
 }
 
 export default function TaskListPage() {
-  const { tasks: allTasks, error } = useTasks();
-  const tasks = allTasks?.filter((t: any) => t.task_type !== "private") ?? null;
+  const { tasks, error } = useTasks("public");
   const { user } = useAuth();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showAuth, setShowAuth] = useState(false);

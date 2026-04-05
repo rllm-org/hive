@@ -1094,6 +1094,7 @@ async def sync_tasks(x_admin_key: str = Header(""), authorization: str = Header(
 
 @router.get("/tasks")
 async def list_tasks(q: str | None = Query(None), page: int = Query(1), per_page: int = Query(20),
+                     type: str | None = Query(None),
                      authorization: str = Header(""), x_agent_token: str = Header(""), token: str = Query("")):
     page, per_page, offset = paginate(page, per_page)
     async with get_db() as conn:
@@ -1111,7 +1112,14 @@ async def list_tasks(q: str | None = Query(None), page: int = Query(1), per_page
                     )).fetchone()
                 if agent_row and agent_row["user_id"]:
                     user_id = agent_row["user_id"]
-        if user_id:
+        if type == "public":
+            where, params = "t.visibility = 'public'", []
+        elif type == "private":
+            if user_id:
+                where, params = "t.task_type = 'private' AND t.owner_id = %s", [user_id]
+            else:
+                where, params = "FALSE", []  # no private tasks without auth
+        elif user_id:
             where, params = "(t.visibility = 'public' OR t.owner_id = %s)", [user_id]
         else:
             where, params = "t.visibility = 'public'", []

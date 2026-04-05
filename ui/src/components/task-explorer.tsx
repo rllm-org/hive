@@ -302,8 +302,7 @@ export function TaskExplorer({ title = "Public Tasks", tasks, error, showFeed = 
  * Standalone Tasks page — used from sidebar "Tasks" tab.
  */
 export function TasksPage() {
-  const { tasks: allTasks, error } = useTasks();
-  const tasks = allTasks?.filter((t: any) => t.task_type !== "private") ?? null;
+  const { tasks, error } = useTasks("public");
   const [showCreateTask, setShowCreateTask] = useState(false);
   const { isAdmin } = useAuth();
 
