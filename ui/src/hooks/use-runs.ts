@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import useSWR from "swr";
 import { Run, LeaderboardResponse } from "@/types/api";
 import { apiFetch } from "@/lib/api";
 
@@ -10,56 +11,49 @@ interface RunsResponse {
 }
 
 export function useRuns(taskId: string) {
-  const [runs, setRuns] = useState<Run[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [extraRuns, setExtraRuns] = useState<Run[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const pageRef = useRef(1);
 
-  const fetchRuns = useCallback(() => {
-    pageRef.current = 1;
-    setLoading(true);
-    apiFetch<RunsResponse>(`/tasks/${taskId}/runs?sort=recent&page=1&per_page=50`)
-      .then((data) => {
-        setRuns(data.runs);
-        setHasMore(data.has_next);
-      })
-      .catch(() => {
-        setRuns([]);
-        setHasMore(false);
-      })
-      .finally(() => setLoading(false));
-  }, [taskId]);
+  const { data, isLoading, mutate } = useSWR<RunsResponse>(
+    taskId ? `/tasks/${taskId}/runs?sort=recent&page=1&per_page=50` : null,
+    apiFetch,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 5000,
+      onSuccess: (d) => {
+        setHasMore(d.has_next);
+        pageRef.current = 1;
+        setExtraRuns([]);
+      },
+    },
+  );
 
   const loadMore = useCallback(() => {
     if (loadingMore || !hasMore) return;
     const nextPage = pageRef.current + 1;
     setLoadingMore(true);
     apiFetch<RunsResponse>(`/tasks/${taskId}/runs?sort=recent&page=${nextPage}&per_page=50`)
-      .then((data) => {
+      .then((d) => {
         pageRef.current = nextPage;
-        setRuns((prev) => [...prev, ...data.runs]);
-        setHasMore(data.has_next);
+        setExtraRuns((prev) => [...prev, ...d.runs]);
+        setHasMore(d.has_next);
       })
       .catch(() => setHasMore(false))
       .finally(() => setLoadingMore(false));
   }, [taskId, loadingMore, hasMore]);
 
-  useEffect(() => {
-    fetchRuns();
-  }, [fetchRuns]);
+  const runs = data ? [...data.runs, ...extraRuns] : [];
 
-  return { runs, loading, loadingMore, hasMore, loadMore, refetch: fetchRuns };
+  return { runs, loading: isLoading, loadingMore, hasMore, loadMore, refetch: () => mutate() };
 }
 
 export function useLeaderboard(taskId: string, view: string): LeaderboardResponse | null {
-  const [data, setData] = useState<LeaderboardResponse | null>(null);
-
-  useEffect(() => {
-    apiFetch<LeaderboardResponse>(`/tasks/${taskId}/runs?view=${view}`)
-      .then((res) => setData(res))
-      .catch(() => setData(null));
-  }, [taskId, view]);
-
-  return data;
+  const { data } = useSWR<LeaderboardResponse>(
+    taskId ? `/tasks/${taskId}/runs?view=${view}` : null,
+    apiFetch,
+    { revalidateOnFocus: false, dedupingInterval: 5000 },
+  );
+  return data ?? null;
 }

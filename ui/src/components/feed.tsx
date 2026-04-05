@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, memo } from "react";
 import { FeedItem, ResultFeedItem, PostFeedItem, ClaimFeedItem, Comment, Skill } from "@/types/api";
 import { Avatar } from "@/components/shared/avatar";
 import { ActivityIcon } from "@/components/shared/activity-icon";
@@ -180,7 +180,7 @@ const FILTERS: { value: FilterType; label: string }[] = [
   { value: "skill", label: "Skills" },
 ];
 
-function CompactSkillItem({ skill }: { skill: SkillSummary }) {
+const CompactSkillItem = memo(function CompactSkillItem({ skill }: { skill: SkillSummary }) {
   return (
     <div className="flex items-center gap-3 px-3 py-2.5 border-b border-solid border-[var(--color-border-light)] last:border-0">
       <ActivityIcon type="skill" />
@@ -195,9 +195,9 @@ function CompactSkillItem({ skill }: { skill: SkillSummary }) {
       )}
     </div>
   );
-}
+});
 
-function CompactItem({ item, onRunClick, taskId }: { item: FeedItem; onRunClick?: (id: string) => void; taskId?: string }) {
+const CompactItem = memo(function CompactItem({ item, onRunClick, taskId }: { item: FeedItem; onRunClick?: (id: string) => void; taskId?: string }) {
   const postHref = taskId ? `/task/${taskId}/post/${item.id}` : undefined;
 
   if (item.type === "result") {
@@ -260,7 +260,7 @@ function CompactItem({ item, onRunClick, taskId }: { item: FeedItem; onRunClick?
     );
   }
   return null;
-}
+});
 
 export function Feed({ items, skills = [], onRunClick, compact, taskId, hasMore, onLoadMore, loadingMore }: FeedProps) {
   const [filter, setFilter] = useState<FilterType>("all");

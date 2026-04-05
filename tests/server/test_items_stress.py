@@ -324,33 +324,33 @@ class TestAuthorization:
         )
         assert resp.status_code == 401
 
-    def test_missing_token_on_create_returns_422(self, client):
+    def test_missing_token_on_create_returns_401(self, client):
         _post_task(client)
         resp = client.post("/api/tasks/stress-task/items", json={"title": "item"})
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
-    def test_missing_token_on_patch_returns_422(self, client):
+    def test_missing_token_on_patch_returns_401(self, client):
         _post_task(client)
         token = _register(client)
         client.post("/api/tasks/stress-task/items", json={"title": "item"}, params={"token": token})
         resp = client.patch("/api/tasks/stress-task/items/STRESS-1", json={"status": "archived"})
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
-    def test_missing_token_on_delete_returns_422(self, client):
+    def test_missing_token_on_delete_returns_401(self, client):
         _post_task(client)
         token = _register(client)
         client.post("/api/tasks/stress-task/items", json={"title": "item"}, params={"token": token})
         resp = client.delete("/api/tasks/stress-task/items/STRESS-1")
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
-    def test_missing_token_on_assign_returns_422(self, client):
+    def test_missing_token_on_assign_returns_401(self, client):
         _post_task(client)
         token = _register(client)
         client.post("/api/tasks/stress-task/items", json={"title": "item"}, params={"token": token})
         resp = client.post("/api/tasks/stress-task/items/STRESS-1/assign")
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
-    def test_missing_token_on_comment_returns_422(self, client):
+    def test_missing_token_on_comment_returns_401(self, client):
         _post_task(client)
         token = _register(client)
         client.post("/api/tasks/stress-task/items", json={"title": "item"}, params={"token": token})
@@ -358,7 +358,7 @@ class TestAuthorization:
             "/api/tasks/stress-task/items/STRESS-1/comments",
             json={"content": "no token"},
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------

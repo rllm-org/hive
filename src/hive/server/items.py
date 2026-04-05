@@ -2,8 +2,10 @@ import json
 import re
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Header
 from fastapi.responses import JSONResponse as _BaseJSONResponse
+
+from psycopg.types.json import Json
 
 from .db import get_db, now, paginate
 
@@ -12,10 +14,13 @@ class JSONResponse(_BaseJSONResponse):
     def render(self, content) -> bytes:
         return json.dumps(content, default=lambda o: o.isoformat() if isinstance(o, datetime) else (_ for _ in ()).throw(TypeError)).encode("utf-8")
 
-async def _get_agent(token: str, conn) -> str:
-    row = await (await conn.execute("SELECT id FROM agents WHERE token = %s", (token,))).fetchone()
+async def _get_agent(token: str, x_agent_token: str, conn) -> str:
+    effective = x_agent_token or token
+    if not effective:
+        raise HTTPException(401, "authentication required")
+    row = await (await conn.execute("SELECT id FROM agents WHERE token = %s", (effective,))).fetchone()
     if not row:
-        row = await (await conn.execute("SELECT id FROM agents WHERE id = %s", (token,))).fetchone()
+        row = await (await conn.execute("SELECT id FROM agents WHERE id = %s", (effective,))).fetchone()
     if not row:
         raise HTTPException(401, "invalid token")
     await conn.execute("UPDATE agents SET last_seen_at = %s WHERE id = %s", (now(), row["id"]))
@@ -85,6 +90,11 @@ def _validate_fields(body: dict):
                 raise HTTPException(400, f"label too long (max 50): {label}")
             if not _LABEL_RE.match(label):
                 raise HTTPException(400, f"invalid label '{label}': only [a-zA-Z0-9_-] allowed")
+    if "metadata" in body and body["metadata"] is not None:
+        if not isinstance(body["metadata"], dict):
+            raise HTTPException(400, "metadata must be an object")
+        if len(json.dumps(body["metadata"])) > 16384:
+            raise HTTPException(400, "metadata too large (max 16KB)")
 
 async def _check_task(task_id: str, conn):
     if not await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))).fetchone():
@@ -106,7 +116,7 @@ async def _comment_count(item_id: str, conn) -> int:
 
 
 _ITEM_KEYS = ["id", "task_id", "title", "description", "status", "priority",
-              "assignee_id", "assigned_at", "parent_id", "labels", "created_by", "created_at", "updated_at"]
+              "assignee_id", "assigned_at", "parent_id", "labels", "metadata", "created_by", "created_at", "updated_at"]
 
 def _item_response(item: dict, comment_count: int) -> dict:
     r = {k: item[k] for k in _ITEM_KEYS}
@@ -116,11 +126,11 @@ def _item_response(item: dict, comment_count: int) -> dict:
     return r
 
 
-_UPDATABLE_FIELDS = {"title", "description", "status", "priority", "assignee_id", "parent_id", "labels"}
+_UPDATABLE_FIELDS = {"title", "description", "status", "priority", "assignee_id", "parent_id", "labels", "metadata"}
 
 _INSERT_SQL = ("INSERT INTO items (id, seq, task_id, title, description, status, priority,"
-               " assignee_id, assigned_at, parent_id, labels, created_by, created_at, updated_at)"
-               " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+               " assignee_id, assigned_at, parent_id, labels, metadata, created_by, created_at, updated_at)"
+               " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
 
 async def _validate_refs(body: dict, task_id: str, conn):
     if body.get("assignee_id"):
@@ -161,7 +171,7 @@ async def _insert_item(body: dict, task_id: str, agent_id: str, ts, conn) -> dic
         item_id, seq, task_id, body["title"], body.get("description"),
         body.get("status", "backlog"), body.get("priority", "none"),
         body.get("assignee_id"), body.get("assigned_at"), body.get("parent_id"), body.get("labels", []),
-        agent_id, ts, ts,
+        Json(body.get("metadata")), agent_id, ts, ts,
     ))
     return dict(await (await conn.execute("SELECT * FROM items WHERE id = %s", (item_id,))).fetchone())
 
@@ -225,13 +235,13 @@ async def _expire_stale_assignments(conn, ts, task_id: str | None = None, item_i
 
 
 @router.post("", status_code=201)
-async def create_item(task_id: str, body: dict, token: str = Query(...)):
+async def create_item(task_id: str, body: dict, token: str = Query(""), x_agent_token: str = Header("")):
     if not body.get("title") or not body["title"].strip():
         raise HTTPException(400, "title is required and cannot be blank")
     _validate_fields(body)
     ts = now()
     async with get_db() as conn:
-        agent_id = await _get_agent(token, conn)
+        agent_id = await _get_agent(token, x_agent_token, conn)
         await _check_task(task_id, conn)
         await _validate_refs(body, task_id, conn)
         body = _apply_assignment_rules(body, ts)
@@ -327,14 +337,14 @@ async def get_item(task_id: str, item_id: str):
 
 
 @router.patch("/{item_id}")
-async def patch_item(task_id: str, item_id: str, body: dict, token: str = Query(...)):
+async def patch_item(task_id: str, item_id: str, body: dict, token: str = Query(""), x_agent_token: str = Header("")):
     updates = {k: v for k, v in body.items() if k in _UPDATABLE_FIELDS}
     if not updates:
         raise HTTPException(400, "no updatable fields provided")
     _validate_fields(updates)
     ts = now()
     async with get_db() as conn:
-        await _get_agent(token, conn)
+        await _get_agent(token, x_agent_token, conn)
         await _check_task(task_id, conn)
         await _expire_stale_assignments(conn, ts, task_id=task_id, item_id=item_id)
         item = await _get_item(item_id, task_id, conn)
@@ -356,6 +366,8 @@ async def patch_item(task_id: str, item_id: str, body: dict, token: str = Query(
                 raise HTTPException(404, f"assignee '{updates['assignee_id']}' not found")
 
         updates = _apply_assignment_rules(updates, ts, existing=dict(item))
+        if "metadata" in updates:
+            updates["metadata"] = Json(updates["metadata"])
         set_clauses = ", ".join(f"{k} = %s" for k in updates)
         values = list(updates.values()) + [ts, item_id, task_id]
         await conn.execute(
@@ -370,10 +382,10 @@ async def patch_item(task_id: str, item_id: str, body: dict, token: str = Query(
 
 
 @router.delete("/{item_id}", status_code=204)
-async def delete_item(task_id: str, item_id: str, token: str = Query(...)):
+async def delete_item(task_id: str, item_id: str, token: str = Query(""), x_agent_token: str = Header("")):
     ts = now()
     async with get_db() as conn:
-        agent_id = await _get_agent(token, conn)
+        agent_id = await _get_agent(token, x_agent_token, conn)
         await _check_task(task_id, conn)
         await _expire_stale_assignments(conn, ts, task_id=task_id, item_id=item_id)
         item = await _get_item(item_id, task_id, conn)
@@ -393,10 +405,10 @@ async def delete_item(task_id: str, item_id: str, token: str = Query(...)):
 
 
 @router.post("/{item_id}/assign")
-async def assign_item(task_id: str, item_id: str, token: str = Query(...)):
+async def assign_item(task_id: str, item_id: str, token: str = Query(""), x_agent_token: str = Header("")):
     ts = now()
     async with get_db() as conn:
-        agent_id = await _get_agent(token, conn)
+        agent_id = await _get_agent(token, x_agent_token, conn)
         await _check_task(task_id, conn)
         await _expire_stale_assignments(conn, ts, task_id=task_id, item_id=item_id)
         item = await _get_item(item_id, task_id, conn)
@@ -404,9 +416,10 @@ async def assign_item(task_id: str, item_id: str, token: str = Query(...)):
             raise HTTPException(409, "archived items cannot be assigned")
         if item["assignee_id"] is not None and item["assignee_id"] != agent_id:
             raise HTTPException(409, "item is already assigned to another agent")
+        new_status = "in_progress" if item["status"] == "backlog" else item["status"]
         await conn.execute(
-            "UPDATE items SET assignee_id = %s, assigned_at = %s, updated_at = %s WHERE id = %s AND task_id = %s",
-            (agent_id, ts, ts, item_id, task_id),
+            "UPDATE items SET assignee_id = %s, assigned_at = %s, status = %s, updated_at = %s WHERE id = %s AND task_id = %s",
+            (agent_id, ts, new_status, ts, item_id, task_id),
         )
         item = await _get_item(item_id, task_id, conn)
         count = await _comment_count(item_id, conn)
@@ -414,7 +427,7 @@ async def assign_item(task_id: str, item_id: str, token: str = Query(...)):
 
 
 @router.post("/{item_id}/comments", status_code=201)
-async def create_comment(task_id: str, item_id: str, body: dict, token: str = Query(...)):
+async def create_comment(task_id: str, item_id: str, body: dict, token: str = Query(""), x_agent_token: str = Header("")):
     content = body.get("content")
     if not content or not isinstance(content, str) or not content.strip():
         raise HTTPException(400, "content is required")
@@ -423,7 +436,7 @@ async def create_comment(task_id: str, item_id: str, body: dict, token: str = Qu
         raise HTTPException(400, "content too long")
     ts = now()
     async with get_db() as conn:
-        agent_id = await _get_agent(token, conn)
+        agent_id = await _get_agent(token, x_agent_token, conn)
         await _check_task(task_id, conn)
         await _get_item(item_id, task_id, conn)
         row = await (await conn.execute(
@@ -461,10 +474,10 @@ async def list_comments(task_id: str, item_id: str, page: int = 1, per_page: int
 
 
 @router.delete("/{item_id}/comments/{comment_id}", status_code=204)
-async def delete_comment(task_id: str, item_id: str, comment_id: int, token: str = Query(...)):
+async def delete_comment(task_id: str, item_id: str, comment_id: int, token: str = Query(""), x_agent_token: str = Header("")):
     ts = now()
     async with get_db() as conn:
-        agent_id = await _get_agent(token, conn)
+        agent_id = await _get_agent(token, x_agent_token, conn)
         await _check_task(task_id, conn)
         await _get_item(item_id, task_id, conn)
         row = await (await conn.execute(
@@ -479,3 +492,33 @@ async def delete_comment(task_id: str, item_id: str, comment_id: int, token: str
             "UPDATE item_comments SET deleted_at = %s WHERE id = %s",
             (ts, comment_id),
         )
+
+
+@router.get("/{item_id}/activity")
+async def get_item_activity(task_id: str, item_id: str, page: int = 1, per_page: int = 30):
+    page, per_page, offset = paginate(page, per_page)
+    async with get_db() as conn:
+        await _check_task(task_id, conn)
+        await _get_item(item_id, task_id, conn)
+        rows = await (await conn.execute(
+            "SELECT * FROM ("
+            "  SELECT 'run' AS type, id::text, agent_id, tldr AS content, score, created_at"
+            "  FROM runs WHERE item_id = %s"
+            "  UNION ALL"
+            "  SELECT 'post' AS type, id::text, agent_id, content, NULL::float AS score, created_at"
+            "  FROM posts WHERE item_id = %s"
+            "  UNION ALL"
+            "  SELECT 'feed_comment' AS type, id::text, agent_id, content, NULL::float AS score, created_at"
+            "  FROM comments WHERE item_id = %s"
+            "  UNION ALL"
+            "  SELECT 'skill' AS type, id::text, agent_id, name AS content, score_delta AS score, created_at"
+            "  FROM skills WHERE item_id = %s"
+            "  UNION ALL"
+            "  SELECT 'item_comment' AS type, id::text, agent_id, content, NULL::float AS score, created_at"
+            "  FROM item_comments WHERE item_id = %s AND deleted_at IS NULL"
+            ") activity ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            (item_id, item_id, item_id, item_id, item_id, per_page + 1, offset),
+        )).fetchall()
+    has_next = len(rows) > per_page
+    entries = [dict(r) for r in rows[:per_page]]
+    return JSONResponse({"activity": entries, "page": page, "per_page": per_page, "has_next": has_next})

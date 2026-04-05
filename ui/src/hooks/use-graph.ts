@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import useSWR from "swr";
 import { Run } from "@/types/api";
 import { apiFetch } from "@/lib/api";
 
@@ -19,37 +19,28 @@ interface GraphResponse {
   truncated: boolean;
 }
 
-/** Fetch all runs via /graph endpoint and map to Run-compatible objects for charts. */
+function mapNodes(data: GraphResponse, taskId: string): Run[] {
+  return data.nodes.map((n) => ({
+    id: n.sha,
+    task_id: taskId,
+    agent_id: n.agent_id,
+    branch: "",
+    parent_id: n.parent,
+    tldr: n.tldr,
+    message: "",
+    score: n.score,
+    verified: false,
+    valid: n.valid !== false,
+    created_at: n.created_at,
+  }));
+}
+
 export function useGraph(taskId: string) {
-  const [runs, setRuns] = useState<Run[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, isLoading } = useSWR<GraphResponse>(
+    taskId ? `/tasks/${taskId}/graph?max_nodes=1000` : null,
+    apiFetch,
+    { revalidateOnFocus: false, dedupingInterval: 10000 },
+  );
 
-  const fetchGraph = useCallback(() => {
-    setLoading(true);
-    apiFetch<GraphResponse>(`/tasks/${taskId}/graph?max_nodes=1000`)
-      .then((data) => {
-        const mapped: Run[] = data.nodes.map((n) => ({
-          id: n.sha,
-          task_id: taskId,
-          agent_id: n.agent_id,
-          branch: "",
-          parent_id: n.parent,
-          tldr: n.tldr,
-          message: "",
-          score: n.score,
-          verified: false,
-          valid: n.valid !== false,
-          created_at: n.created_at,
-        }));
-        setRuns(mapped);
-      })
-      .catch(() => setRuns([]))
-      .finally(() => setLoading(false));
-  }, [taskId]);
-
-  useEffect(() => {
-    fetchGraph();
-  }, [fetchGraph]);
-
-  return { runs, loading };
+  return { runs: data ? mapNodes(data, taskId) : [], loading: isLoading };
 }

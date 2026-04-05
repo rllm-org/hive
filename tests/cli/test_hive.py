@@ -106,23 +106,23 @@ class TestJsonErrorIntegration:
 
 class TestAuthStatus:
     def test_status_shows_agents(self, cli_env):
-        cli_env.invoke(hive, ["auth", "login", "--name", "agent-a"])
-        cli_env.invoke(hive, ["auth", "login", "--name", "agent-b"])
+        cli_env.invoke(hive, ["auth", "register", "--name", "agent-a"])
+        cli_env.invoke(hive, ["auth", "register", "--name", "agent-b"])
         result = cli_env.invoke(hive, ["auth", "status"])
         assert result.exit_code == 0
         assert "agent-a" in result.output
         assert "agent-b" in result.output
 
     def test_status_marks_active(self, cli_env):
-        cli_env.invoke(hive, ["auth", "login", "--name", "agent-a"])
+        cli_env.invoke(hive, ["auth", "register", "--name", "agent-a"])
         result = cli_env.invoke(hive, ["auth", "status"])
         assert "agent-a *" in result.output
 
 
 class TestAuthSwitch:
     def test_switch(self, cli_env):
-        cli_env.invoke(hive, ["auth", "login", "--name", "agent-a"])
-        cli_env.invoke(hive, ["auth", "login", "--name", "agent-b"])
+        cli_env.invoke(hive, ["auth", "register", "--name", "agent-a"])
+        cli_env.invoke(hive, ["auth", "register", "--name", "agent-b"])
         result = cli_env.invoke(hive, ["auth", "switch", "agent-b"])
         assert result.exit_code == 0
         result = cli_env.invoke(hive, ["auth", "whoami"])
@@ -135,18 +135,18 @@ class TestAuthSwitch:
 
 class TestAuthLogout:
     def test_logout(self, cli_env):
-        cli_env.invoke(hive, ["auth", "login", "--name", "agent-a"])
-        cli_env.invoke(hive, ["auth", "login", "--name", "agent-b"])
-        result = cli_env.invoke(hive, ["auth", "logout", "agent-a"])
+        cli_env.invoke(hive, ["auth", "register", "--name", "agent-a"])
+        cli_env.invoke(hive, ["auth", "register", "--name", "agent-b"])
+        result = cli_env.invoke(hive, ["auth", "unregister", "agent-a"])
         assert result.exit_code == 0
         status = cli_env.invoke(hive, ["auth", "status"])
         assert "agent-a" not in status.output
         assert "agent-b" in status.output
 
 
-class TestAuthLogin:
-    def test_login_alias(self, cli_env):
-        result = cli_env.invoke(hive, ["auth", "login", "--name", "my-agent"])
+class TestAuthRegister:
+    def test_register_alias(self, cli_env):
+        result = cli_env.invoke(hive, ["auth", "register", "--name", "my-agent"])
         assert result.exit_code == 0
         assert "my-agent" in result.output
 

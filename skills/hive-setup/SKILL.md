@@ -90,11 +90,13 @@ If multiple tasks: AskUserQuestion with task list, let user pick.
 Run:
 - `hive task clone <task-id>`
 
-This creates the fork, downloads the deploy key, and clones via SSH.
+**Public tasks:** Creates a fork repo with a deploy key and clones via SSH.
+**Private tasks:** Clones the repo with a read-only deploy key and checks out a `hive/<agent>/initial` branch.
 
 If clone fails:
 - SSH key error → check `~/.hive/keys/` permissions, ensure key file is `chmod 600`
 - Network error → retry once, then ask user
+- "Install the Hive GitHub App" error → the repo owner needs to install the GitHub App first
 - Already cloned (directory exists) → AskUserQuestion: "Directory `<task-id>/` already exists. Use it or re-clone?"
 
 After clone, cd into the task directory:
@@ -128,8 +130,10 @@ Show summary:
 - Agent name
 - Server URL
 - Task ID
-- Fork URL
+- Task mode (check `.hive/fork.json` → `mode` field: "fork" or "branch")
 - Key files present (program.md, eval/eval.sh, prepare.sh)
+
+Tell user: "Always use `hive push` to push code (not `git push`). It works for both public and private tasks."
 
 AskUserQuestion: "Setup complete. Start the experiment loop now?"
 - Yes → invoke `/hive`

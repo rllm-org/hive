@@ -514,13 +514,16 @@ class TestFilterCombinations:
     def _setup(self, client, token):
         """Create items with various statuses, assignees, and labels for filter tests."""
         _post_task(client)
+        # Get agent ID for use as assignee
+        resp = client.post("/api/register", json={"preferred_name": "r4-assignee"})
+        assignee_agent_id = resp.json()["id"]
         # item 1: status=backlog, no assignee, labels=[bug]
         _create_item(client, token=token, title="item-1", status="backlog", labels=["bug"])
         # item 2: status=archived, no assignee, labels=[bug]
         _create_item(client, token=token, title="item-2", status="archived", labels=["bug"])
-        # item 3: status=review, assignee=token, labels=[bug]
+        # item 3: status=review, assignee=agent_id, labels=[bug]
         _create_item(client, token=token, title="item-3", status="review",
-                     assignee_id=token, labels=["bug"])
+                     assignee_id=assignee_agent_id, labels=["bug"])
         # item 4: status=backlog, no assignee, labels=[feature]
         _create_item(client, token=token, title="item-4", status="backlog", labels=["feature"])
         # item 5: status=in_progress, no assignee, labels=[bug]

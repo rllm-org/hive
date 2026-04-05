@@ -67,16 +67,20 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
   const [cursorStyle, setCursorStyle] = useState("grab");
   const [ready, setReady] = useState(false);
 
-  // Measure container
+  // Measure container (debounced)
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    let raf: number;
     const ro = new ResizeObserver((entries) => {
-      const { width, height } = entries[0].contentRect;
-      if (width > 0 && height > 0) setDimensions({ width, height });
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const { width, height } = entries[0].contentRect;
+        if (width > 0 && height > 0) setDimensions({ width, height });
+      });
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, []);
 
   const { ids: bestLineage, chains: bestChains } = useMemo(() => getBestLineage(runs), [runs]);
@@ -239,13 +243,17 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
   }, [runs, bestLineage, bestChains]);
 
 
-  // Keep render loop alive for edge pulse animation
+  // Keep render loop alive for edge pulse animation (only when tab is visible)
   useEffect(() => {
-    const interval = setInterval(() => {
-      const fg = fgRef.current;
-      if (fg) fg.d3ReheatSimulation();
-    }, 3000);
-    return () => clearInterval(interval);
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (!interval) interval = setInterval(() => { fgRef.current?.d3ReheatSimulation(); }, 3000);
+    };
+    const stop = () => { if (interval) { clearInterval(interval); interval = null; } };
+    const onVisibility = () => document.hidden ? stop() : start();
+    document.addEventListener("visibilitychange", onVisibility);
+    if (!document.hidden) start();
+    return () => { stop(); document.removeEventListener("visibilitychange", onVisibility); };
   }, []);
 
   // Fit graph: seed on left, rightmost node on right, centered

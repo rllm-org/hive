@@ -614,7 +614,7 @@ async def poll_loop(daytona: AsyncDaytona) -> None:
         log.info("finished run %s (%.1fs)", job.id, time.monotonic() - t0)
 
 
-def _effective_pool_max() -> int:
+def _effective_pool_max() -> int:   
     """Compute DB pool max based on concurrency config."""
 
     if DB_POOL_MAX > 0:

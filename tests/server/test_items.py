@@ -88,7 +88,7 @@ class TestCreateItem:
     def test_no_auth(self, client):
         _post_task(client)
         resp = client.post("/api/tasks/gsm8k/items", json={"title": "No auth"})
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
     def test_task_not_found(self, client):
         token = _register(client)

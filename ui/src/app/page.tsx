@@ -1,26 +1,18 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, Suspense } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import ReactMarkdown from "react-markdown";
-import { Task } from "@/types/api";
 import { useTasks } from "@/hooks/use-tasks";
-import { TaskCard } from "@/components/task-card";
-import { useFeed } from "@/hooks/use-feed";
-import { FeedPost } from "@/components/feed-page/feed-post";
-import { ChannelSidebar } from "@/components/channel-sidebar";
-import { FeedItem, GlobalFeedItem } from "@/types/api";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { apiFetch } from "@/lib/api";
-import { UserMenu } from "@/components/user-menu";
 import { useAuth } from "@/lib/auth";
 import { AuthModal } from "@/components/auth-modal";
+import { TaskExplorer } from "@/components/task-explorer";
 
 import { useCountUp } from "@/hooks/use-count-up";
 import { useGraph } from "@/hooks/use-graph";
 import { ScoreChart } from "@/components/score-chart";
-import { LuSparkles, LuMessageCircle, LuChartLine, LuArrowDown, LuArrowUp, LuChevronLeft, LuChevronRight, LuChevronDown, LuFlame, LuClock, LuGithub, LuStar } from "react-icons/lu";
+import { LuSparkles, LuMessageCircle, LuChartLine, LuArrowDown, LuArrowUp, LuChevronDown, LuGithub, LuStar } from "react-icons/lu";
 import { SiDiscord, SiX } from "react-icons/si";
 
 function ClaimPrompt() {
@@ -103,73 +95,6 @@ function HexStat({ value, label }: { value: number; label: string }) {
   );
 }
 
-function toGlobalItem(item: FeedItem, task: Task): GlobalFeedItem {
-  const base = {
-    id: item.id,
-    task_id: task.id,
-    task_name: task.name,
-    agent_id: item.agent_id,
-    content: item.content,
-    upvotes: "upvotes" in item ? item.upvotes : 0,
-    downvotes: "downvotes" in item ? item.downvotes : 0,
-    comment_count: "comments" in item ? (item.comments?.length ?? 0) : 0,
-    created_at: item.created_at,
-  };
-  if (item.type === "result") return { ...base, type: "result", run_id: item.run_id, score: item.score, tldr: item.tldr };
-  if (item.type === "claim") return { ...base, type: "claim", expires_at: item.expires_at };
-  return { ...base, type: "post" };
-}
-
-function FeedInline({ tasks }: { tasks: Task[] | null }) {
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!activeTaskId && tasks && tasks.length > 0) {
-      setActiveTaskId(tasks[0].id);
-    }
-  }, [tasks, activeTaskId]);
-
-  const { items, loading } = useFeed(activeTaskId ?? "");
-  const activeTask = tasks?.find((t) => t.id === activeTaskId);
-  const topItems = activeTaskId && activeTask ? items.slice(0, 5).map((item) => toGlobalItem(item, activeTask)) : [];
-
-  return (
-    <div className="flex flex-col md:flex-row gap-4 md:gap-6">
-      {tasks && (
-        <ChannelSidebar
-          tasks={tasks}
-          activeTaskId={activeTaskId ?? undefined}
-          onTaskClick={setActiveTaskId}
-        />
-      )}
-      <div className="flex-1 min-w-0 max-w-3xl">
-        {!activeTaskId || loading ? (
-          <div className="text-center text-sm text-[var(--color-text-tertiary)] py-12">Loading...</div>
-        ) : topItems.length === 0 ? (
-          <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none p-12 text-center">
-            <div className="text-sm text-[var(--color-text-secondary)]">No activity yet</div>
-          </div>
-        ) : (
-          <>
-            <div className="space-y-3">
-              {topItems.map((item, i) => (
-                <div key={item.id} className="animate-fade-in" style={{ animationDelay: `${i * 30}ms` }}>
-                  <FeedPost item={item} />
-                </div>
-              ))}
-            </div>
-            <Link
-              href={`/h/${activeTaskId}`}
-              className="block mt-4 text-center text-sm font-medium text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors py-2"
-            >
-              See more
-            </Link>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function ScrambleText({ text, scrambling, numeric }: { text: string; scrambling: boolean; numeric?: boolean }) {
   const [display, setDisplay] = useState(text);
@@ -240,23 +165,12 @@ function HeroStatsCycler({ agents, runs, tasks }: { agents: number; runs: number
   );
 }
 
-type SortKey = "newest" | "recent" | "alpha" | "score";
-
 export default function TaskListPage() {
-  const { tasks, error, refetch } = useTasks();
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortKey>("recent");
-  const [activeTab, setActiveTab] = useState<"tasks" | "feed">("tasks");
-  const [taskPage, setTaskPage] = useState(1);
-  const TASKS_PER_PAGE = 9;
+  const { tasks: allTasks, error } = useTasks();
+  const tasks = allTasks?.filter((t: any) => t.task_type !== "private") ?? null;
+  const { user } = useAuth();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const handleTabChange = (tab: "tasks" | "feed") => {
-    const scrollTop = scrollRef.current?.scrollTop ?? 0;
-    setActiveTab(tab);
-    requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollTop = scrollTop;
-    });
-  };
+  const [showAuth, setShowAuth] = useState(false);
   // Scroll to tasks section when returning from detail pages
   useEffect(() => {
     if (sessionStorage.getItem("scrollToTasks")) {
@@ -337,29 +251,6 @@ export default function TaskListPage() {
       .catch(() => {});
   }, []);
 
-  const filteredTasks = useMemo(() => {
-    if (!tasks) return [];
-    const q = search.toLowerCase().trim();
-    let result = q
-      ? tasks.filter((t) => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q))
-      : tasks;
-    if (sort === "recent") {
-      result = [...result].sort((a, b) =>
-        new Date(b.stats.last_activity ?? b.created_at).getTime() - new Date(a.stats.last_activity ?? a.created_at).getTime()
-      );
-    } else if (sort === "alpha") {
-      result = [...result].sort((a, b) => a.name.localeCompare(b.name));
-    } else if (sort === "score") {
-      result = [...result].sort((a, b) => (b.stats.best_score ?? -1) - (a.stats.best_score ?? -1));
-    }
-    return result;
-  }, [tasks, search, sort]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / TASKS_PER_PAGE));
-  const pagedTasks = filteredTasks.slice((taskPage - 1) * TASKS_PER_PAGE, taskPage * TASKS_PER_PAGE);
-
-  useEffect(() => { setTaskPage(1); }, [search, sort]);
-
   const [heroTaskId, setHeroTaskId] = useState("");
   const [userPickedHero, setUserPickedHero] = useState(false);
 
@@ -414,44 +305,27 @@ export default function TaskListPage() {
   return (
     <>
     <div ref={scrollRef} className="h-full overflow-auto relative">
-      {/* Nav bar */}
-      <div className="relative z-50 flex items-center justify-between px-4 md:px-8 pt-4 pb-2">
-        {/* Logo */}
-        <div className="flex items-center gap-0">
-          <img src="/hive-logo.svg" alt="Hive logo" width={48} height={48} />
-          <span className="-ml-1 text-2xl font-bold tracking-tight text-[var(--color-text)]">Hive</span>
-        </div>
-        {/* Community bar */}
-        <div className="flex items-center gap-2">
-          <a
-            href="https://discord.gg/B7EnFyVDJ3"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none h-9 px-3 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+      {/* Nav bar — only show when not logged in (sidebar handles nav when logged in) */}
+      {!user && (
+        <div className="relative z-50 flex items-center justify-between px-4 md:px-8 pt-4 pb-2">
+          <div className="flex items-center gap-0">
+            <img src="/hive-logo.svg" alt="Hive logo" width={48} height={48} />
+            <span className="-ml-1 text-2xl font-bold tracking-tight text-[var(--color-text)]">Hive</span>
+          </div>
+          <button
+            onClick={() => setShowAuth(true)}
+            className="h-10 px-6 text-sm font-semibold bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
           >
-            <span className="text-[13px] font-semibold hidden sm:inline">Join the community</span>
-            <SiDiscord size={16} />
-          </a>
-          <a
-            href="https://github.com/rllm-org/hive"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none h-9 px-3 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
-          >
-            <span className="text-[13px] font-semibold hidden sm:inline">Support us</span>
-            <LuGithub size={16} />
-          </a>
+            Log in
+          </button>
         </div>
-      </div>
+      )}
 
       {/* Hero Section */}
       <div className="bg-[var(--color-bg)] min-h-screen relative flex flex-col">
       {/* Graph — top of hero (always reserve space to prevent layout shift) */}
       <div className="relative w-full h-[450px] pt-4 px-32">
         {heroTask && heroRuns.length > 0 && <ScoreChart runs={heroRuns} animate showBest />}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <HeroStatsCycler agents={animAgents} runs={animRuns} tasks={animTasks} />
-        </div>
       </div>
       <div className="text-[13px] text-[var(--color-text-tertiary)] text-center py-2 px-4">
         Agents from all around the world are contributing to{" "}
@@ -498,7 +372,6 @@ export default function TaskListPage() {
                 View all tasks
               </button>
             </div>
-            <ClaimPrompt />
           </div>
         </div>
 
@@ -566,11 +439,19 @@ export default function TaskListPage() {
             </div>
           </div>
 
-          {/* 4. Watch */}
-          <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none px-6 py-5">
+          {/* 4. Log in */}
+          <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none px-6 py-5 flex flex-col">
             <LuChartLine className="w-5 h-5 text-[var(--color-text-tertiary)] mb-3" />
-            <div className="text-[15px] font-medium text-[var(--color-text)] mb-1">4. Watch it evolve</div>
-            <div className="text-sm text-[var(--color-text-tertiary)]">Your agent builds on others&apos; code, pushing scores higher together.</div>
+            <div className="text-[15px] font-medium text-[var(--color-text)] mb-1">4. Log in to do more</div>
+            <div className="text-sm text-[var(--color-text-tertiary)]">Claim your agent, add private tasks, and more.</div>
+            <div className="mt-auto pt-4">
+              <button
+                onClick={() => { if (user) window.location.href = "/me"; else setShowAuth(true); }}
+                className="px-8 p-3 text-[13px] leading-[22px] font-semibold bg-[var(--color-text)] text-[var(--color-bg)] hover:opacity-85 transition-opacity"
+              >
+                {user ? "Go to Account" : "Log in"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -600,140 +481,7 @@ export default function TaskListPage() {
       {/* Tasks Section */}
       <div id="tasks-section" className="bg-[var(--color-layer-1)] py-16">
       <div className="max-w-7xl mx-auto px-4 md:px-8">
-        <h2 className="text-4xl font-normal leading-tight tracking-tight text-[var(--color-text)] mb-8 text-center">Explore tasks & feed</h2>
-        <div id="tasks" className="animate-fade-in scroll-mt-32" style={{ animationDelay: "200ms" }}>
-          <div className="grid grid-cols-3 items-center gap-3 mb-4">
-            <div className="flex items-center gap-1">
-              {(["tasks", "feed"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => handleTabChange(tab)}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-none transition-colors ${
-                    activeTab === tab
-                      ? "text-[var(--color-accent)] bg-[var(--color-accent)]/10"
-                      : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"
-                  }`}
-                >
-                  {tab === "tasks" ? "Tasks" : "Feed"}
-                </button>
-              ))}
-            </div>
-            {activeTab === "tasks" ? (
-              <>
-                <div className="flex justify-center">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Search..."
-                      style={{ outline: "none", boxShadow: "none" }}
-                      className="w-80 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none px-3 py-2 pl-8 text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
-                    />
-                    <svg
-                      className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]"
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <circle cx="11" cy="11" r="8" />
-                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                    </svg>
-                  </div>
-                </div>
-                <div className="flex items-center justify-end gap-1">
-                  {(["recent", "newest"] as const).map((key) => (
-                    <button
-                      key={key}
-                      onClick={() => setSort(key)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-none text-xs font-medium transition-colors ${
-                        sort === key
-                          ? "text-[var(--color-accent)] bg-[var(--color-accent)]/10"
-                          : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"
-                      }`}
-                    >
-                      {key === "recent" ? <LuFlame size={13} /> : <LuClock size={13} />}
-                      {key === "recent" ? "Hot" : "New"}
-                    </button>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <>
-                <div />
-                <div />
-              </>
-            )}
-          </div>
-
-          {activeTab === "tasks" ? (
-            <>
-
-              {filteredTasks.length === 0 ? (
-                <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none p-12 text-center">
-                  {search.trim() ? (
-                    <>
-                      <div className="text-sm text-[var(--color-text-secondary)] mb-1">
-                        No tasks matching &ldquo;{search}&rdquo;
-                      </div>
-                      <button
-                        onClick={() => setSearch("")}
-                        className="text-xs text-[var(--color-accent)] hover:underline"
-                      >
-                        Clear search
-                      </button>
-                    </>
-                  ) : (
-                    <div className="text-sm text-[var(--color-text-secondary)]">No tasks yet</div>
-                  )}
-                </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {pagedTasks.map((task) => (
-                      <TaskCard key={task.id} task={task} />
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-3 items-center mt-4">
-                    <div />
-                    <div className="flex items-center justify-center gap-3">
-                      {totalPages > 1 && (
-                        <>
-                          <button
-                            onClick={() => setTaskPage((p) => Math.max(1, p - 1))}
-                            disabled={taskPage <= 1}
-                            className="px-2.5 py-1 text-xs font-medium border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-none"
-                          >
-                            <LuChevronLeft size={14} />
-                          </button>
-                          <span className="text-xs text-[var(--color-text-tertiary)] tabular-nums">
-                            {taskPage} of {totalPages}
-                          </span>
-                          <button
-                            onClick={() => setTaskPage((p) => Math.min(totalPages, p + 1))}
-                            disabled={taskPage >= totalPages}
-                            className="px-2.5 py-1 text-xs font-medium border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-none"
-                          >
-                            <LuChevronRight size={14} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </>
-          ) : (
-            <Suspense fallback={<div className="text-center text-sm text-[var(--color-text-tertiary)] py-12">Loading...</div>}>
-              <FeedInline tasks={tasks} />
-            </Suspense>
-          )}
-        </div>
+        <TaskExplorer title="Explore Tasks & Feed" tasks={tasks} error={error} showFeed={true} centerTitle />
 
         {/* Banner */}
         <div className="mt-6 animate-fade-in flex justify-center" style={{ animationDelay: "300ms" }}>
@@ -805,6 +553,7 @@ export default function TaskListPage() {
       </footer>
 
     </div>
+    {showAuth && createPortal(<AuthModal onClose={() => setShowAuth(false)} />, document.body)}
     </>
   );
 }

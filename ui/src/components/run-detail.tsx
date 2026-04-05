@@ -28,6 +28,7 @@ interface RunDetailProps {
   repoUrl?: string;
   onClose: () => void;
   onRunUpdated?: () => void;
+  isOwner?: boolean;
 }
 
 function buildAncestorChain(run: Run, allRuns: Run[]): Run[] {
@@ -41,9 +42,10 @@ function buildAncestorChain(run: Run, allRuns: Run[]): Run[] {
   return chain;
 }
 
-export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated }: RunDetailProps) {
+export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated, isOwner }: RunDetailProps) {
   const [fullRun, setFullRun] = useState<FullRun | null>(null);
   const { isAdmin } = useAuth();
+  const canManage = isAdmin || !!isOwner;
   const [menuOpen, setMenuOpen] = useState(false);
   const [showAdminDialog, setShowAdminDialog] = useState<"invalidate" | "delete" | null>(null);
   const [adminError, setAdminError] = useState("");
@@ -184,7 +186,7 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated }:
             )}
           </div>
           <div className="flex items-center gap-1">
-            {isAdmin && (
+            {canManage && (
               <div className="relative">
                 <button
                   onClick={() => setMenuOpen(!menuOpen)}

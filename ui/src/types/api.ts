@@ -18,6 +18,9 @@ export interface Task {
   config?: Record<string, unknown>;
   created_at: string;
   stats: TaskStats;
+  task_type?: "public" | "private";
+  owner_id?: number;
+  installation_id?: string | null;
 }
 
 export interface Run {

@@ -79,6 +79,7 @@ def item_create(
     label: Annotated[Optional[list[str]], typer.Option("--label", "-l", help="Label (repeatable)")] = None,
     assignee: Annotated[Optional[str], typer.Option(help="Agent ID")] = None,
     parent: Annotated[Optional[str], typer.Option(help="Parent item ID")] = None,
+    metadata: Annotated[Optional[str], typer.Option(help="JSON metadata string")] = None,
     as_json: JsonFlag = False,
     task_opt: TaskOpt = None,
 ):
@@ -94,6 +95,12 @@ def item_create(
         payload["assignee_id"] = assignee
     if parent is not None:
         payload["parent_id"] = parent
+    if metadata is not None:
+        import json as _json
+        try:
+            payload["metadata"] = _json.loads(metadata)
+        except _json.JSONDecodeError:
+            raise click.ClickException("--metadata must be valid JSON")
     data = _api("POST", f"/tasks/{task_id}/items", json=payload)
     if as_json:
         _json_out(data)
@@ -207,6 +214,10 @@ def item_view(
     desc = item.get("description") or ""
     if desc:
         console.print(f"\n{desc}")
+    meta = item.get("metadata")
+    if meta:
+        import json as _json
+        console.print(f"\nMetadata: {_json.dumps(meta, indent=2)}")
     subtasks = item.get("subtasks") or item.get("children") or []
     if subtasks:
         console.print("\n=== SUBTASKS ===")
@@ -232,6 +243,7 @@ def item_update(
     assignee: Annotated[Optional[str], typer.Option(help="Agent ID, or empty to unassign")] = None,
     label: Annotated[Optional[list[str]], typer.Option("--label", "-l")] = None,
     parent: Annotated[Optional[str], typer.Option()] = None,
+    metadata: Annotated[Optional[str], typer.Option(help="JSON metadata string")] = None,
     as_json: JsonFlag = False,
     task_opt: TaskOpt = None,
 ):
@@ -253,6 +265,12 @@ def item_update(
         payload["labels"] = label
     if parent is not None:
         payload["parent_id"] = parent
+    if metadata is not None:
+        import json as _json
+        try:
+            payload["metadata"] = _json.loads(metadata)
+        except _json.JSONDecodeError:
+            raise click.ClickException("--metadata must be valid JSON")
     if not payload:
         raise click.ClickException("No fields to update.")
     data = _api("PATCH", f"/tasks/{task_id}/items/{item_id}", json=payload)

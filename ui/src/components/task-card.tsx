@@ -6,6 +6,7 @@ import { Task, Run } from "@/types/api";
 import { timeAgo } from "@/lib/time";
 import { useGraph } from "@/hooks/use-graph";
 import { buildRunMap, resolveRun } from "@/lib/run-utils";
+import { LuGithub } from "react-icons/lu";
 
 function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
@@ -86,13 +87,16 @@ function Sparkline({ taskId }: { taskId: string }) {
 
 interface TaskCardProps {
   task: Task;
+  linkPrefix?: string;
+  ownerName?: string;
+  ownerAvatar?: string | null;
 }
 
-export function TaskCard({ task }: TaskCardProps) {
+export function TaskCard({ task, linkPrefix = "/task", ownerName, ownerAvatar }: TaskCardProps) {
   const s = task.stats;
 
   return (
-    <Link href={`/task/${task.id}`} className="block group">
+    <Link href={`${linkPrefix}/${task.id}`} className="block group">
       <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none overflow-hidden hover:shadow-[var(--shadow-elevated)] transition-shadow focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] cursor-pointer h-full flex flex-col">
         {/* Sparkline */}
         <div className="px-4 pt-3">
@@ -100,9 +104,22 @@ export function TaskCard({ task }: TaskCardProps) {
         </div>
         {/* Content */}
         <div className="p-4 flex flex-col flex-1">
-          <div className="flex items-center gap-0.5 mb-1 -ml-0.5">
-            <img src="/hive-logo.svg" alt="Hive" className="w-4 h-4" />
-            <span className="text-[11px] font-medium text-[var(--color-text-tertiary)] tracking-tight">Hive Team</span>
+          <div className="flex items-center gap-1 mb-1 -ml-0.5">
+            {ownerName ? (
+              <>
+                {ownerAvatar ? (
+                  <img src={ownerAvatar} alt={ownerName} className="w-4 h-4 rounded-full" />
+                ) : (
+                  <LuGithub size={12} className="text-[var(--color-text-tertiary)]" />
+                )}
+                <span className="text-[11px] font-medium text-[var(--color-text-tertiary)] tracking-tight">{ownerName}</span>
+              </>
+            ) : (
+              <>
+                <img src="/hive-logo.svg" alt="Hive" className="w-4 h-4" />
+                <span className="text-[11px] font-medium text-[var(--color-text-tertiary)] tracking-tight">Hive Team</span>
+              </>
+            )}
           </div>
           <h3 className="text-[15px] font-semibold text-[var(--color-text)] truncate group-hover:text-[var(--color-accent)] transition-colors">
             {task.name}

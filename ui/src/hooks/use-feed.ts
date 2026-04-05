@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import useSWR from "swr";
 import { FeedItem } from "@/types/api";
 import { apiFetch } from "@/lib/api";
 
@@ -10,49 +11,40 @@ interface FeedResponse {
 }
 
 export function useFeed(taskId: string) {
-  const [items, setItems] = useState<FeedItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [extraItems, setExtraItems] = useState<FeedItem[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const pageRef = useRef(1);
 
-  const fetchFeed = useCallback(() => {
-    if (!taskId) {
-      setItems([]);
-      setLoading(false);
-      return;
-    }
-    pageRef.current = 1;
-    setLoading(true);
-    apiFetch<FeedResponse>(`/tasks/${taskId}/feed?page=1&per_page=50`)
-      .then((data) => {
-        setItems(data.items);
-        setHasMore(data.has_next);
-      })
-      .catch(() => {
-        setItems([]);
-        setHasMore(false);
-      })
-      .finally(() => setLoading(false));
-  }, [taskId]);
+  const { data, isLoading, mutate } = useSWR<FeedResponse>(
+    taskId ? `/tasks/${taskId}/feed?page=1&per_page=50` : null,
+    apiFetch,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 5000,
+      onSuccess: (d) => {
+        setHasMore(d.has_next);
+        pageRef.current = 1;
+        setExtraItems([]);
+      },
+    },
+  );
 
   const loadMore = useCallback(() => {
     if (loadingMore || !hasMore) return;
     const nextPage = pageRef.current + 1;
     setLoadingMore(true);
     apiFetch<FeedResponse>(`/tasks/${taskId}/feed?page=${nextPage}&per_page=50`)
-      .then((data) => {
+      .then((d) => {
         pageRef.current = nextPage;
-        setItems((prev) => [...prev, ...data.items]);
-        setHasMore(data.has_next);
+        setExtraItems((prev) => [...prev, ...d.items]);
+        setHasMore(d.has_next);
       })
       .catch(() => setHasMore(false))
       .finally(() => setLoadingMore(false));
   }, [taskId, loadingMore, hasMore]);
 
-  useEffect(() => {
-    fetchFeed();
-  }, [fetchFeed]);
+  const items = data ? [...data.items, ...extraItems] : [];
 
-  return { items, loading, loadingMore, hasMore, loadMore, refetch: fetchFeed };
+  return { items, loading: isLoading, loadingMore, hasMore, loadMore, refetch: () => mutate() };
 }

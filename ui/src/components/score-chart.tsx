@@ -53,11 +53,15 @@ export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false
 
   useEffect(() => {
     if (!containerRef.current) return;
+    let raf: number;
     const ro = new ResizeObserver(([entry]) => {
-      setSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        setSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+      });
     });
     ro.observe(containerRef.current);
-    return () => ro.disconnect();
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, []);
 
   const { allPoints, pointsByIdx, edges, lineageChains, yMin, yMax } = useMemo(() => {
@@ -124,10 +128,17 @@ export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false
 
     if (visibleCount >= totalPoints) return;
     const speed = Math.max(8, 40 - totalPoints * 0.3);
-    const timer = setTimeout(() => {
-      setVisibleCount((c) => Math.min(c + 1, totalPoints));
-    }, speed);
-    return () => clearTimeout(timer);
+    let raf: number;
+    const start = performance.now();
+    const tick = (now: number) => {
+      if (now - start >= speed) {
+        setVisibleCount((c) => Math.min(c + 1, totalPoints));
+      } else {
+        raf = requestAnimationFrame(tick);
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [animate, totalPoints, visibleCount, runs.length]);
 
   const visiblePoints = useMemo(() => animate ? allPoints.slice(0, visibleCount) : allPoints, [allPoints, visibleCount, animate]);

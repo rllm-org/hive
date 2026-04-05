@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useAuth } from "@/lib/auth";
+import { useAuth, getGithubOAuthUrl } from "@/lib/auth";
 import { AuthModal } from "@/components/auth-modal";
 import { ClaimAgentModal } from "@/components/claim-agent-modal";
 import { CreateTaskModal } from "@/components/create-task-modal";
 import { Avatar } from "@/components/shared";
 import { getAuthHeader } from "@/lib/auth";
-import { LuBot, LuActivity, LuPlus } from "react-icons/lu";
+import { LuBot, LuActivity, LuPlus, LuGithub } from "react-icons/lu";
 
 const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
 
@@ -22,12 +22,13 @@ interface ProfileData {
   id: number;
   email: string;
   role: string;
+  github_username: string | null;
   created_at: string;
   agents: AgentInfo[];
 }
 
 function AccountPanel({ onClose }: { onClose: () => void }) {
-  const { user, logout } = useAuth();
+  const { user, logout, disconnectGithub } = useAuth();
   const [showClaim, setShowClaim] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -111,11 +112,59 @@ function AccountPanel({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
-        {/* Divider */}
-        <div className="border-t border-[var(--color-border)] mx-6" />
+
+        {/* GitHub section */}
+        <div className="px-8 py-4 border-t border-[var(--color-border)]">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-medium text-[var(--color-text-secondary)] uppercase tracking-wide">
+              GitHub
+            </h3>
+            {profile?.github_username ? (
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 text-xs text-[var(--color-text)]">
+                  <LuGithub size={12} />
+                  {profile.github_username}
+                </span>
+                <button
+                  onClick={async () => {
+                    try {
+                      await disconnectGithub();
+                      fetchProfile();
+                    } catch {}
+                  }}
+                  className="text-[11px] text-[var(--color-text-tertiary)] hover:text-red-500 transition-colors"
+                >
+                  Disconnect
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={async () => { window.location.href = await getGithubOAuthUrl("connect"); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+              >
+                <LuGithub size={12} />
+                Connect GitHub
+              </button>
+            )}
+          </div>
+          {/* Connect Repo button */}
+          <button
+            onClick={async () => {
+              if (profile?.github_username) {
+                setShowCreateTask(true);
+              } else {
+                window.location.href = await getGithubOAuthUrl("connect");
+              }
+            }}
+            className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium bg-[#24292f] text-white hover:bg-[#32383f] dark:bg-white dark:text-black dark:hover:bg-[#e0e0e0] transition-colors"
+          >
+            <LuPlus size={12} />
+            Connect Repo
+          </button>
+        </div>
 
         {/* Agents section */}
-        <div className="overflow-y-auto px-8 py-6" style={{ maxHeight: 320 }}>
+        <div className="overflow-y-auto px-8 py-6 border-t border-[var(--color-border)]" style={{ maxHeight: 320 }}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xs font-medium text-[var(--color-text-secondary)] uppercase tracking-wide">
               My Agents ({profile?.agents.length ?? 0})

@@ -8,7 +8,7 @@ from hive.cli.state import _set_task, set_json_mode
 from hive.cli.help_text import HIVE_HELP
 from hive.cli.cmd_auth import auth_app
 from hive.cli.cmd_task import task_app
-from hive.cli.cmd_run import run_app
+from hive.cli.cmd_run import run_app, push_command
 from hive.cli.cmd_feed import feed_app
 from hive.cli.cmd_skill import skill_app
 from hive.cli.cmd_search import register_search
@@ -56,6 +56,7 @@ app.add_typer(skill_app, name="skill")
 app.add_typer(swarm_app, name="swarm", help="Manage agent swarms.")
 app.add_typer(item_app, name="item")
 register_search(app)
+app.command("push")(push_command)
 
 # Click Group for setuptools entry point and CliRunner compatibility
 _base_cli = typer.main.get_command(app)
