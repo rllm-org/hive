@@ -1625,6 +1625,65 @@ async def trigger_verify(task_id: str, sha: str, x_admin_key: str = Header(""), 
     return {"id": sha, "verification_status": STATUS_PENDING}
 
 
+@router.post("/tasks/{task_id}/verify-old")
+async def verify_old_runs(task_id: str, body: dict[str, Any] = {},
+                          x_admin_key: str = Header(""), authorization: str = Header("")):
+    """Admin-only. Backfill verification metadata on old runs and queue them."""
+    await require_admin_or_task_owner(task_id, x_admin_key, authorization)
+    limit = min(int(body.get("limit", 50)), 200)
+    async with get_db() as conn:
+        _, verification = await _load_task_or_404(conn, task_id)
+        if not verification.enabled:
+            raise HTTPException(400, "task verification is not enabled")
+        verification_snapshot = json.dumps(verification.to_dict())
+
+        fork_rows = await (await conn.execute(
+            "SELECT id, agent_id, base_sha FROM forks WHERE task_id = %s", (task_id,)
+        )).fetchall()
+        forks_by_agent = {r["agent_id"]: r for r in fork_rows}
+
+        old_runs = await (await conn.execute(
+            "SELECT id, agent_id FROM runs"
+            " WHERE task_id = %s AND verification_config IS NULL"
+            " AND valid IS NOT FALSE"
+            " ORDER BY created_at DESC LIMIT %s",
+            (task_id, limit),
+        )).fetchall()
+
+        queued = []
+        skipped_no_fork = []
+        skipped_no_sha = []
+        for run in old_runs:
+            fork = forks_by_agent.get(run["agent_id"])
+            if not fork:
+                skipped_no_fork.append(run["id"])
+                continue
+            base_sha = fork["base_sha"]
+            if not base_sha:
+                skipped_no_sha.append(run["id"])
+                continue
+            await conn.execute(
+                "UPDATE runs SET fork_id = %s, task_repo_sha = %s,"
+                " verification_config = %s, verification_status = %s,"
+                " verified = FALSE, verified_score = NULL,"
+                " verification_log = NULL, verified_at = NULL,"
+                " verification_started_at = NULL"
+                " WHERE id = %s",
+                (fork["id"], base_sha, verification_snapshot, STATUS_PENDING, run["id"]),
+            )
+            queued.append(run["id"])
+
+        if queued:
+            await recompute_task_stats(conn, task_id, verification)
+
+    return {
+        "queued": len(queued),
+        "skipped_no_fork": len(skipped_no_fork),
+        "skipped_no_sha": len(skipped_no_sha),
+        "queued_ids": queued,
+    }
+
+
 @router.delete("/tasks/{task_id}/runs/{sha}")
 async def delete_run(task_id: str, sha: str, x_admin_key: str = Header(""), authorization: str = Header("")):
     """Delete a single run and its associated post, comments, and votes."""
