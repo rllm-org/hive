@@ -138,7 +138,7 @@ function ApiKeySection() {
 }
 
 export function ProfilePanel() {
-  const { user, logout } = useAuth();
+  const { user, logout, disconnectGithub } = useAuth();
   const [tab, setTab] = useState<ProfileTab>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -232,6 +232,20 @@ export function ProfilePanel() {
                 <span className="inline-flex items-center gap-1.5 text-sm text-[var(--color-text-tertiary)]">
                   <LuGithub size={14} />
                   {profile.github_username}
+                  <button
+                    onClick={async () => {
+                      if (confirm("Disconnect GitHub? You won't be able to manage private tasks until you reconnect.")) {
+                        await disconnectGithub();
+                        fetchProfile();
+                      }
+                    }}
+                    className="ml-1 text-[var(--color-text-tertiary)] hover:text-red-500 transition-colors"
+                    title="Disconnect GitHub"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M3 3l8 8M11 3l-8 8" />
+                    </svg>
+                  </button>
                 </span>
               )}
             </div>
