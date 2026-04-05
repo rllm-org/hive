@@ -1,4 +1,8 @@
+import json
+import os
 import subprocess
+import tempfile
+from pathlib import Path
 from typing import Annotated, Optional
 
 import click
@@ -7,6 +11,7 @@ import typer
 from hive.cli.formatting import ok
 from hive.cli.helpers import _api, _task_id, _git, _json_out
 from hive.cli.components import print_run_table, print_run_detail
+from hive.cli.console import get_console
 from hive.cli.state import _set_task, get_task, TaskOpt, JsonFlag
 
 run_app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
@@ -55,9 +60,11 @@ def run_submit(
         ["git", "branch", "-r", "--contains", sha], capture_output=True, text=True
     )
     if not result.stdout.strip():
+        fork_path = Path(".hive") / "fork.json"
+        push_hint = "  hive push" if fork_path.exists() else f"  git push origin {branch}"
         raise click.ClickException(
             f"Commit {sha[:8]} has not been pushed to remote. Push first:\n"
-            f"  git push origin {branch}\n"
+            f"{push_hint}\n"
             "Other agents need to access your code via git to reproduce your result."
         )
 
@@ -112,3 +119,73 @@ def run_view(
         _json_out(r)
         return
     print_run_detail(r)
+
+
+def _read_fork_json() -> dict:
+    """Read .hive/fork.json from the current directory."""
+    fork_path = Path(".hive") / "fork.json"
+    if not fork_path.exists():
+        raise click.ClickException("not in a hive task directory (no .hive/fork.json)")
+    return json.loads(fork_path.read_text())
+
+
+def push_command(task_opt: TaskOpt = None):
+    """Push code to the task repo. Works for both public and private tasks."""
+    _set_task(task_opt)
+    console = get_console()
+    fork_info = _read_fork_json()
+    mode = fork_info.get("mode", "fork")
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+
+    # Check for uncommitted changes
+    result = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+    if result.stdout.strip():
+        raise click.ClickException(
+            "You have uncommitted changes. Commit first:\n"
+            "  git add -A && git commit -m \"your description\""
+        )
+
+    if mode == "branch":
+        # Private task: bundle and upload to server
+        task_id = _task_id(get_task())
+        prefix = fork_info.get("branch_prefix", "")
+        if prefix and not branch.startswith(prefix):
+            raise click.ClickException(
+                f"Current branch '{branch}' doesn't start with '{prefix}'.\n"
+                f"  Switch to your branch: git checkout {prefix}initial"
+            )
+        with console.status(f"[bold]Pushing [cyan]{branch}[/cyan] via server...", spinner="dots"):
+            # Create git bundle
+            with tempfile.NamedTemporaryFile(suffix=".bundle", delete=False) as tmp:
+                bundle_path = tmp.name
+            try:
+                result = subprocess.run(
+                    ["git", "bundle", "create", bundle_path, branch, "--not",
+                     "--remotes=origin/main", "--remotes=origin/HEAD"],
+                    capture_output=True, text=True,
+                )
+                if result.returncode != 0:
+                    # Fallback: bundle all commits on this branch
+                    subprocess.run(
+                        ["git", "bundle", "create", bundle_path, branch],
+                        check=True, capture_output=True, text=True,
+                    )
+                # Upload bundle to server
+                with open(bundle_path, "rb") as f:
+                    _api("POST", f"/tasks/{task_id}/push",
+                         data={"branch": branch},
+                         files={"bundle": ("bundle.git", f, "application/octet-stream")})
+            finally:
+                os.unlink(bundle_path)
+            # Update remote tracking
+            subprocess.run(["git", "fetch", "origin"], capture_output=True, text=True)
+        ok(f"Pushed {branch} via server")
+    else:
+        # Public task: git push directly
+        with console.status(f"[bold]Pushing [cyan]{branch}[/cyan]...", spinner="dots"):
+            result = subprocess.run(
+                ["git", "push", "origin", branch], capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                raise click.ClickException(f"git push failed:\n{result.stderr}")
+        ok(f"Pushed {branch}")

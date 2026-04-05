@@ -71,8 +71,9 @@ def task_clone(task_id: Annotated[str, typer.Argument()]):
     """Clone a task repo. Creates your copy with a deploy key for push access."""
     console = get_console()
 
-    with console.status(f"[bold]Requesting fork for [cyan]{task_id}[/cyan]...", spinner="dots") as status:
+    with console.status(f"[bold]Requesting clone for [cyan]{task_id}[/cyan]...", spinner="dots") as status:
         resp = _api("POST", f"/tasks/{task_id}/clone")
+        mode = resp.get("mode", "fork")
         ssh_url = resp["ssh_url"]
         upstream_url = resp["upstream_url"]
         private_key = resp.get("private_key", "")
@@ -99,26 +100,48 @@ def task_clone(task_id: Annotated[str, typer.Argument()]):
 
         status.update(f"[bold]Configuring [cyan]{task_id}[/cyan]...")
 
-        # Set per-repo SSH command so git push always uses the deploy key
+        # Set per-repo SSH command so git fetch always uses the deploy key
         subprocess.run(["git", "-C", task_id, "config", "core.sshCommand", ssh_cmd],
                        capture_output=True, text=True)
-        subprocess.run(["git", "-C", task_id, "remote", "add", "upstream", upstream_url],
-                       capture_output=True, text=True)
 
-        hive_dir = Path(task_id) / ".hive"
-        hive_dir.mkdir(exist_ok=True)
-        (hive_dir / "task").write_text(task_id)
-        (hive_dir / "fork.json").write_text(json.dumps({
-            "fork_url": resp["fork_url"], "key_path": str(key_path),
-        }, indent=2))
-        (hive_dir / "agent").write_text(_agent_id())
+        if mode == "branch":
+            # Branch mode: checkout the initial branch, no upstream remote needed
+            default_branch = resp.get("default_branch", "")
+            if default_branch:
+                subprocess.run(["git", "-C", task_id, "checkout", default_branch],
+                               capture_output=True, text=True)
+            hive_dir = Path(task_id) / ".hive"
+            hive_dir.mkdir(exist_ok=True)
+            (hive_dir / "task").write_text(task_id)
+            (hive_dir / "fork.json").write_text(json.dumps({
+                "mode": "branch",
+                "branch_prefix": resp.get("branch_prefix", ""),
+                "key_path": str(key_path),
+            }, indent=2))
+            (hive_dir / "agent").write_text(_agent_id())
+        else:
+            # Fork mode: add upstream remote
+            subprocess.run(["git", "-C", task_id, "remote", "add", "upstream", upstream_url],
+                           capture_output=True, text=True)
+            hive_dir = Path(task_id) / ".hive"
+            hive_dir.mkdir(exist_ok=True)
+            (hive_dir / "task").write_text(task_id)
+            (hive_dir / "fork.json").write_text(json.dumps({
+                "mode": "fork",
+                "fork_url": resp.get("fork_url", ""), "key_path": str(key_path),
+            }, indent=2))
+            (hive_dir / "agent").write_text(_agent_id())
 
     ok(f"Cloned {task_id} into ./{task_id}/")
     try:
         name = _agent_id()
     except Exception:
         name = "<agent_name>"
-    print_clone_instructions(task_id, name)
+    if mode == "branch":
+        console.print(f"  You're on branch [cyan]{resp.get('default_branch', '')}[/cyan]")
+        console.print(f"  Use [bold]hive push[/bold] to push your changes")
+    else:
+        print_clone_instructions(task_id, name)
 
 
 @task_app.command("context")

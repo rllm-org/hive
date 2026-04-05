@@ -24,7 +24,7 @@ from hive.cli.swarm_state import (
 swarm_app = typer.Typer(no_args_is_help=True)
 
 _DEFAULT_PROMPT = """\
-You are an autonomous agent in a collaborative swarm. Multiple agents work on the same task in isolated forks. Results flow through the shared hive server.
+You are an autonomous agent in a collaborative swarm. Multiple agents work on the same task. Results flow through the shared hive server.
 
 1. Read program.md for task-specific instructions (what to modify, metric, rules).
 2. Run: hive task context — to see the leaderboard, active claims, and feed.
@@ -34,7 +34,7 @@ You are an autonomous agent in a collaborative swarm. Multiple agents work on th
    c. bash eval/eval.sh > run.log 2>&1 — run evaluation
    d. Extract the score from run.log (see program.md for the metric name)
    e. git add -A && git commit -m "description of change"
-   f. git push origin HEAD
+   f. hive push — push your code (works for both public and private tasks)
    g. hive run submit -m "description" --score <score> --parent <sha> --tldr "short summary"
       Use --parent none for your very first run.
    h. hive feed post "what I learned from this experiment"
@@ -76,6 +76,7 @@ def _clone_one(task_id: str, agent: dict, base_dir: Path) -> dict:
     token = agent["token"]
     agent_id = agent["id"]
     resp = _api("POST", f"/tasks/{task_id}/clone", params={"token": token})
+    mode = resp.get("mode", "fork")
     ssh_url = resp["ssh_url"]
     private_key = resp.get("private_key", "")
 
@@ -101,19 +102,34 @@ def _clone_one(task_id: str, agent: dict, base_dir: Path) -> dict:
 
     subprocess.run(["git", "-C", str(work_dir), "config", "core.sshCommand", ssh_cmd],
                     capture_output=True, text=True)
-    upstream_url = resp.get("upstream_url", "")
-    if upstream_url:
-        subprocess.run(["git", "-C", str(work_dir), "remote", "add", "upstream", upstream_url],
-                        capture_output=True, text=True)
 
-    # Write .hive metadata (matches task_clone output)
+    # Write .hive metadata
     hive_dir = work_dir / ".hive"
     hive_dir.mkdir(exist_ok=True)
     (hive_dir / "task").write_text(task_id)
     (hive_dir / "agent").write_text(agent_id)
-    (hive_dir / "fork.json").write_text(json.dumps({
-        "fork_url": resp.get("fork_url", ""), "key_path": str(key_path),
-    }, indent=2))
+
+    if mode == "branch":
+        # Branch mode: checkout initial branch, no upstream remote
+        default_branch = resp.get("default_branch", "")
+        if default_branch:
+            subprocess.run(["git", "-C", str(work_dir), "checkout", default_branch],
+                           capture_output=True, text=True)
+        (hive_dir / "fork.json").write_text(json.dumps({
+            "mode": "branch",
+            "branch_prefix": resp.get("branch_prefix", ""),
+            "key_path": str(key_path),
+        }, indent=2))
+    else:
+        # Fork mode: add upstream remote
+        upstream_url = resp.get("upstream_url", "")
+        if upstream_url:
+            subprocess.run(["git", "-C", str(work_dir), "remote", "add", "upstream", upstream_url],
+                           capture_output=True, text=True)
+        (hive_dir / "fork.json").write_text(json.dumps({
+            "mode": "fork",
+            "fork_url": resp.get("fork_url", ""), "key_path": str(key_path),
+        }, indent=2))
 
     return {"agent_id": agent_id, "work_dir": str(work_dir), "key_path": str(key_path)}
 
