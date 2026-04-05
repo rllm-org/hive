@@ -7,8 +7,8 @@ import { useContext } from "@/hooks/use-context";
 import { useRuns } from "@/hooks/use-runs";
 import { useFeed } from "@/hooks/use-feed";
 import { useItems, useItemActivity, useMutateAllItems } from "@/hooks/use-items";
-import { ChartToggle } from "@/components/chart-toggle";
-import { Leaderboard, LeaderboardToggle, LeaderboardView } from "@/components/leaderboard";
+import { ChartToggle, VerificationFilter } from "@/components/chart-toggle";
+import { Leaderboard, LeaderboardToggle, LeaderboardView, VerifiedLeaderboardFiltered } from "@/components/leaderboard";
 import { Feed } from "@/components/feed";
 import { KanbanBoard, KanbanToolbar, KanbanCardModal } from "@/components/kanban";
 import type { KanbanFilters } from "@/components/kanban";
@@ -338,6 +338,12 @@ export default function TaskDetailPage() {
     }
   }, [runParam, runs]);
   const [leaderboardView, setLeaderboardView] = useState<LeaderboardView>("best_runs");
+  const [verificationFilter, setVerificationFilter] = useState<VerificationFilter>("all");
+
+  const verifiedRunIds = useMemo(() => {
+    if (!context?.task?.verification_enabled || !context.leaderboard_verified) return undefined;
+    return new Set(context.leaderboard_verified.map((r) => r.id));
+  }, [context?.task?.verification_enabled, context?.leaderboard_verified]);
   const [viewingFile, setViewingFile] = useState<{ path: string; content: string } | null>(null);
   const [fileLoading, setFileLoading] = useState<string | null>(null);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
@@ -740,7 +746,13 @@ export default function TaskDetailPage() {
         {/* Chart panel */}
         <div className="flex-1 min-w-0 flex flex-col min-h-[300px] md:min-h-0">
           <div className="flex-1 min-h-0">
-            <ChartToggle taskId={taskId} onRunClick={handleRunClick} />
+            <ChartToggle
+              taskId={taskId}
+              onRunClick={handleRunClick}
+              verificationEnabled={context?.task?.verification_enabled}
+              verifiedRunIds={verifiedRunIds}
+              onVerificationFilterChange={setVerificationFilter}
+            />
           </div>
         </div>
 
@@ -781,11 +793,23 @@ export default function TaskDetailPage() {
             {/* Leaderboard section */}
             <div className="flex-1 min-h-0 flex flex-col">
               <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-                <span className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">Leaderboard</span>
-                <LeaderboardToggle view={leaderboardView} onChange={setLeaderboardView} />
+                <span className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">
+                  Leaderboard{context?.task?.verification_enabled && verificationFilter === "verified" ? " — Verified" : ""}
+                </span>
+                {(!context?.task?.verification_enabled || verificationFilter === "all") && (
+                  <LeaderboardToggle view={leaderboardView} onChange={setLeaderboardView} />
+                )}
               </div>
               <div className="flex-1 min-h-0 overflow-hidden">
-                <Leaderboard taskId={taskId} view={leaderboardView} onRunClick={handleRunIdClick} />
+                {context?.task?.verification_enabled && verificationFilter === "verified" ? (
+                  <VerifiedLeaderboardFiltered
+                    runs={context.leaderboard_verified ?? []}
+                    scoreKey="verified_score"
+                    onRunClick={handleRunIdClick}
+                  />
+                ) : (
+                  <Leaderboard taskId={taskId} view={leaderboardView} section={context?.task?.verification_enabled ? "all" : undefined} onRunClick={handleRunIdClick} />
+                )}
               </div>
             </div>
 
@@ -813,11 +837,23 @@ export default function TaskDetailPage() {
         <div className="md:hidden w-full shrink-0">
           <div className="border-t border-[var(--color-border)]">
             <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-              <span className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">Leaderboard</span>
-              <LeaderboardToggle view={leaderboardView} onChange={setLeaderboardView} />
+              <span className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wide">
+                Leaderboard{context?.task?.verification_enabled && verificationFilter === "verified" ? " — Verified" : ""}
+              </span>
+              {(!context?.task?.verification_enabled || verificationFilter === "all") && (
+                <LeaderboardToggle view={leaderboardView} onChange={setLeaderboardView} />
+              )}
             </div>
             <div className="max-h-[400px] overflow-y-auto">
-              <Leaderboard taskId={taskId} view={leaderboardView} onRunClick={handleRunIdClick} />
+              {context?.task?.verification_enabled && verificationFilter === "verified" ? (
+                <VerifiedLeaderboardFiltered
+                  runs={context.leaderboard_verified ?? []}
+                  scoreKey="verified_score"
+                  onRunClick={handleRunIdClick}
+                />
+              ) : (
+                <Leaderboard taskId={taskId} view={leaderboardView} section={context?.task?.verification_enabled ? "all" : undefined} onRunClick={handleRunIdClick} />
+              )}
             </div>
           </div>
 

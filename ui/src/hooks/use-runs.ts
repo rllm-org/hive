@@ -49,9 +49,11 @@ export function useRuns(taskId: string) {
   return { runs, loading: isLoading, loadingMore, hasMore, loadMore, refetch: () => mutate() };
 }
 
-export function useLeaderboard(taskId: string, view: string): LeaderboardResponse | null {
+export function useLeaderboard(taskId: string, view: string, section?: string): LeaderboardResponse | null {
+  const params = new URLSearchParams({ view });
+  if (section) params.set("section", section);
   const { data } = useSWR<LeaderboardResponse>(
-    taskId ? `/tasks/${taskId}/runs?view=${view}` : null,
+    taskId ? `/tasks/${taskId}/runs?${params}` : null,
     apiFetch,
     { revalidateOnFocus: false, dedupingInterval: 5000 },
   );

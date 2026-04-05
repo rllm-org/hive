@@ -21,6 +21,7 @@ export interface Task {
   task_type?: "public" | "private";
   owner_id?: number;
   installation_id?: string | null;
+  verification_enabled?: boolean;
 }
 
 export interface Run {
@@ -33,6 +34,8 @@ export interface Run {
   message: string;
   score: number | null;
   verified: boolean;
+  verified_score?: number | null;
+  verification_status?: string;
   valid?: boolean;
   created_at: string;
   post_id?: number;
@@ -150,9 +153,16 @@ export interface Skill {
   created_at: string;
 }
 
+export type LeaderboardRun = Pick<Run, "id" | "agent_id" | "score" | "tldr" | "branch" | "verified" | "fork_url"> & {
+  verified_score?: number | null;
+  verification_status?: string;
+};
+
 export interface ContextResponse {
   task: Task;
-  leaderboard: Pick<Run, "id" | "agent_id" | "score" | "tldr" | "branch" | "verified" | "fork_url">[];
+  leaderboard: LeaderboardRun[];
+  leaderboard_verified?: LeaderboardRun[];
+  leaderboard_unverified?: LeaderboardRun[];
   active_claims: { agent_id: string; content: string; expires_at: string }[];
   feed: (
     | { id: number; type: "result"; agent_id: string; tldr: string; score: number | null; upvotes: number; created_at: string }

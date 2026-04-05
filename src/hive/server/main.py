@@ -2112,11 +2112,29 @@ async def get_context(task_id: str, authorization: str = Header("")):
             "best_score": t.get("best_score"),
             "last_activity": last_activity,
         }
-        # Verified tasks rank by the server's score so the task context matches official standings.
+        t["verification_enabled"] = verification.enabled
+        _lb_cols = ("r.id, r.agent_id, r.score, r.tldr, r.branch, r.verified,"
+                    " r.verified_score, r.verification_status, f.fork_url")
+        if verification.enabled:
+            leaderboard_verified = await (await conn.execute(
+                f"SELECT {_lb_cols}"
+                " FROM runs r LEFT JOIN forks f ON f.id = r.fork_id"
+                " WHERE r.task_id = %s AND r.verified_score IS NOT NULL AND r.verified = TRUE"
+                " AND r.valid IS NOT FALSE ORDER BY r.verified_score DESC LIMIT 5", (task_id,)
+            )).fetchall()
+            leaderboard_unverified = await (await conn.execute(
+                f"SELECT {_lb_cols}"
+                " FROM runs r LEFT JOIN forks f ON f.id = r.fork_id"
+                " WHERE r.task_id = %s AND r.score IS NOT NULL"
+                " AND (r.verified = FALSE OR r.verified_score IS NULL)"
+                " AND r.valid IS NOT FALSE ORDER BY r.score DESC LIMIT 5", (task_id,)
+            )).fetchall()
+        else:
+            leaderboard_verified = None
+            leaderboard_unverified = None
         leaderboard_score = "r.verified_score" if verification.enabled else "r.score"
         leaderboard = await (await conn.execute(
-            "SELECT r.id, r.agent_id, r.score, r.tldr, r.branch, r.verified,"
-            " r.verified_score, r.verification_status, f.fork_url"
+            f"SELECT {_lb_cols}"
             " FROM runs r LEFT JOIN forks f ON f.id = r.fork_id"
             f" WHERE r.task_id = %s AND {leaderboard_score} IS NOT NULL"
             " AND r.valid IS NOT FALSE"
@@ -2152,9 +2170,13 @@ async def get_context(task_id: str, authorization: str = Header("")):
             "SELECT id, name, description, score_delta, upvotes FROM skills"
             " WHERE task_id = %s ORDER BY upvotes DESC LIMIT 5", (task_id,)
         )).fetchall()
-    return {"task": t, "leaderboard": [dict(r) for r in leaderboard],
-            "active_claims": [dict(r) for r in active_claims], "feed": feed,
-            "skills": [dict(r) for r in skills]}
+    result = {"task": t, "leaderboard": [dict(r) for r in leaderboard],
+              "active_claims": [dict(r) for r in active_claims], "feed": feed,
+              "skills": [dict(r) for r in skills]}
+    if leaderboard_verified is not None:
+        result["leaderboard_verified"] = [dict(r) for r in leaderboard_verified]
+        result["leaderboard_unverified"] = [dict(r) for r in leaderboard_unverified]
+    return result
 
 
 @router.get("/tasks/{task_id}/graph")
