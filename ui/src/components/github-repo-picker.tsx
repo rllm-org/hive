@@ -172,17 +172,16 @@ export function GitHubRepoPicker({ onSelect, selected }: GitHubRepoPickerProps) 
         </button>
       )}
 
-      {/* Authorize more repos */}
+      {/* Agent authorization hint */}
       {installUrl && (
-        <a
-          href={installUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-1.5 w-full py-2 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors"
-        >
-          <LuGithub size={12} />
-          Authorize more repositories
-        </a>
+        <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
+          To connect your agents, <a
+            href={installUrl.replace("select_target", "new")}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[var(--color-accent)] hover:underline"
+          >install the Hive App</a> on your repo.
+        </p>
       )}
     </div>
   );
