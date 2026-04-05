@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+import tempfile
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
@@ -290,7 +291,7 @@ def _json_default(obj):
         return obj.isoformat()
     raise TypeError(f"Type {type(obj)} not JSON serializable")
 from .email import send_verification_code, send_password_reset_code
-from .github import get_github_app
+from .github import get_github_app, GitHubApp
 from .names import generate_name
 
 
@@ -607,6 +608,9 @@ async def auth_config():
     result: dict = {"oauth_providers": providers}
     if GITHUB_USER_APP_SLUG:
         result["github_app_install_url"] = f"https://github.com/apps/{GITHUB_USER_APP_SLUG}/installations/new"
+    github_app_slug = os.environ.get("GITHUB_APP_SLUG", "")
+    if github_app_slug:
+        result["github_agent_app_install_url"] = f"https://github.com/apps/{github_app_slug}/installations/new"
     return result
 
 
@@ -749,29 +753,51 @@ async def auth_github_disconnect(user: dict = Depends(require_user)):
 @router.get("/auth/github/repos")
 async def auth_github_repos(user: dict = Depends(require_user), page: int = 1, per_page: int = 30):
     user_id = int(user["sub"])
-    gh_token = await _get_valid_github_token(user_id)
+    gh = get_github_app()
+
+    # Get the user's GitHub username to filter installations
+    async with get_db() as conn:
+        user_row = await (await conn.execute(
+            "SELECT github_username FROM users WHERE id = %s", (user_id,)
+        )).fetchone()
+    github_username = user_row["github_username"] if user_row else None
+    if not github_username:
+        return {"repos": [], "installed": False, "page": page}
+
     def _fetch():
-        headers = _gh_user_headers(gh_token)
-        # Try installation-scoped repos (GitHub App)
-        inst_resp = httpx.get("https://api.github.com/user/installations", headers=headers, timeout=15)
-        if inst_resp.status_code == 200:
-            installations = inst_resp.json().get("installations", [])
-            if installations:
-                repos = []
-                for inst in installations:
-                    r = httpx.get(
-                        f"https://api.github.com/user/installations/{inst['id']}/repositories",
-                        params={"per_page": min(per_page, 100), "page": page},
-                        headers=headers, timeout=15,
-                    )
-                    if r.status_code == 200:
-                        for repo in r.json().get("repositories", []):
-                            repos.append({"full_name": repo["full_name"], "name": repo["name"], "private": repo["private"],
-                                          "description": repo.get("description"), "url": repo["html_url"],
-                                          "default_branch": repo["default_branch"], "updated_at": repo["updated_at"]})
-                return {"repos": repos, "installed": True}
-        # App not installed — return empty with install flag
-        return {"repos": [], "installed": False}
+        # List all installations of the GitHub App, find the user's
+        jwt_token = gh._jwt()
+        headers = {"Authorization": f"Bearer {jwt_token}", "Accept": "application/vnd.github+json"}
+        inst_resp = httpx.get("https://api.github.com/app/installations", headers=headers, timeout=15)
+        if inst_resp.status_code != 200:
+            return {"repos": [], "installed": False}
+        installations = inst_resp.json()
+        # Find installation for this user's account
+        user_inst = None
+        for inst in installations:
+            account = inst.get("account", {})
+            if account.get("login", "").lower() == github_username.lower():
+                user_inst = inst
+                break
+        if not user_inst:
+            return {"repos": [], "installed": False}
+        # Use installation token to list repos
+        inst_id = str(user_inst["id"])
+        token = gh.get_token_for_installation(inst_id)
+        repo_headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+        r = httpx.get(
+            "https://api.github.com/installation/repositories",
+            params={"per_page": min(per_page, 100), "page": page},
+            headers=repo_headers, timeout=15,
+        )
+        if r.status_code != 200:
+            return {"repos": [], "installed": True}
+        repos = []
+        for repo in r.json().get("repositories", []):
+            repos.append({"full_name": repo["full_name"], "name": repo["name"], "private": repo["private"],
+                          "description": repo.get("description"), "url": repo["html_url"],
+                          "default_branch": repo["default_branch"], "updated_at": repo["updated_at"]})
+        return {"repos": repos, "installed": True}
     result = await asyncio.to_thread(_fetch)
     return {"repos": result["repos"], "installed": result["installed"], "page": page}
 
@@ -968,15 +994,31 @@ async def create_private_task(body: dict[str, Any], user: dict = Depends(require
         repo_url = await asyncio.to_thread(_validate_repo)
         if await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))).fetchone():
             raise HTTPException(409, "A public or private task with this ID already exists. Try a different ID. We're migrating to separate ID pools for private tasks soon.")
+        # Check if the Hive GitHub App is installed on the repo
+        gh = get_github_app()
+        installation_id = await asyncio.to_thread(gh.get_repo_installation_id, repo_full_name)
+        app_installed = installation_id is not None
+        if app_installed:
+            # Set up branch protection for hive branches
+            try:
+                await asyncio.to_thread(
+                    gh.set_branch_protection_for_installation,
+                    repo_full_name, "main", installation_id)
+            except Exception:
+                pass  # best-effort
         await conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, task_type, owner_id, visibility, source_repo, created_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (task_id, task_name, description, repo_url, "private", user_id, "private", repo_full_name, now()),
+            "INSERT INTO tasks (id, name, description, repo_url, task_type, owner_id, visibility, source_repo, installation_id, created_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (task_id, task_name, description, repo_url, "private", user_id, "private", repo_full_name, installation_id, now()),
         )
-    return JSONResponse({
+    resp_body: dict[str, Any] = {
         "id": task_id, "name": task_name, "repo_url": repo_url,
         "task_type": "private", "status": "active",
-    }, status_code=201)
+        "app_installed": app_installed,
+    }
+    if not app_installed:
+        resp_body["install_url"] = f"https://github.com/apps/{os.environ.get('GITHUB_APP_SLUG', 'hive-mind-app')}/installations/new"
+    return JSONResponse(resp_body, status_code=201)
 
 
 @router.patch("/tasks/{task_id}")
@@ -1003,10 +1045,27 @@ async def sync_tasks(x_admin_key: str = Header(""), authorization: str = Header(
 
 @router.get("/tasks")
 async def list_tasks(q: str | None = Query(None), page: int = Query(1), per_page: int = Query(20),
-                     authorization: str = Header("")):
+                     authorization: str = Header(""), x_agent_token: str = Header(""), token: str = Query("")):
     page, per_page, offset = paginate(page, per_page)
     async with get_db() as conn:
-        where, params = "t.visibility = 'public'", []
+        # Show public tasks + private tasks owned by the authenticated user/agent's owner
+        user_id = await _get_user_id_from_auth(authorization)
+        if not user_id:
+            agent_token = x_agent_token or token
+            if agent_token:
+                agent_row = await (await conn.execute(
+                    "SELECT user_id FROM agents WHERE token = %s", (agent_token,)
+                )).fetchone()
+                if not agent_row:
+                    agent_row = await (await conn.execute(
+                        "SELECT user_id FROM agents WHERE id = %s", (agent_token,)
+                    )).fetchone()
+                if agent_row and agent_row["user_id"]:
+                    user_id = agent_row["user_id"]
+        if user_id:
+            where, params = "(t.visibility = 'public' OR t.owner_id = %s)", [user_id]
+        else:
+            where, params = "t.visibility = 'public'", []
         if q:
             where += " AND t.search_vec @@ plainto_tsquery('english', %s)"
             params.append(q)
@@ -1076,18 +1135,108 @@ async def clone_task(task_id: str, token: str = Query(""), x_agent_token: str = 
         task = await (await conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,))).fetchone()
         if not task: raise HTTPException(404, "task not found")
         repo_url = task["repo_url"]
+        is_private = task.get("task_type") == "private"
+
+        if is_private:
+            # Verify agent belongs to task owner
+            agent_row = await (await conn.execute("SELECT user_id FROM agents WHERE id = %s", (agent_id,))).fetchone()
+            if not agent_row or agent_row["user_id"] != task["owner_id"]:
+                raise HTTPException(403, "only the task owner's agents can clone private tasks")
+
         existing = await (await conn.execute("SELECT * FROM forks WHERE task_id = %s AND agent_id = %s", (task_id, agent_id))).fetchone()
         if existing:
+            if is_private:
+                return JSONResponse({"ssh_url": existing["ssh_url"], "upstream_url": repo_url,
+                                     "private_key": "", "mode": "branch",
+                                     "branch_prefix": existing.get("branch_prefix", f"hive/{agent_id}/"),
+                                     "default_branch": f"hive/{agent_id}/initial"}, status_code=201)
             return JSONResponse({"fork_url": existing["fork_url"], "ssh_url": existing["ssh_url"],
                                  "upstream_url": repo_url, "private_key": ""}, status_code=201)
-    # Phase 2: GitHub API calls (run in thread to avoid blocking event loop)
-    fork_name = f"fork--{task_id}--{agent_id}"
+
     gh = get_github_app()
+
+    if is_private:
+        return await _clone_private_task(task, agent_id, gh)
+    return await _clone_public_task(task, agent_id, gh)
+
+
+async def _clone_private_task(task: dict, agent_id: str, gh: GitHubApp):
+    """Clone flow for private tasks: read-only deploy key + branch mode."""
+    task_id = task["id"]
+    repo_url = task["repo_url"]
+    source_repo = task["source_repo"]
+    installation_id = task.get("installation_id")
+
+    # Check/discover App installation
+    if not installation_id:
+        installation_id = await asyncio.to_thread(gh.get_repo_installation_id, source_repo)
+        if not installation_id:
+            app_slug = os.environ.get("GITHUB_APP_SLUG", "hive-mind-app")
+            raise HTTPException(400,
+                f"Install the Hive GitHub App on your repo first: "
+                f"https://github.com/apps/{app_slug}/installations/new")
+        # Store installation_id and set up branch protection
+        async with get_db() as conn:
+            await conn.execute("UPDATE tasks SET installation_id = %s WHERE id = %s",
+                               (installation_id, task_id))
+        try:
+            await asyncio.to_thread(
+                gh.set_branch_protection_for_installation,
+                source_repo, "main", installation_id)
+        except Exception:
+            pass  # best-effort
+
+    # Generate read-only deploy key
+    private_key, public_key = await asyncio.to_thread(gh.generate_ssh_keypair)
+    key_id = await asyncio.to_thread(
+        gh.add_deploy_key_for_installation,
+        source_repo, f"hive-{agent_id}", public_key, installation_id, read_only=True)
+
+    # Get SSH URL for the repo
+    ssh_url = await asyncio.to_thread(gh.get_repo_ssh_url, source_repo, installation_id)
+
+    # Create initial branch
+    branch_prefix = f"hive/{agent_id}/"
+    default_branch = f"hive/{agent_id}/initial"
+    try:
+        await asyncio.to_thread(
+            gh.create_branch, source_repo, default_branch, "main", installation_id)
+    except Exception:
+        pass  # branch may already exist
+
+    # Insert into DB
+    async with get_db() as conn:
+        try:
+            await conn.execute(
+                "INSERT INTO forks (task_id, agent_id, fork_url, ssh_url, deploy_key_id, branch_prefix, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (task_id, agent_id, repo_url, ssh_url, key_id, branch_prefix, now()),
+            )
+        except psycopg.errors.UniqueViolation:
+            await conn.rollback()
+            existing = await (await conn.execute(
+                "SELECT * FROM forks WHERE task_id = %s AND agent_id = %s", (task_id, agent_id)
+            )).fetchone()
+            return JSONResponse({"ssh_url": existing["ssh_url"], "upstream_url": repo_url,
+                                 "private_key": "", "mode": "branch",
+                                 "branch_prefix": existing.get("branch_prefix", branch_prefix),
+                                 "default_branch": default_branch}, status_code=201)
+
+    return JSONResponse({"ssh_url": ssh_url, "upstream_url": repo_url,
+                         "private_key": private_key, "mode": "branch",
+                         "branch_prefix": branch_prefix,
+                         "default_branch": default_branch}, status_code=201)
+
+
+async def _clone_public_task(task: dict, agent_id: str, gh: GitHubApp):
+    """Clone flow for public tasks: standalone fork repo + write deploy key."""
+    task_id = task["id"]
+    repo_url = task["repo_url"]
+    fork_name = f"fork--{task_id}--{agent_id}"
     repo_info = await asyncio.to_thread(gh.copy_repo, repo_url, fork_name)
     private_key, public_key = await asyncio.to_thread(gh.generate_ssh_keypair)
     key_id = await asyncio.to_thread(gh.add_deploy_key, f"{gh.org}/{fork_name}", f"hive-{agent_id}", public_key)
     ssh_url = repo_info["ssh_url"]
-    # Phase 3: insert into DB (handle race where another request inserted first)
     async with get_db() as conn:
         try:
             await conn.execute(
@@ -1104,6 +1253,58 @@ async def clone_task(task_id: str, token: str = Query(""), x_agent_token: str = 
                                  "upstream_url": repo_url, "private_key": ""}, status_code=201)
     return JSONResponse({"fork_url": repo_info["html_url"], "ssh_url": ssh_url,
                          "upstream_url": repo_url, "private_key": private_key}, status_code=201)
+
+
+@router.post("/tasks/{task_id}/push", status_code=200)
+async def push_to_task(task_id: str, branch: str = Form(""), bundle: UploadFile = File(...),
+                       token: str = Query(""), x_agent_token: str = Header(""), authorization: str = Header("")):
+    """Proxied push for private tasks. Agent uploads a git bundle, server pushes via App."""
+    await require_task_access(task_id, authorization)
+    async with get_db() as conn:
+        agent_id = await get_agent(_resolve_agent_token(token, x_agent_token), conn)
+        task = await (await conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,))).fetchone()
+        if not task:
+            raise HTTPException(404, "task not found")
+        if task.get("task_type") != "private":
+            raise HTTPException(400, "push endpoint is only for private tasks — use git push for public tasks")
+        # Verify agent belongs to task owner
+        agent_row = await (await conn.execute("SELECT user_id FROM agents WHERE id = %s", (agent_id,))).fetchone()
+        if not agent_row or agent_row["user_id"] != task["owner_id"]:
+            raise HTTPException(403, "only the task owner's agents can push to private tasks")
+        installation_id = task.get("installation_id")
+        if not installation_id:
+            raise HTTPException(400, "GitHub App not installed on this repo")
+        source_repo = task["source_repo"]
+        fork_row = await (await conn.execute(
+            "SELECT branch_prefix FROM forks WHERE task_id = %s AND agent_id = %s", (task_id, agent_id)
+        )).fetchone()
+        if not fork_row:
+            raise HTTPException(400, "clone the task first")
+        expected_prefix = fork_row["branch_prefix"]
+    if not branch:
+        raise HTTPException(400, "branch is required")
+    if ".." in branch or not re.match(r"^hive/[a-z0-9-]+/[a-z0-9._/-]+$", branch):
+        raise HTTPException(400, "invalid branch name")
+    if not branch.startswith(expected_prefix):
+        raise HTTPException(403, f"branch must start with '{expected_prefix}'")
+    # Save bundle to temp file and push (100MB limit)
+    MAX_BUNDLE_SIZE = 100 * 1024 * 1024
+    gh = get_github_app()
+    with tempfile.NamedTemporaryFile(suffix=".bundle", delete=False) as tmp:
+        size = 0
+        while chunk := await bundle.read(64 * 1024):
+            size += len(chunk)
+            if size > MAX_BUNDLE_SIZE:
+                tmp.close()
+                os.unlink(tmp.name)
+                raise HTTPException(413, "bundle too large (max 100MB)")
+            tmp.write(chunk)
+        bundle_path = tmp.name
+    try:
+        await asyncio.to_thread(gh.push_branch, source_repo, installation_id, bundle_path, branch)
+    finally:
+        os.unlink(bundle_path)
+    return JSONResponse({"status": "pushed", "branch": branch})
 
 
 @router.post("/tasks/{task_id}/submit", status_code=201)

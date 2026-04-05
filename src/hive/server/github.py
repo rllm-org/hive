@@ -23,6 +23,7 @@ class GitHubApp:
         self.installation_id = installation_id
         self._cached_token = ""
         self._token_expires = 0
+        self._install_token_cache: dict[str, tuple[str, int]] = {}  # {install_id: (token, expires)}
 
     def get_token(self) -> str:
         """Return a valid GitHub App installation token (cached, auto-refreshed)."""
@@ -59,12 +60,13 @@ class GitHubApp:
         """Return an HTTPS clone URL with a fresh installation token."""
         return f"https://x-access-token:{self.get_token()}@github.com/{self.org}/{repo_name}.git"
 
-    def add_deploy_key(self, repo_full_name: str, title: str, public_key: str) -> int:
-        """Add a deploy key with write access to a repo. Returns key ID."""
+    def add_deploy_key(self, repo_full_name: str, title: str, public_key: str,
+                       read_only: bool = False) -> int:
+        """Add a deploy key to a repo. Returns key ID."""
         resp = httpx.post(
             f"{_GITHUB_API}/repos/{repo_full_name}/keys",
             headers=self.headers(),
-            json={"title": title, "key": public_key, "read_only": False},
+            json={"title": title, "key": public_key, "read_only": read_only},
             timeout=15,
         )
         resp.raise_for_status()
@@ -204,6 +206,122 @@ class GitHubApp:
             private_key = Path(key_path).read_text()
             public_key = Path(key_path + ".pub").read_text().strip()
         return private_key, public_key
+
+    # --- Multi-installation support (for private tasks) ---
+
+    def _jwt(self) -> str:
+        """Create a short-lived JWT to authenticate as the GitHub App."""
+        if not self.app_id or not self.private_key:
+            raise RuntimeError("GitHub App credentials not configured")
+        import jwt
+        now = int(time.time())
+        return jwt.encode({"iat": now - 60, "exp": now + 600, "iss": self.app_id},
+                          self.private_key, algorithm="RS256")
+
+    def get_token_for_installation(self, installation_id: str) -> str:
+        """Get an installation token for any installation (not just the default org)."""
+        now = int(time.time())
+        cached = self._install_token_cache.get(installation_id)
+        if cached and now < cached[1] - 60:
+            return cached[0]
+        resp = httpx.post(
+            f"{_GITHUB_API}/app/installations/{installation_id}/access_tokens",
+            headers={"Authorization": f"Bearer {self._jwt()}",
+                     "Accept": "application/vnd.github+json"}, timeout=15)
+        resp.raise_for_status()
+        token = resp.json()["token"]
+        self._install_token_cache[installation_id] = (token, now + 3500)
+        return token
+
+    def get_repo_installation_id(self, repo_full_name: str) -> str | None:
+        """Check if the App is installed on a repo. Returns installation_id or None."""
+        resp = httpx.get(
+            f"{_GITHUB_API}/repos/{repo_full_name}/installation",
+            headers={"Authorization": f"Bearer {self._jwt()}",
+                     "Accept": "application/vnd.github+json"}, timeout=15)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return str(resp.json()["id"])
+
+    def headers_for_installation(self, installation_id: str) -> dict:
+        return {
+            "Authorization": f"Bearer {self.get_token_for_installation(installation_id)}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+    def get_repo_ssh_url(self, repo_full_name: str, installation_id: str) -> str:
+        """Get the SSH URL for a repo using an installation token."""
+        headers = self.headers_for_installation(installation_id)
+        resp = httpx.get(f"{_GITHUB_API}/repos/{repo_full_name}", headers=headers, timeout=15)
+        resp.raise_for_status()
+        return resp.json()["ssh_url"]
+
+    def add_deploy_key_for_installation(self, repo_full_name: str, title: str,
+                                         public_key: str, installation_id: str,
+                                         read_only: bool = False) -> int:
+        """Add a deploy key using an installation token (for repos outside the org)."""
+        resp = httpx.post(
+            f"{_GITHUB_API}/repos/{repo_full_name}/keys",
+            headers=self.headers_for_installation(installation_id),
+            json={"title": title, "key": public_key, "read_only": read_only},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()["id"]
+
+    def create_branch(self, repo_full_name: str, branch: str,
+                      from_branch: str, installation_id: str) -> None:
+        """Create a new branch from an existing branch on a repo."""
+        headers = self.headers_for_installation(installation_id)
+        ref_resp = httpx.get(
+            f"{_GITHUB_API}/repos/{repo_full_name}/git/ref/heads/{from_branch}",
+            headers=headers, timeout=15)
+        ref_resp.raise_for_status()
+        sha = ref_resp.json()["object"]["sha"]
+        resp = httpx.post(
+            f"{_GITHUB_API}/repos/{repo_full_name}/git/refs",
+            headers=headers,
+            json={"ref": f"refs/heads/{branch}", "sha": sha},
+            timeout=15,
+        )
+        if resp.status_code == 422:
+            return  # branch already exists
+        resp.raise_for_status()
+
+    def set_branch_protection_for_installation(self, repo_full_name: str, branch: str,
+                                                installation_id: str) -> None:
+        """Protect a branch pattern — only the App can push, admins enforced."""
+        body = {
+            "required_status_checks": None,
+            "enforce_admins": True,
+            "required_pull_request_reviews": None,
+            "restrictions": None,
+            "allow_force_pushes": False,
+            "allow_deletions": False,
+            "lock_branch": False,
+        }
+        resp = httpx.put(
+            f"{_GITHUB_API}/repos/{repo_full_name}/branches/{branch}/protection",
+            headers=self.headers_for_installation(installation_id),
+            json=body, timeout=15,
+        )
+        resp.raise_for_status()
+
+    def push_branch(self, repo_full_name: str, installation_id: str,
+                    bundle_path: str, branch: str) -> None:
+        """Apply a git bundle and push a branch to a repo using the App's credentials."""
+        token = self.get_token_for_installation(installation_id)
+        clone_url = f"https://x-access-token:{token}@github.com/{repo_full_name}.git"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_dir = os.path.join(tmpdir, "repo")
+            subprocess.run(["git", "clone", "--no-checkout", clone_url, repo_dir],
+                           check=True, capture_output=True, timeout=120)
+            subprocess.run(["git", "fetch", bundle_path, f"{branch}:{branch}"],
+                           cwd=repo_dir, check=True, capture_output=True, timeout=120)
+            subprocess.run(["git", "push", "origin", branch],
+                           cwd=repo_dir, check=True, capture_output=True, timeout=120)
 
 
 _github_app: "GitHubApp | None" = None

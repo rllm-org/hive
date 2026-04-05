@@ -398,6 +398,20 @@ def _ensure_postgres_migrations(conn) -> None:
     ).fetchone()
     if not row:
         conn.execute("ALTER TABLE items ADD COLUMN metadata JSONB")
+    # installation_id on tasks (for private tasks — GitHub App installation on user's repo)
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = 'tasks' AND column_name = 'installation_id'"
+    ).fetchone()
+    if not row:
+        conn.execute("ALTER TABLE tasks ADD COLUMN installation_id TEXT")
+    # branch_prefix on forks (for branch-mode private tasks)
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = 'forks' AND column_name = 'branch_prefix'"
+    ).fetchone()
+    if not row:
+        conn.execute("ALTER TABLE forks ADD COLUMN branch_prefix TEXT")
 
 
 # --- Async connection pool (one per worker process) ---
