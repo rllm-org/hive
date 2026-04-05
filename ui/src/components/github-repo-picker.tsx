@@ -176,7 +176,7 @@ export function GitHubRepoPicker({ onSelect, selected }: GitHubRepoPickerProps) 
       {installUrl && (
         <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
           To connect your agents, <a
-            href={installUrl.replace("select_target", "new")}
+            href={installUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[var(--color-accent)] hover:underline"

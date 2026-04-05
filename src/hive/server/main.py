@@ -610,7 +610,7 @@ async def auth_config():
         result["github_app_install_url"] = f"https://github.com/apps/{GITHUB_USER_APP_SLUG}/installations/new"
     github_app_slug = os.environ.get("GITHUB_APP_SLUG", "")
     if github_app_slug:
-        result["github_agent_app_install_url"] = f"https://github.com/apps/{github_app_slug}/installations/select_target"
+        result["github_agent_app_install_url"] = f"https://github.com/apps/{github_app_slug}/installations/new"
     return result
 
 
