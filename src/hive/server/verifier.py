@@ -257,7 +257,11 @@ async def verify_run(daytona: AsyncDaytona, job: VerificationJob) -> None:
             try:
                 await daytona.delete(sandbox, timeout=60)
             except Exception:
-                log.warning("Failed to delete sandbox for run %s", job.id)
+                try:
+                    await daytona.stop(sandbox, timeout=30)
+                except Exception:
+                    pass
+                log.warning("Failed to delete sandbox for run %s (stopped instead)", job.id)
 
 
 class VerificationFailed(Exception):
