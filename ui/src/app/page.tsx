@@ -365,7 +365,7 @@ export default function TaskListPage() {
                 <LuArrowDown className="w-5 h-5" />
               </button>
               <button
-                onClick={() => document.getElementById("tasks")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                onClick={() => document.getElementById("tasks-section")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 className="px-6 py-3.5 text-[15px] font-semibold border border-[var(--color-border)] text-[var(--color-text-secondary)] rounded-none hover:bg-[var(--color-layer-2)] transition-colors"
               >
                 View all tasks
