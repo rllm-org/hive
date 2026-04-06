@@ -7,7 +7,6 @@ Runs as a separate process from the web server:
 from __future__ import annotations
 
 import asyncio
-import importlib
 import logging
 import os
 import re
@@ -17,20 +16,13 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-try:
-    try:
-        _daytona = importlib.import_module("daytona_sdk")
-    except ImportError:
-        _daytona = importlib.import_module("daytona")
-except ImportError:  # pragma: no cover - exercised only when Daytona is unavailable.
-    AsyncDaytona = Any  # type: ignore[assignment]
-    CreateSandboxFromSnapshotParams = None  # type: ignore[assignment]
-    VolumeMount = None  # type: ignore[assignment]
-else:  # pragma: no branch
-    AsyncDaytona = _daytona.AsyncDaytona  # type: ignore[attr-defined]
-    CreateSandboxFromSnapshotParams = getattr(_daytona, "CreateSandboxFromSnapshotParams", None)
-    VolumeMount = getattr(_daytona, "VolumeMount", None)
-
+from .daytona_runtime import (
+    AsyncDaytona,
+    CreateSandboxFromSnapshotParams,
+    VolumeMount,
+    create_sandbox_for_verification,
+    resolve_env_vars_for_verification,
+)
 from .db import close_pool, get_db, init_db, init_pool, now
 from .verification import (
     DEFAULT_STALE_AFTER,
@@ -49,10 +41,6 @@ from .verification import (
 log = logging.getLogger("hive.verifier")
 
 POLL_INTERVAL = int(os.environ.get("VERIFY_POLL_INTERVAL", "5"))
-SANDBOX_TIMEOUT = int(os.environ.get("VERIFY_SANDBOX_TIMEOUT", "120"))
-VOLUME_TIMEOUT = int(os.environ.get("VERIFY_VOLUME_TIMEOUT", "120"))
-AUTO_ARCHIVE_INTERVAL = int(os.environ.get("VERIFY_AUTO_ARCHIVE_INTERVAL", "60"))
-AUTO_DELETE_INTERVAL = int(os.environ.get("VERIFY_AUTO_DELETE_INTERVAL", "120"))
 MAX_CONCURRENT_JOBS = max(1, int(os.environ.get("VERIFY_MAX_CONCURRENT_JOBS", "3")))
 DB_POOL_MIN = int(os.environ.get("VERIFY_DB_POOL_MIN", "1"))
 DB_POOL_MAX = int(os.environ.get("VERIFY_DB_POOL_MAX", "0"))  # 0 = auto-size
@@ -295,89 +283,22 @@ class VerificationFailed(Exception):
 
 
 async def _create_sandbox_with_retry(daytona: AsyncDaytona, job: VerificationJob) -> Any:
-    """Create a sandbox, retrying indefinitely with capped backoff on transient failures."""
+    """Create a sandbox, retrying with capped backoff up to SANDBOX_MAX_RETRIES."""
 
     attempt = 0
     while True:
         attempt += 1
         try:
-            return await _create_sandbox(daytona, job.config)
+            return await create_sandbox_for_verification(daytona, job.config)
         except Exception as exc:
+            if attempt > SANDBOX_MAX_RETRIES:
+                raise
             delay = min(SANDBOX_RETRY_BACKOFF * attempt, SANDBOX_RETRY_BACKOFF * SANDBOX_MAX_RETRIES)
             log.warning(
-                "sandbox creation failed for run %s (attempt %d), retrying in %ds: %s",
-                job.id, attempt, delay, exc,
+                "sandbox creation failed for run %s (attempt %d/%d), retrying in %ds: %s",
+                job.id, attempt, SANDBOX_MAX_RETRIES, delay, exc,
             )
             await asyncio.sleep(delay)
-
-
-async def _create_sandbox(daytona: AsyncDaytona, config: VerificationConfig) -> Any:
-    """Create a Daytona sandbox using the task's pinned runtime contract."""
-
-    if CreateSandboxFromSnapshotParams is None:
-        raise RuntimeError("Installed Daytona SDK does not expose CreateSandboxFromSnapshotParams")
-
-    env_vars = _resolve_env_vars(config)
-    volumes = await _resolve_volume_mounts(daytona, config)
-    params = CreateSandboxFromSnapshotParams(
-        snapshot=config.sandbox.snapshot,
-        auto_stop_interval=0,
-        auto_archive_interval=AUTO_ARCHIVE_INTERVAL,
-        auto_delete_interval=AUTO_DELETE_INTERVAL,
-        env_vars=env_vars or None,
-        volumes=volumes or None,
-        network_block_all=config.sandbox.network_block_all,
-        network_allow_list=config.sandbox.network_allow_list,
-    )
-    return await daytona.create(params, timeout=SANDBOX_TIMEOUT)
-
-
-def _resolve_env_vars(config: VerificationConfig) -> dict[str, str]:
-    """Resolve plain and secret-backed env vars for the Daytona sandbox."""
-
-    env_vars = dict(config.sandbox.env)
-    for env_name, ref in config.sandbox.secret_env:
-        secret_name = f"HIVE_VERIFY_SECRET_{ref.upper()}"
-        secret_value = os.environ.get(secret_name)
-        if secret_value is None:
-            raise RuntimeError(f"Missing verifier secret env {secret_name}")
-        env_vars[env_name] = secret_value
-    return env_vars
-
-
-async def _resolve_volume_mounts(daytona: AsyncDaytona, config: VerificationConfig) -> list[Any]:
-    """Resolve named Daytona volumes into sandbox mounts."""
-
-    if not config.sandbox.volumes:
-        return []
-    if VolumeMount is None:
-        raise RuntimeError("Installed Daytona SDK does not expose VolumeMount")
-
-    mounts: list[Any] = []
-    for volume_config in config.sandbox.volumes:
-        await daytona.volume.get(volume_config.name, create=True)
-        volume = await _wait_for_volume_ready(daytona, volume_config.name, timeout=VOLUME_TIMEOUT)
-        mounts.append(
-            VolumeMount(
-                volume_id=volume.id,
-                mount_path=volume_config.mount_path,
-                subpath=volume_config.subpath,
-            )
-        )
-    return mounts
-
-
-async def _wait_for_volume_ready(daytona: AsyncDaytona, volume_name: str, *, timeout: int) -> Any:
-    """Wait until a Daytona volume becomes mountable."""
-
-    deadline = asyncio.get_running_loop().time() + timeout
-    while True:
-        volume = await daytona.volume.get(volume_name)
-        if str(volume.state).endswith("READY"):
-            return volume
-        if asyncio.get_running_loop().time() >= deadline:
-            raise RuntimeError(f"Timed out waiting for Daytona volume {volume_name} to become ready")
-        await asyncio.sleep(1)
 
 
 async def _materialize_path_links(
@@ -424,7 +345,7 @@ async def _write_env_file_if_needed(
     if not config.sandbox.env_file_path:
         return
 
-    env_vars = _resolve_env_vars(config)
+    env_vars = resolve_env_vars_for_verification(config)
     env_lines = "\n".join(f"{key}={value}" for key, value in env_vars.items()) + "\n"
     path = f"{TASK_DIR}/{config.sandbox.env_file_path}"
     parent = os.path.dirname(path)

@@ -11,7 +11,10 @@ from hive.server.main import app
 from tests.mocks import MockGitHubApp
 from hive.server.github import set_github_app
 
-_ALL_TABLES = "password_resets, oauth_states, pending_signups, item_comments, items, votes, comments, claims, skills, posts, runs, forks, agents, tasks, users"
+_ALL_TABLES = (
+    "agent_session_events, sandbox_log_chunks, agent_sessions, task_sandboxes, user_agent_connections, "
+    "password_resets, oauth_states, pending_signups, item_comments, items, votes, comments, claims, skills, posts, runs, forks, agents, tasks, users"
+)
 
 
 def _free_port():
@@ -52,6 +55,7 @@ def client(monkeypatch, _pg_test_url):
     monkeypatch.setattr("hive.server.db.DATABASE_URL", db_url)
     monkeypatch.setattr("hive.server.main.ADMIN_KEY", "test-key")
     monkeypatch.setattr("hive.server.main.JWT_SECRET", "test-jwt-secret")
+    monkeypatch.setenv("JWT_SECRET", "test-jwt-secret")
     init_db()
     import psycopg
     with psycopg.connect(db_url, autocommit=True) as conn:

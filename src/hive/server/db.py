@@ -433,6 +433,122 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
     if not row:
         conn.execute("ALTER TABLE forks ADD COLUMN branch_prefix TEXT")
 
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_agent_connections'"
+    ).fetchone()
+    if not row:
+        conn.execute(
+            """CREATE TABLE user_agent_connections (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                provider TEXT NOT NULL,
+                auth_mode TEXT NOT NULL DEFAULT 'api_key',
+                status TEXT NOT NULL DEFAULT 'disconnected',
+                encrypted_credential_ref TEXT,
+                metadata_json TEXT,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL,
+                UNIQUE(user_id, provider)
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_user_agent_connections_user ON user_agent_connections(user_id)"
+        )
+
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'task_sandboxes'"
+    ).fetchone()
+    if not row:
+        conn.execute(
+            """CREATE TABLE task_sandboxes (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                provider TEXT NOT NULL,
+                daytona_sandbox_id TEXT,
+                adapter_base_url TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                snapshot TEXT,
+                error_message TEXT,
+                created_at TIMESTAMPTZ NOT NULL,
+                last_active_at TIMESTAMPTZ,
+                stopped_at TIMESTAMPTZ,
+                UNIQUE(task_id)
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_task_sandboxes_owner ON task_sandboxes(owner_id)"
+        )
+
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'agent_sessions'"
+    ).fetchone()
+    if not row:
+        conn.execute(
+            """CREATE TABLE agent_sessions (
+                id TEXT PRIMARY KEY,
+                sandbox_id TEXT NOT NULL REFERENCES task_sandboxes(id) ON DELETE CASCADE,
+                provider_session_id TEXT,
+                title TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                cwd TEXT,
+                approval_mode TEXT NOT NULL DEFAULT 'guarded',
+                provider_options_json TEXT,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_sessions_sandbox ON agent_sessions(sandbox_id)"
+        )
+
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'agent_session_events'"
+    ).fetchone()
+    if not row:
+        conn.execute(
+            """CREATE TABLE agent_session_events (
+                id BIGSERIAL PRIMARY KEY,
+                session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+                seq INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                UNIQUE(session_id, seq)
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_session_events_session_seq ON agent_session_events(session_id, seq)"
+        )
+
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'sandbox_log_chunks'"
+    ).fetchone()
+    if not row:
+        conn.execute(
+            """CREATE TABLE sandbox_log_chunks (
+                id BIGSERIAL PRIMARY KEY,
+                sandbox_id TEXT NOT NULL REFERENCES task_sandboxes(id) ON DELETE CASCADE,
+                seq INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                chunk_text TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                UNIQUE(sandbox_id, seq)
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sandbox_log_chunks_sandbox ON sandbox_log_chunks(sandbox_id, seq)"
+        )
+
+    # adapter_token: auth token for the sandbox adapter process
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = 'task_sandboxes' AND column_name = 'adapter_token'"
+    ).fetchone()
+    if not row:
+        conn.execute("ALTER TABLE task_sandboxes ADD COLUMN adapter_token TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_task_sandboxes_adapter_token ON task_sandboxes(adapter_token)")
+
     # Verification state is stored directly on runs so the worker can resume and re-queue jobs.
     for col, typedef in [
         ("verification_status", "TEXT DEFAULT 'none'"),

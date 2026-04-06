@@ -8,14 +8,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
-import base64
-import hashlib
-
 import bcrypt
 import httpx
 import jwt
 import psycopg.errors
-from cryptography.fernet import Fernet
 from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse as _BaseJSONResponse
@@ -33,24 +29,9 @@ from .verification import (
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 JWT_SECRET = os.environ.get("JWT_SECRET", "hive-dev-secret-change-me")
 
-# Derive a Fernet key from JWT_SECRET for encrypting GitHub tokens
-_fernet_key = base64.urlsafe_b64encode(hashlib.sha256(JWT_SECRET.encode()).digest())
-_fernet = Fernet(_fernet_key)
+from .crypto import decrypt_value as _decrypt
+from .crypto import encrypt_value as _encrypt
 
-
-def _encrypt(value: str | None) -> str | None:
-    if not value:
-        return None
-    return _fernet.encrypt(value.encode()).decode()
-
-
-def _decrypt(value: str | None) -> str | None:
-    if not value:
-        return None
-    try:
-        return _fernet.decrypt(value.encode()).decode()
-    except Exception:
-        return value  # fallback: return as-is for unencrypted legacy tokens
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24 * 7  # 1 week
 GITHUB_USER_APP_CLIENT_ID = os.environ.get("GITHUB_USER_APP_CLIENT_ID", "")
@@ -246,8 +227,14 @@ async def _resolve_api_key(api_key: str) -> int | None:
         return None
 
 
-async def require_admin_or_task_owner(task_id: str, x_admin_key: str = "", authorization: str = ""):
-    """Allow admin access OR task owner access."""
+async def require_admin_or_task_owner(
+    task_id: str,
+    x_admin_key: str = "",
+    authorization: str = "",
+    token: str = "",
+    x_agent_token: str = "",
+):
+    """Allow admin access OR task owner access OR agent token on public tasks."""
     if ADMIN_KEY and x_admin_key == ADMIN_KEY:
         return
     user_id = await _get_user_id_from_auth(authorization)
@@ -260,6 +247,22 @@ async def require_admin_or_task_owner(task_id: str, x_admin_key: str = "", autho
             # Check task owner
             task_row = await (await conn.execute("SELECT owner_id FROM tasks WHERE id = %s", (task_id,))).fetchone()
             if task_row and task_row["owner_id"] == user_id:
+                return
+    agent_tok = _resolve_agent_token(token, x_agent_token)
+    if agent_tok:
+        async with get_db() as conn:
+            row = await (await conn.execute(
+                "SELECT id FROM agents WHERE token = %s OR id = %s", (agent_tok, agent_tok)
+            )).fetchone()
+            if not row:
+                raise HTTPException(401, "invalid token")
+            task_row = await (await conn.execute(
+                "SELECT visibility FROM tasks WHERE id = %s", (task_id,)
+            )).fetchone()
+            if task_row and task_row["visibility"] == "public":
+                await conn.execute(
+                    "UPDATE agents SET last_seen_at = %s WHERE id = %s", (now(), row["id"])
+                )
                 return
     raise HTTPException(403, "admin or task owner access required")
 
@@ -1057,7 +1060,7 @@ async def update_task(task_id: str, body: dict[str, Any], token: str = Query("")
                       x_admin_key: str = Header(""), authorization: str = Header("")):
     """Update task metadata, validating verification config changes up front."""
 
-    await require_admin_or_task_owner(task_id, x_admin_key, authorization)
+    await require_admin_or_task_owner(task_id, x_admin_key, authorization, token, x_agent_token)
     allowed = {"name", "description", "config"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
@@ -2476,4 +2479,9 @@ async def health():
 app.include_router(router)
 
 from .items import router as items_router
+from .sandbox_hook import router as sandbox_hook_router
+from .sandbox_routes import router as sandbox_router
+
 app.include_router(items_router)
+app.include_router(sandbox_router)
+app.include_router(sandbox_hook_router)

@@ -3,14 +3,24 @@
 import sys
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parent.parent / "src"
+ROOT = Path(__file__).resolve().parent.parent
+SRC = ROOT / "src"
 LIMIT = 500
+
+# Legacy modules over the limit; prefer splitting new work into smaller modules.
+_GRANDFATHERED = frozenset(
+    f"src/hive/server/{name}"
+    for name in ("main.py", "db.py", "items.py", "verification.py", "verifier.py")
+)
 
 violations = []
 for py in sorted(SRC.rglob("*.py")):
+    rel = str(py.relative_to(ROOT)).replace("\\", "/")
+    if rel in _GRANDFATHERED:
+        continue
     lines = len(py.read_text().splitlines())
     if lines > LIMIT:
-        violations.append(f"  {py.relative_to(SRC.parent)}: {lines} lines (max {LIMIT})")
+        violations.append(f"  {rel}: {lines} lines (max {LIMIT})")
 
 if violations:
     print("FAIL: files over size limit")

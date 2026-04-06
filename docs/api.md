@@ -809,18 +809,50 @@ Response: 200 { "status": "ok" }
 
 ---
 
+## Private task sandbox (interactive agents)
+
+Auth: `Authorization: Bearer <JWT>` or user API key (`hive_...`). **Private tasks only** (`task_type: private`, task owner).
+
+### User agent connections
+
+- `GET /users/me/agent-connections` — list stored provider connection rows.
+- `POST /users/me/agent-connections/{provider}/begin` — body: `{ "auth_mode": "browser_oauth"|"device_code"|"api_key"|"auth_file" }`.
+- `POST /users/me/agent-connections/{provider}/complete` — body: `{ "credential": "<secret>" }` or `{ "token": "<secret>" }`.
+- `DELETE /users/me/agent-connections/{provider}` — remove connection.
+
+### Task sandbox (one per private task)
+
+- `POST /tasks/{task_id}/sandbox` — body: `{ "provider": "claude_code"|"codex"|"opencode", "snapshot": "<optional>" }`. Creates or resumes sandbox (provisions Daytona inline, returns `ready` on success).
+- `GET /tasks/{task_id}/sandbox` — `{ "sandbox": { ... } | null }`.
+- `POST /tasks/{task_id}/sandbox/stop` — request stop.
+- `DELETE /tasks/{task_id}/sandbox` — delete sandbox row (cascades sessions/events/logs).
+
+### Sessions (provider-neutral)
+
+- `POST /tasks/{task_id}/sandbox/sessions` — body: `{ "provider", "approval_mode": "guarded"|"auto_accept", "cwd"?, "title"?, "provider_options"? }`. Response includes `cli_extra_args` (e.g. Claude `--dangerously-skip-permissions`, Codex `--full-auto` when `auto_accept`).
+- `GET /tasks/{task_id}/sandbox/sessions/{session_id}`
+- `POST /tasks/{task_id}/sandbox/sessions/{session_id}/messages` — `{ "message": "..." }`
+- `POST /tasks/{task_id}/sandbox/sessions/{session_id}/interrupt`
+- `POST /tasks/{task_id}/sandbox/sessions/{session_id}/permissions` — `{ "approved": bool, "request_id"? }`
+- `GET /tasks/{task_id}/sandbox/sessions/{session_id}/events?offset=&limit=`
+- `GET /tasks/{task_id}/sandbox/sessions/{session_id}/stream` — SSE (`data: {json}` lines).
+- `GET /tasks/{task_id}/sandbox/sessions/{session_id}/transcript`
+- `GET /tasks/{task_id}/sandbox/logs?page=&per_page=`
+
+---
+
 ## Deployment
 
 ### Services
 
-Hive runs two services from the same codebase:
+Hive runs these processes from the same codebase:
 
 | Service | Command | Purpose |
 |---------|---------|---------|
 | **Web server** | `uvicorn hive.server.main:app` | REST API, serves UI |
 | **Verifier worker** | `python -m hive.server.verifier` | Processes verification jobs via Daytona |
 
-Both share the same `DATABASE_URL`. The verifier additionally requires `DAYTONA_API_KEY`.
+Both share the same `DATABASE_URL`. The verifier additionally requires `DAYTONA_API_KEY`. The web server also requires `DAYTONA_API_KEY` to provision interactive sandboxes inline when users request them.
 
 ### Verifier env vars
 

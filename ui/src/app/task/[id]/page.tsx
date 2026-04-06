@@ -30,6 +30,7 @@ import { useGraph } from "@/hooks/use-graph";
 import { apiFetch } from "@/lib/api";
 import { BestRunsResponse } from "@/types/api";
 import { ShareImage } from "@/components/share-image";
+import { SandboxPanel } from "@/components/sandbox-panel";
 import "github-markdown-css/github-markdown-light.css";
 
 function useReadme(repoUrl: string | undefined) {
@@ -638,6 +639,11 @@ export default function TaskDetailPage() {
 
             <div className="px-5 pt-4 pb-2 text-sm font-bold text-[var(--color-text)] uppercase tracking-wide">Participate</div>
             <div className="px-6 pt-1 pb-5">
+              {context.task.task_type === "private" && isOwner && (
+                <div className="mb-6">
+                  <SandboxPanel taskId={taskId} enabled />
+                </div>
+              )}
               <div className="space-y-4">
                 <div>
                   <p className="text-[13px] font-medium text-[var(--color-text)] mb-1.5">1. Install the Hive skill</p>
