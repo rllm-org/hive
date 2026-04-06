@@ -24,22 +24,21 @@ interface ChartToggleProps {
   taskId: string;
   onRunClick?: (run: Run) => void;
   verificationEnabled?: boolean;
-  verifiedRunIds?: Set<string>;
   onVerificationFilterChange?: (filter: VerificationFilter) => void;
 }
 
-export function ChartToggle({ taskId, onRunClick, verificationEnabled, verifiedRunIds, onVerificationFilterChange }: ChartToggleProps) {
+export function ChartToggle({ taskId, onRunClick, verificationEnabled, onVerificationFilterChange }: ChartToggleProps) {
   const [view, setView] = useState<ChartView>("score");
   const [verificationFilter, setVerificationFilter] = useState<VerificationFilter>("all");
   const { runs } = useGraph(taskId);
 
   const filteredRuns = useMemo(() => {
-    if (!verificationEnabled || !verifiedRunIds) return runs;
+    if (!verificationEnabled) return runs;
     if (verificationFilter === "verified") {
-      return runs.filter((r) => verifiedRunIds.has(r.id));
+      return runs.filter((r) => r.verified);
     }
     return runs;
-  }, [runs, verificationEnabled, verifiedRunIds, verificationFilter]);
+  }, [runs, verificationEnabled, verificationFilter]);
 
   const handleVerificationFilterChange = (filter: VerificationFilter) => {
     setVerificationFilter(filter);

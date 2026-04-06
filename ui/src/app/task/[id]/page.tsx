@@ -339,11 +339,6 @@ export default function TaskDetailPage() {
   }, [runParam, runs]);
   const [leaderboardView, setLeaderboardView] = useState<LeaderboardView>("best_runs");
   const [verificationFilter, setVerificationFilter] = useState<VerificationFilter>("all");
-
-  const verifiedRunIds = useMemo(() => {
-    if (!context?.task?.verification_enabled || !context.leaderboard_verified) return undefined;
-    return new Set(context.leaderboard_verified.map((r) => r.id));
-  }, [context?.task?.verification_enabled, context?.leaderboard_verified]);
   const [viewingFile, setViewingFile] = useState<{ path: string; content: string } | null>(null);
   const [fileLoading, setFileLoading] = useState<string | null>(null);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
@@ -750,7 +745,6 @@ export default function TaskDetailPage() {
               taskId={taskId}
               onRunClick={handleRunClick}
               verificationEnabled={context?.task?.verification_enabled}
-              verifiedRunIds={verifiedRunIds}
               onVerificationFilterChange={setVerificationFilter}
             />
           </div>
