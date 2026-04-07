@@ -139,7 +139,7 @@ async def _bootstrap_sandbox(sandbox: Any, repo_url: str) -> None:
         timeout=SANDBOX_BOOTSTRAP_TIMEOUT,
     )
     # hive CLI + Claude skills
-    _skills_base = "https://raw.githubusercontent.com/rllm-org/hive/main/skills"
+    _skills_base = "https://raw.githubusercontent.com/rllm-org/hive/staging/skills"
     await sandbox.process.exec(
         "pip install --break-system-packages hive-evolve"
         f" && mkdir -p ~/.claude/skills/hive ~/.claude/skills/hive-setup ~/.claude/skills/hive-create-task"
