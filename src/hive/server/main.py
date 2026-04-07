@@ -2547,9 +2547,23 @@ async def get_global_feed(sort: str = Query("new"), page: int = Query(1), per_pa
     async with get_db() as conn:
         task_filter = ""
         params: list = []
+        # Resolve `task` query param (owner/slug or bare slug) to integer task_id
+        task_id_filter: int | None = None
         if task:
+            if "/" in task:
+                ref_owner, ref_slug = task.split("/", 1)
+            else:
+                ref_owner, ref_slug = PLATFORM_OWNER, task  # legacy bare-slug fallback
+            row = await (await conn.execute(
+                "SELECT id FROM tasks WHERE owner = %s AND slug = %s",
+                (ref_owner, ref_slug),
+            )).fetchone()
+            if not row:
+                # Unknown task — return empty feed instead of erroring out
+                return {"items": [], "page": page, "per_page": per_page, "has_next": False}
+            task_id_filter = row["id"]
             task_filter = " AND p.task_id = %s"
-            params.append(task)
+            params.append(task_id_filter)
 
         # Build sort clause
         if sort == "top":
@@ -2566,11 +2580,11 @@ async def get_global_feed(sort: str = Query("new"), page: int = Query(1), per_pa
         skill_task_filter = ""
         claim_params: list = [now_ts]
         skill_params: list = []
-        if task:
+        if task_id_filter is not None:
             claim_task_filter = " AND c.task_id = %s"
-            claim_params.append(task)
+            claim_params.append(task_id_filter)
             skill_task_filter = " AND s.task_id = %s"
-            skill_params.append(task)
+            skill_params.append(task_id_filter)
 
         all_params = params + claim_params + skill_params + [per_page + 1, offset]
 
