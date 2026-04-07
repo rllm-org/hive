@@ -175,6 +175,10 @@ def init_db() -> None:
     """Run DDL and migrations. Call once before workers start (sync)."""
     conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     try:
+        # Legacy schema upgrade — must run before _PG_SCHEMA so that any
+        # new tables (e.g. items) can be created with INTEGER FKs to
+        # tasks(id). On a fresh DB this is a no-op.
+        _migrate_legacy_task_id_if_needed(conn)
         for stmt in _PG_SCHEMA:
             conn.execute(stmt)
         _ensure_postgres_migrations(conn)
@@ -478,14 +482,8 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
         conn.execute("CREATE UNIQUE INDEX users_handle_key ON users(handle)")
         conn.execute("ALTER TABLE users ALTER COLUMN handle SET NOT NULL")
 
-    # --- Task ID TEXT → SERIAL migration ---
-    # Detect old schema: tasks.id is TEXT instead of integer
-    row = conn.execute(
-        "SELECT data_type FROM information_schema.columns"
-        " WHERE table_name = 'tasks' AND column_name = 'id'"
-    ).fetchone()
-    if row and row["data_type"] in ("text", "character varying"):
-        _migrate_task_id_to_serial(conn)
+    # Task ID TEXT → SERIAL migration runs in init_db's `_migrate_legacy_task_id_if_needed`
+    # call BEFORE _PG_SCHEMA, so by the time we get here it's already done.
 
 
 # Reserved handles (kept in sync with main.py RESERVED_HANDLES — see _validate_handle)
@@ -529,22 +527,72 @@ def _backfill_user_handles(conn: psycopg.Connection[Any]) -> None:
         conn.execute("UPDATE users SET handle = %s WHERE id = %s", (candidate, row["id"]))
 
 
+def _table_exists(conn: psycopg.Connection[Any], table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.tables"
+        " WHERE table_schema = 'public' AND table_name = %s",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _column_exists(conn: psycopg.Connection[Any], table: str, column: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = %s AND column_name = %s",
+        (table, column),
+    ).fetchone()
+    return row is not None
+
+
+def _migrate_legacy_task_id_if_needed(conn: psycopg.Connection[Any]) -> None:
+    """If tasks.id is TEXT (legacy), migrate it to SERIAL before _PG_SCHEMA runs.
+
+    This must happen before the schema DDL because _PG_SCHEMA creates new
+    tables (e.g. items) with INTEGER FKs to tasks(id). On a fresh DB the
+    tasks table doesn't exist yet and this is a no-op.
+    """
+    if not _table_exists(conn, "tasks"):
+        return
+    row = conn.execute(
+        "SELECT data_type FROM information_schema.columns"
+        " WHERE table_name = 'tasks' AND column_name = 'id'"
+    ).fetchone()
+    if not row or row["data_type"] not in ("text", "character varying"):
+        return  # already migrated or unexpected type
+
+    # Ensure users.handle exists and is backfilled before we try to use it
+    # as the new owner field for private tasks.
+    if _table_exists(conn, "users") and not _column_exists(conn, "users", "handle"):
+        conn.execute("ALTER TABLE users ADD COLUMN handle TEXT")
+        _backfill_user_handles(conn)
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_handle_key ON users(handle)")
+        conn.execute("ALTER TABLE users ALTER COLUMN handle SET NOT NULL")
+
+    _migrate_task_id_to_serial(conn)
+
+
 def _migrate_task_id_to_serial(conn: psycopg.Connection[Any]) -> None:
-    """One-time migration: tasks.id TEXT PK → SERIAL PK with slug/owner columns."""
+    """One-time migration: tasks.id TEXT PK → SERIAL PK with slug/owner columns.
+
+    Skips FK tables that don't exist yet (legacy DBs may pre-date items, etc.).
+    """
 
     # 1. Add slug, owner, and new_id columns to tasks
     conn.execute("ALTER TABLE tasks ADD COLUMN slug TEXT")
     conn.execute("ALTER TABLE tasks ADD COLUMN owner TEXT NOT NULL DEFAULT 'hive'")
     conn.execute("UPDATE tasks SET slug = id")
     # Backfill owner for private tasks from users.handle (must run after _backfill_user_handles)
-    conn.execute("""
-        UPDATE tasks SET owner = u.handle
-        FROM users u WHERE tasks.owner_id = u.id AND tasks.visibility = 'private'
-    """)
+    if _column_exists(conn, "tasks", "owner_id") and _column_exists(conn, "tasks", "visibility"):
+        conn.execute("""
+            UPDATE tasks SET owner = u.handle
+            FROM users u WHERE tasks.owner_id = u.id AND tasks.visibility = 'private'
+        """)
     conn.execute("ALTER TABLE tasks ADD COLUMN new_id SERIAL")
 
-    # 2. Migrate FK tables: add integer column, backfill, swap
-    _fk_tables = ["forks", "runs", "posts", "claims", "skills", "items"]
+    # 2. Migrate FK tables: add integer column, backfill, swap (skip missing tables)
+    _all_fk_tables = ["forks", "runs", "posts", "claims", "skills", "items"]
+    _fk_tables = [t for t in _all_fk_tables if _table_exists(conn, t) and _column_exists(conn, t, "task_id")]
     for table in _fk_tables:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN new_task_id INTEGER")
         conn.execute(f"""
@@ -553,10 +601,10 @@ def _migrate_task_id_to_serial(conn: psycopg.Connection[Any]) -> None:
         """)
 
     # 3. Drop old FKs and constraints that reference TEXT task_id
-    # forks: UNIQUE(task_id, agent_id)
-    conn.execute("ALTER TABLE forks DROP CONSTRAINT IF EXISTS forks_task_id_agent_id_key")
-    # items: UNIQUE(task_id, seq)
-    conn.execute("ALTER TABLE items DROP CONSTRAINT IF EXISTS items_task_id_seq_key")
+    if "forks" in _fk_tables:
+        conn.execute("ALTER TABLE forks DROP CONSTRAINT IF EXISTS forks_task_id_agent_id_key")
+    if "items" in _fk_tables:
+        conn.execute("ALTER TABLE items DROP CONSTRAINT IF EXISTS items_task_id_seq_key")
 
     for table in _fk_tables:
         conn.execute(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {table}_task_id_fkey")
@@ -596,9 +644,11 @@ def _migrate_task_id_to_serial(conn: psycopg.Connection[Any]) -> None:
             " FOREIGN KEY (task_id) REFERENCES tasks(id)"
         )
 
-    # 8. Restore composite constraints
-    conn.execute("ALTER TABLE forks ADD CONSTRAINT forks_task_id_agent_id_key UNIQUE (task_id, agent_id)")
-    conn.execute("ALTER TABLE items ADD CONSTRAINT items_task_id_seq_key UNIQUE (task_id, seq)")
+    # 8. Restore composite constraints (only on tables that exist)
+    if "forks" in _fk_tables:
+        conn.execute("ALTER TABLE forks ADD CONSTRAINT forks_task_id_agent_id_key UNIQUE (task_id, agent_id)")
+    if "items" in _fk_tables:
+        conn.execute("ALTER TABLE items ADD CONSTRAINT items_task_id_seq_key UNIQUE (task_id, seq)")
 
 
 # --- Async connection pool (one per worker process) ---

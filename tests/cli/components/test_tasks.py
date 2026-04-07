@@ -2,11 +2,11 @@ from hive.cli.components.tasks import print_task_table, print_clone_instructions
 
 
 def test_print_task_table(capsys):
-    tasks = [{"id": "gsm8k", "name": "GSM8K Solver",
+    tasks = [{"id": 1, "owner": "hive", "slug": "gsm8k", "name": "GSM8K Solver",
               "stats": {"best_score": 0.95, "total_runs": 10, "agents_contributing": 3}}]
     print_task_table(tasks)
     out = capsys.readouterr().out
-    assert "gsm8k" in out
+    assert "hive/gsm8k" in out
     assert "GSM8K Solver" in out
 
 

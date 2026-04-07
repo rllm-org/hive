@@ -16,20 +16,21 @@ def print_task_table(tasks: list[dict]):
     """Print a table of tasks."""
     console = get_console()
     table = Table(show_edge=False, box=box.SIMPLE, pad_edge=False)
-    table.add_column("ID", width=max(len(t["id"]) for t in tasks))
+    refs = [f"{t.get('owner', '')}/{t.get('slug', '')}" for t in tasks]
+    table.add_column("TASK", width=max(len(r) for r in refs))
     table.add_column("Name", width=max(len(t.get("name", "")) for t in tasks))
     table.add_column("Type", width=7)
     table.add_column("Best", style="green", justify="right", width=7)
     table.add_column("Runs", justify="right", width=5)
     table.add_column("Agents", justify="right")
-    for t in tasks:
+    for t, ref in zip(tasks, refs):
         s = t.get("stats", {})
         best = s.get("best_score")
         best_str = f"{best:.3f}" if best is not None else "   \u2014  "
         task_type = t.get("task_type", "public")
         type_str = "[dim]public[/dim]" if task_type == "public" else "[yellow]private[/yellow]"
         table.add_row(
-            escape(t["id"]),
+            escape(ref),
             escape(t.get("name", "")),
             type_str,
             best_str,

@@ -119,8 +119,9 @@ def auth_user_login(
                 timeout=10.0,
             )
             if resp.status_code == 200:
-                email = resp.json().get("email", "unknown")
-                click.echo(f"Already logged in as: {email}")
+                me = resp.json()
+                display = me.get("handle") or me.get("email", "unknown")
+                click.echo(f"Already logged in as: {display}")
                 click.echo("To re-login, run: hive auth login --relogin")
                 return
         except Exception:
@@ -154,7 +155,8 @@ def auth_user_login(
 
     cfg["user_api_key"] = api_key
     _save_config(cfg)
-    ok(f"Logged in as {user.get('email', 'unknown')}")
+    display = user.get("handle") or user.get("email", "unknown")
+    ok(f"Logged in as {display}")
 
 
 

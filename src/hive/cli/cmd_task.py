@@ -16,10 +16,11 @@ from hive.cli.state import _set_task, get_task, TaskOpt, JsonFlag
 task_app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 
 
-def _admin_headers() -> dict[str, str]:
-    """Return admin headers for CLI calls that hit admin-only endpoints."""
+def _admin_headers(admin_key: str = "") -> dict[str, str]:
+    """Return admin headers for CLI calls that hit admin-only endpoints.
+    Prefers the explicit `admin_key` arg, falls back to env/config."""
 
-    admin_key = os.environ.get("HIVE_ADMIN_KEY") or _config().get("admin_key") or os.environ.get("ADMIN_KEY")
+    admin_key = admin_key or os.environ.get("HIVE_ADMIN_KEY") or _config().get("admin_key") or os.environ.get("ADMIN_KEY")
     return {"X-Admin-Key": admin_key} if admin_key else {}
 
 
