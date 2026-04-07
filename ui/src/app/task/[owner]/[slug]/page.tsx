@@ -30,7 +30,8 @@ import { useGraph } from "@/hooks/use-graph";
 import { apiFetch } from "@/lib/api";
 import { BestRunsResponse } from "@/types/api";
 import { ShareImage } from "@/components/share-image";
-import { TaskTerminalModal } from "@/components/task-terminal/task-terminal-modal";
+import { TaskTerminalPanel } from "@/components/task-terminal/task-terminal-panel";
+import { LuInfo, LuActivity, LuTerminal } from "react-icons/lu";
 import "github-markdown-css/github-markdown-light.css";
 
 function useReadme(repoUrl: string | undefined) {
@@ -224,7 +225,7 @@ export default function TaskDetailPage() {
   const { items, hasMore: feedHasMore, loadMore: feedLoadMore, loadingMore: feedLoadingMore } = useFeed(taskPath);
   const { files: taskFiles, fetchFileContent } = useTaskFiles(context?.task.repo_url);
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
-  const [viewMode, setViewMode] = useState<"about" | "status" | "kanban">("about");
+  const [viewMode, setViewMode] = useState<"about" | "activity" | "sandbox">("about");
   const { content: readme, loading: readmeLoading } = useReadme(context?.task.repo_url);
 
   // Kanban
@@ -277,7 +278,6 @@ export default function TaskDetailPage() {
 
   // Share modal
   const [showShare, setShowShare] = useState(false);
-  const [showTerminal, setShowTerminal] = useState(false);
   const [shareTitle, setShareTitle] = useState("");
   const [shareFontSize, setShareFontSize] = useState(72);
   const [shareTheme, setShareTheme] = useState<"light" | "dark">(() => {
@@ -504,69 +504,41 @@ export default function TaskDetailPage() {
             {context.task.name}
           </h1>
         </div>
-        {/* Centered toggle */}
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center border border-[var(--color-border)] rounded-none text-xs font-medium">
-          <button
-            onClick={() => setViewMode("about")}
-            className={`px-3 py-1.5 transition-colors ${viewMode === "about" ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-secondary)] hover:bg-[var(--color-layer-2)]"}`}
-          >
-            About
-          </button>
-          <button
-            onClick={() => setViewMode("status")}
-            className={`px-3 py-1.5 transition-colors ${viewMode === "status" ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-secondary)] hover:bg-[var(--color-layer-2)]"}`}
-          >
-            Status
-          </button>
-        </div>
         <TaskStats agents={s.agents_contributing} runs={s.total_runs} />
-        {user && (
+        <div className="relative ml-2">
           <button
-            type="button"
-            onClick={() => setShowTerminal(true)}
-            aria-label="Sandbox terminal"
-            title="Sandbox terminal"
-            className="ml-2 px-2 py-1 rounded-lg text-xs font-medium bg-[var(--color-layer-1)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-all"
+            onClick={() => setAdminMenuOpen(!adminMenuOpen)}
+            aria-label="Task menu"
+            className="w-8 h-8 rounded-lg bg-[var(--color-layer-1)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
           >
-            Terminal
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <circle cx="7" cy="3" r="1.2" />
+              <circle cx="7" cy="7" r="1.2" />
+              <circle cx="7" cy="11" r="1.2" />
+            </svg>
           </button>
-        )}
-        <button
-          onClick={() => setShowShare(true)}
-          aria-label="Share image"
-          className="w-8 h-8 rounded-lg bg-[var(--color-layer-1)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-all ml-2"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-          </svg>
-        </button>
-        {(isAdmin || isOwner) && (
-          <div className="relative ml-1">
-            <button
-              onClick={() => setAdminMenuOpen(!adminMenuOpen)}
-              className="w-8 h-8 rounded-lg bg-[var(--color-layer-1)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <circle cx="7" cy="3" r="1.2" />
-                <circle cx="7" cy="7" r="1.2" />
-                <circle cx="7" cy="11" r="1.2" />
-              </svg>
-            </button>
-            {adminMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setAdminMenuOpen(false)} />
-                <div className="absolute right-0 top-10 z-20 bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[160px]">
+          {adminMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setAdminMenuOpen(false)} />
+              <div className="absolute right-0 top-10 z-20 bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[160px]">
+                <button
+                  onClick={() => { setAdminMenuOpen(false); setShowShare(true); }}
+                  className="w-full text-left px-3 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-colors"
+                >
+                  Share image
+                </button>
+                {(isAdmin || isOwner) && (
                   <button
                     onClick={() => { setAdminMenuOpen(false); setShowDeleteTask(true); }}
                     className="w-full text-left px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-500/10 transition-colors"
                   >
                     Delete task
                   </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
       {/* Delete task confirmation */}
@@ -623,6 +595,36 @@ export default function TaskDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Content + left rail */}
+      <div className="flex-1 min-h-0 flex flex-row overflow-hidden">
+
+      {/* Left rail tab nav */}
+      <nav className="hidden md:flex flex-col shrink-0 border-r border-[var(--color-border)] bg-[var(--color-surface)] py-2 px-2" style={{ width: 180 }}>
+        {([
+          { id: "about", label: "About", Icon: LuInfo },
+          { id: "activity", label: "Activity", Icon: LuActivity },
+          { id: "sandbox", label: "Sandbox", Icon: LuTerminal },
+        ] as const).map((t) => {
+          const active = viewMode === t.id;
+          const Icon = t.Icon;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setViewMode(t.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors duration-150 ${
+                active
+                  ? "bg-[var(--color-accent-50)] text-[var(--color-accent)]"
+                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-layer-1)] hover:text-[var(--color-text)]"
+              }`}
+            >
+              <Icon size={18} className="flex-shrink-0" />
+              <span>{t.label}</span>
+            </button>
+          );
+        })}
+      </nav>
 
       {/* About view */}
       {viewMode === "about" && (
@@ -749,8 +751,8 @@ export default function TaskDetailPage() {
         </main>
       )}
 
-      {/* Status view — fills remaining space */}
-      <main ref={containerRef} className={`flex-1 min-h-0 flex flex-col md:flex-row bg-[var(--color-surface)] overflow-hidden md:overflow-hidden overflow-y-auto ${viewMode !== "status" ? "hidden" : ""}`}>
+      {/* Activity view — fills remaining space */}
+      <main ref={containerRef} className={`flex-1 min-h-0 flex flex-col md:flex-row bg-[var(--color-surface)] overflow-hidden md:overflow-hidden overflow-y-auto ${viewMode !== "activity" ? "hidden" : ""}`}>
         {/* Chart panel */}
         <div className="flex-1 min-w-0 flex flex-col min-h-[300px] md:min-h-0">
           <div className="flex-1 min-h-0">
@@ -877,6 +879,14 @@ export default function TaskDetailPage() {
         </div>
       </main>
 
+      {/* Sandbox view */}
+      {viewMode === "sandbox" && (
+        <main className="flex-1 min-h-0 flex flex-col bg-[var(--color-surface)] overflow-hidden">
+          <TaskTerminalPanel taskPath={taskPath} active={viewMode === "sandbox"} />
+        </main>
+      )}
+
+      </div>
 
       {selectedRun && (
         <RunDetail run={selectedRun} runs={runs} taskPath={taskPath} repoUrl={context.task.repo_url} onClose={() => setSelectedRun(null)} onRunUpdated={() => { refetchRuns(); refetchContext(); }} isOwner={isOwner} />
@@ -884,10 +894,6 @@ export default function TaskDetailPage() {
 
       {viewingFile && (
         <FileViewer path={viewingFile.path} content={viewingFile.content} onClose={() => setViewingFile(null)} />
-      )}
-
-      {showTerminal && (
-        <TaskTerminalModal taskPath={taskPath} open={showTerminal} onClose={() => setShowTerminal(false)} />
       )}
 
       {/* Share Image Modal */}

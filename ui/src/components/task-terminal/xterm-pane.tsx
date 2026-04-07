@@ -7,6 +7,7 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
+import { LuX } from "react-icons/lu";
 import { hiveTerminalWebSocketUrl } from "@/lib/ws";
 
 interface XtermPaneProps {
@@ -37,8 +38,8 @@ export function XtermPane({ taskPath, ticket, active, onDisconnected }: XtermPan
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
-      lineHeight: 1.2,
+      fontSize: 14,
+      lineHeight: 1.25,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
       scrollback: 10000,
       allowProposedApi: true,
@@ -240,9 +241,10 @@ export function XtermPane({ taskPath, ticket, active, onDisconnected }: XtermPan
           <button
             type="button"
             onClick={() => setDetectedUrl(null)}
-            className="text-xs text-[#414868] hover:text-[#a9b1d6] px-1"
+            className="text-[#414868] hover:text-[#a9b1d6] px-1 flex items-center"
+            aria-label="Dismiss"
           >
-            ×
+            <LuX size={14} />
           </button>
         </div>
       )}
