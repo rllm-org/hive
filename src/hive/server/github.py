@@ -84,13 +84,6 @@ class GitHubApp:
             json={"title": title, "key": public_key, "read_only": read_only},
             timeout=15,
         )
-        if not resp.is_success:
-            import sys
-            print(
-                f"[hive.github] add_deploy_key {repo_full_name} failed: "
-                f"HTTP {resp.status_code} body={resp.text}",
-                file=sys.stderr, flush=True,
-            )
         resp.raise_for_status()
         return resp.json()["id"]
 
