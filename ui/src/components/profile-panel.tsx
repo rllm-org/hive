@@ -87,8 +87,7 @@ function HandleSection() {
 
   const showSaved = savedAt > 0 && Date.now() - savedAt < 3000;
   return (
-    <div className="space-y-3">
-      <div className="text-xs text-[var(--color-text-tertiary)]">Used in your task URLs and on your profile.</div>
+    <div className="space-y-2">
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <input
@@ -113,6 +112,7 @@ function HandleSection() {
           {saving ? "..." : "Save"}
         </button>
       </div>
+      <div className="text-xs text-[var(--color-text-tertiary)]">Used in your task URLs and on your profile.</div>
       {reason && <p className="text-xs text-red-500">{reason}</p>}
       {!reason && showSaved && <p className="text-xs text-emerald-500">Saved.</p>}
     </div>
@@ -166,8 +166,7 @@ function ApiKeySection() {
   };
 
   return (
-    <div className="space-y-3">
-      <div className="text-xs text-[var(--color-text-tertiary)]">Use this key to authenticate with the Hive CLI. Run <code className="px-1 py-0.5 bg-[var(--color-layer-1)] text-[var(--color-text)]">hive auth login</code></div>
+    <div className="space-y-2">
       {newKey ? (
         <div className="px-4 py-3 border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40">
           <p className="text-xs text-amber-800 dark:text-amber-300 mb-2">Copy this key now — it won&apos;t be shown again.</p>
@@ -181,24 +180,32 @@ function ApiKeySection() {
           </div>
         </div>
       ) : prefix ? (
-        <code className="block text-xs font-mono bg-[var(--color-layer-1)] px-3 py-2 text-[var(--color-text-tertiary)]">
-          {prefix}{"•".repeat(24)}
-        </code>
-      ) : null}
-      <div className="flex justify-end">
-      <button
-        onClick={handleGenerate}
-        disabled={regenerating}
-        className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border disabled:opacity-50 transition-colors ${
-          prefix
-            ? "text-red-500 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40"
-            : "text-[var(--color-accent)] border-[var(--color-border)] hover:bg-[var(--color-layer-1)]"
-        }`}
-      >
-        <LuRefreshCw size={12} />
-        {regenerating ? "Generating..." : prefix ? "Regenerate key" : "Generate API key"}
-      </button>
-      </div>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 text-xs font-mono bg-[var(--color-layer-1)] px-3 py-2 text-[var(--color-text-tertiary)]">
+            {prefix}{"•".repeat(24)}
+          </code>
+          <button
+            onClick={handleGenerate}
+            disabled={regenerating}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border text-red-500 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-50 transition-colors"
+          >
+            <LuRefreshCw size={12} />
+            {regenerating ? "Generating..." : "Regenerate"}
+          </button>
+        </div>
+      ) : (
+        <div>
+          <button
+            onClick={handleGenerate}
+            disabled={regenerating}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border text-[var(--color-accent)] border-[var(--color-border)] hover:bg-[var(--color-layer-1)] disabled:opacity-50 transition-colors"
+          >
+            <LuRefreshCw size={12} />
+            {regenerating ? "Generating..." : "Generate API key"}
+          </button>
+        </div>
+      )}
+      <div className="text-xs text-[var(--color-text-tertiary)]">Use this key to authenticate with the Hive CLI. Run <code className="px-1 py-0.5 bg-[var(--color-layer-1)] text-[var(--color-text)]">hive auth login</code></div>
 
       {showConfirm && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center backdrop-blur-md bg-black/30" onClick={() => setShowConfirm(false)}>
@@ -319,20 +326,6 @@ export function ProfilePanel() {
                 <span className="inline-flex items-center gap-1.5 text-sm text-[var(--color-text-tertiary)]">
                   <LuGithub size={14} />
                   {profile.github_username}
-                  <button
-                    onClick={async () => {
-                      if (confirm("Disconnect GitHub? You won't be able to manage private tasks until you reconnect.")) {
-                        await disconnectGithub();
-                        fetchProfile();
-                      }
-                    }}
-                    className="ml-1 text-[var(--color-text-tertiary)] hover:text-red-500 transition-colors"
-                    title="Disconnect GitHub"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path d="M3 3l8 8M11 3l-8 8" />
-                    </svg>
-                  </button>
                 </span>
               )}
             </div>
@@ -458,14 +451,66 @@ export function ProfilePanel() {
             {/* Profile */}
             <div>
               <h3 className="text-base font-medium text-[var(--color-text)] mb-4">Profile</h3>
-              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] px-5 py-4">
-                <HandleSection />
+              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
+                <div className="px-5 py-4">
+                  <div className="text-sm text-[var(--color-text)] mb-2">Handle</div>
+                  <div className="max-w-sm">
+                    <HandleSection />
+                  </div>
+                </div>
+                <div className="px-5 py-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-[var(--color-text)]">Email</div>
+                    <div className="text-sm text-[var(--color-text-tertiary)]">{user.email}</div>
+                  </div>
+                </div>
+                <div className="px-5 py-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm text-[var(--color-text)]">GitHub</div>
+                      {profile?.github_username && (
+                        <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5 flex items-center gap-1.5">
+                          <LuGithub size={12} />
+                          {profile.github_username}
+                        </div>
+                      )}
+                    </div>
+                    {profile?.github_username ? (
+                      <button
+                        onClick={async () => {
+                          if (confirm("Disconnect GitHub? You won't be able to manage private tasks until you reconnect.")) {
+                            await disconnectGithub();
+                            fetchProfile();
+                          }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-500 border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                      >
+                        <LuGithub size={14} />
+                        Disconnect from GitHub
+                      </button>
+                    ) : (
+                      <button
+                        onClick={async () => {
+                          if (installUrl) {
+                            window.location.href = installUrl;
+                          } else {
+                            window.location.href = await getGithubOAuthUrl("connect");
+                          }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-[#24292f] text-white hover:bg-[#32383f] dark:bg-white dark:text-black dark:hover:bg-[#e0e0e0] transition-colors"
+                      >
+                        <LuGithub size={14} />
+                        Connect GitHub
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Appearance */}
+            {/* Preferences */}
             <div>
-              <h3 className="text-base font-medium text-[var(--color-text)] mb-4">Appearance</h3>
+              <h3 className="text-base font-medium text-[var(--color-text)] mb-4">Preferences</h3>
               <div className="bg-[var(--color-surface)] border border-[var(--color-border)] px-5 py-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -477,23 +522,21 @@ export function ProfilePanel() {
               </div>
             </div>
 
-            {/* API Key */}
+            {/* Credentials */}
             <div>
-              <h3 className="text-base font-medium text-[var(--color-text)] mb-4">API Key</h3>
+              <h3 className="text-base font-medium text-[var(--color-text)] mb-4">Credentials</h3>
               <div className="bg-[var(--color-surface)] border border-[var(--color-border)] px-5 py-4">
-                <ApiKeySection />
+                <h4 className="text-sm text-[var(--color-text)] mb-3">User API Key</h4>
+                <div className="max-w-md">
+                  <ApiKeySection />
+                </div>
               </div>
             </div>
 
             {/* General */}
             <div>
               <h3 className="text-base font-medium text-[var(--color-text)] mb-4">General</h3>
-              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] px-5 py-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-[var(--color-text)]">Handle</div>
-                  <div className="text-sm text-[var(--color-text-tertiary)]">{user.handle}</div>
-                </div>
-                <div className="border-t border-[var(--color-border)]" />
+              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] px-5 py-4">
                 <div className="flex items-center justify-between">
                   <div className="text-sm text-[var(--color-text)]">Log out</div>
                   <button
@@ -506,6 +549,7 @@ export function ProfilePanel() {
                 </div>
               </div>
             </div>
+            <div className="h-12" />
           </div>
         )}
       </div>
