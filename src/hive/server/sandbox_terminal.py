@@ -33,7 +33,7 @@ router = APIRouter(prefix="/api")
 
 TERMINAL_TICKET_TTL_SEC = int(os.environ.get("TERMINAL_TICKET_TTL_SEC", "120"))
 SANDBOX_SSH_EXPIRES_MINUTES = int(os.environ.get("SANDBOX_SSH_EXPIRES_MINUTES", "480"))
-TASK_DIR = "/home/daytona/workspace/task"
+TASK_DIR = "/home/daytona"
 
 # ── Persistent SSH session pool ──────────────────────────────────────────────
 # Keyed by session_id. Survives WebSocket disconnects so users can reattach.
@@ -340,7 +340,7 @@ async def terminal_websocket(
             ch.get_pty(term="xterm", width=80, height=24)
             ch.invoke_shell()
             # cd to task directory
-            ch.send(f"export NVM_DIR=/usr/local/share/nvm && . $NVM_DIR/nvm.sh 2>/dev/null; cd {TASK_DIR} 2>/dev/null; clear\n".encode())
+            ch.send(f"export NVM_DIR=/usr/local/share/nvm && . $NVM_DIR/nvm.sh 2>/dev/null; export HIVE_SERVER=https://hive.rllm-project.com; cd {TASK_DIR} 2>/dev/null; clear\n".encode())
             return t, ch
 
         try:

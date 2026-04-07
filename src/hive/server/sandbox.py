@@ -117,7 +117,7 @@ def _sandbox_response(row: dict, status_code: int = 200) -> JSONResponse:
 
 
 async def _bootstrap_sandbox(sandbox: Any, repo_url: str) -> None:
-    """Install Claude Code, hive CLI, hive skills, and clone the task repo."""
+    """Install Claude Code, hive CLI, and hive skills. User runs /hive-setup to clone the task."""
     # Node + Claude Code
     await sandbox.process.exec(
         "rm -rf /usr/local/share/nvm/versions/node/v25* 2>/dev/null;"
@@ -127,21 +127,15 @@ async def _bootstrap_sandbox(sandbox: Any, repo_url: str) -> None:
         cwd="/home/daytona",
         timeout=SANDBOX_BOOTSTRAP_TIMEOUT,
     )
-    # hive CLI + Claude skills/commands
+    # hive CLI + Claude skills
+    _skills_base = "https://raw.githubusercontent.com/rllm-org/hive/main/skills"
     await sandbox.process.exec(
         "pip install --break-system-packages hive-evolve"
-        " && git clone --depth 1 https://github.com/rllm-org/something_cool.git /tmp/hive-repo 2>/dev/null || true"
-        " && mkdir -p ~/.claude/skills"
-        " && cp -r /tmp/hive-repo/claude-plugin/skills/* ~/.claude/skills/ 2>/dev/null || true"
-        " && rm -rf /tmp/hive-repo",
+        f" && mkdir -p ~/.claude/skills/hive ~/.claude/skills/hive-setup ~/.claude/skills/hive-create-task"
+        f" && curl -sfL {_skills_base}/hive/SKILL.md -o ~/.claude/skills/hive/SKILL.md"
+        f" && curl -sfL {_skills_base}/hive-setup/SKILL.md -o ~/.claude/skills/hive-setup/SKILL.md"
+        f" && curl -sfL {_skills_base}/hive-create-task/SKILL.md -o ~/.claude/skills/hive-create-task/SKILL.md",
         cwd="/home/daytona",
-        timeout=SANDBOX_BOOTSTRAP_TIMEOUT,
-    )
-    # Clone task repo
-    await sandbox.git.clone(url=repo_url, path="/home/daytona/workspace/task")
-    await sandbox.process.exec(
-        "test -f prepare.sh && bash prepare.sh || true",
-        cwd="/home/daytona/workspace/task",
         timeout=SANDBOX_BOOTSTRAP_TIMEOUT,
     )
 
