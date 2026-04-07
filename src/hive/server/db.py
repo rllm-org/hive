@@ -168,6 +168,31 @@ _PG_SCHEMA = [
         attempts        INTEGER NOT NULL DEFAULT 0,
         created_at      TIMESTAMPTZ NOT NULL
     )""",
+    """CREATE TABLE IF NOT EXISTS sandboxes (
+        id                  SERIAL PRIMARY KEY,
+        task_id             INTEGER NOT NULL REFERENCES tasks(id),
+        user_id             INTEGER NOT NULL REFERENCES users(id),
+        daytona_sandbox_id  TEXT,
+        status              TEXT NOT NULL DEFAULT 'creating',
+        ssh_command         TEXT,
+        ssh_token           TEXT,
+        ssh_expires_at      TIMESTAMPTZ,
+        created_at          TIMESTAMPTZ NOT NULL,
+        last_accessed_at    TIMESTAMPTZ,
+        error_message       TEXT,
+        UNIQUE(task_id, user_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS sandbox_terminal_sessions (
+        id                          SERIAL PRIMARY KEY,
+        sandbox_id                  INTEGER NOT NULL REFERENCES sandboxes(id) ON DELETE CASCADE,
+        user_id                     INTEGER NOT NULL REFERENCES users(id),
+        title                       TEXT,
+        connect_ticket              TEXT UNIQUE,
+        connect_ticket_expires_at   TIMESTAMPTZ,
+        created_at                  TIMESTAMPTZ NOT NULL,
+        last_activity_at            TIMESTAMPTZ,
+        closed_at                   TIMESTAMPTZ
+    )""",
 ]
 
 
@@ -205,6 +230,11 @@ def init_db() -> None:
                      " ON runs(verification_started_at) WHERE verification_status = 'running'")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_task_verified_score"
                      " ON runs(task_id, verified_score DESC) WHERE verified_score IS NOT NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sandboxes_task_user ON sandboxes(task_id, user_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_terminal_sessions_sandbox_active"
+            " ON sandbox_terminal_sessions(sandbox_id) WHERE closed_at IS NULL"
+        )
         # Full-text search: add tsvector columns + GIN indexes
         _fts_cols = [
             ("tasks", "search_vec", "to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,''))"),
@@ -484,6 +514,40 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
 
     # Task ID TEXT → SERIAL migration runs in init_db's `_migrate_legacy_task_id_if_needed`
     # call BEFORE _PG_SCHEMA, so by the time we get here it's already done.
+
+    # Sandbox tables (interactive Daytona-backed workspaces). Both have INTEGER
+    # task_id FKs that match the new tasks(id) PK after the legacy migration.
+    if not _table_exists(conn, "sandboxes"):
+        conn.execute("""CREATE TABLE sandboxes (
+            id                  SERIAL PRIMARY KEY,
+            task_id             INTEGER NOT NULL REFERENCES tasks(id),
+            user_id             INTEGER NOT NULL REFERENCES users(id),
+            daytona_sandbox_id  TEXT,
+            status              TEXT NOT NULL DEFAULT 'creating',
+            ssh_command         TEXT,
+            ssh_token           TEXT,
+            ssh_expires_at      TIMESTAMPTZ,
+            created_at          TIMESTAMPTZ NOT NULL,
+            last_accessed_at    TIMESTAMPTZ,
+            error_message       TEXT,
+            UNIQUE(task_id, user_id)
+        )""")
+    if not _table_exists(conn, "sandbox_terminal_sessions"):
+        conn.execute("""CREATE TABLE sandbox_terminal_sessions (
+            id                          SERIAL PRIMARY KEY,
+            sandbox_id                  INTEGER NOT NULL REFERENCES sandboxes(id) ON DELETE CASCADE,
+            user_id                     INTEGER NOT NULL REFERENCES users(id),
+            title                       TEXT,
+            connect_ticket              TEXT UNIQUE,
+            connect_ticket_expires_at   TIMESTAMPTZ,
+            created_at                  TIMESTAMPTZ NOT NULL,
+            last_activity_at            TIMESTAMPTZ,
+            closed_at                   TIMESTAMPTZ
+        )""")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_terminal_sessions_sandbox_active"
+            " ON sandbox_terminal_sessions(sandbox_id) WHERE closed_at IS NULL"
+        )
 
 
 # Reserved handles (kept in sync with main.py RESERVED_HANDLES — see _validate_handle)
