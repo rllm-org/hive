@@ -8,23 +8,34 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { LuX } from "react-icons/lu";
-import { hiveTerminalWebSocketUrl } from "@/lib/ws";
+import * as store from "@/lib/terminal-store";
 
 interface XtermPaneProps {
-  taskPath: string;
-  ticket: string;
+  storeKey: string;
   active: boolean;
   onDisconnected: () => void;
 }
 
-// Strip ANSI escape sequences, then extract URLs
 const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][0-9A-B]/g;
 const URL_RE = /https?:\/\/[^\s<>"']+/g;
 
-export function XtermPane({ taskPath, ticket, active, onDisconnected }: XtermPaneProps) {
+function decodeOutput(base64: string): string {
+  const raw = atob(base64);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+function utf8ToB64(s: string): string {
+  const bytes = new TextEncoder().encode(s);
+  let bin = "";
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  return btoa(bin);
+}
+
+export function XtermPane({ storeKey, active, onDisconnected }: XtermPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const onDisconnectedRef = useRef(onDisconnected);
   onDisconnectedRef.current = onDisconnected;
@@ -79,12 +90,12 @@ export function XtermPane({ taskPath, ticket, active, onDisconnected }: XtermPan
     try {
       term.loadAddon(new WebglAddon());
     } catch {
-      /* WebGL not available — falls back to canvas */
+      /* WebGL not available */
     }
     termRef.current = term;
     fitRef.current = fit;
 
-    // Buffer raw output to detect URLs that arrive across multiple chunks
+    // URL detection buffer
     let urlBuf = "";
     let urlBufTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -92,99 +103,60 @@ export function XtermPane({ taskPath, ticket, active, onDisconnected }: XtermPan
       urlBuf += text;
       if (urlBufTimer) clearTimeout(urlBufTimer);
       urlBufTimer = setTimeout(() => {
-        // Strip all ANSI codes and control chars, collapse whitespace
         const clean = urlBuf.replace(ANSI_RE, "").replace(/[\r\n\t]/g, "").replace(/\s+/g, "");
         const matches = clean.match(URL_RE);
         if (matches) {
           const longest = matches.reduce((a, b) => (a.length > b.length ? a : b));
-          if (longest.length > 60) {
-            setDetectedUrl(longest);
-          }
+          if (longest.length > 60) setDetectedUrl(longest);
         }
-        // Keep tail in case a URL spans the next batch
         urlBuf = urlBuf.slice(-500);
       }, 500);
     };
 
-    const wsUrl = hiveTerminalWebSocketUrl(taskPath, ticket);
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      fit.fit();
-      const { cols, rows } = term;
-      ws.send(JSON.stringify({ type: "resize", cols, rows }));
-    };
-
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data as string) as { type?: string; data?: string; message?: string; code?: number };
-        if (msg.type === "output" && msg.data) {
-          const raw = atob(msg.data);
-          const bytes = new Uint8Array(raw.length);
-          for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-          const text = new TextDecoder().decode(bytes);
-          term.write(text);
-          detectUrls(text);
-        } else if (msg.type === "error" && msg.message) {
-          term.write(`\r\n\x1b[31m${msg.message}\x1b[0m\r\n`);
-        } else if (msg.type === "exit") {
-          term.write(`\r\n\x1b[90m[Session ended]\x1b[0m\r\n`);
-          onDisconnectedRef.current();
-        } else if (msg.type === "pong") {
-          /* ignore */
-        }
-      } catch {
-        /* ignore */
+    const writeMsg = (msg: store.TerminalMessage) => {
+      if (msg.type === "output" && "data" in msg) {
+        const text = decodeOutput(msg.data);
+        term.write(text);
+        detectUrls(text);
+      } else if (msg.type === "error" && "message" in msg) {
+        term.write(`\r\n\x1b[31m${msg.message}\x1b[0m\r\n`);
+      } else if (msg.type === "exit") {
+        term.write(`\r\n\x1b[90m[Session ended]\x1b[0m\r\n`);
+        onDisconnectedRef.current();
       }
     };
 
-    ws.onerror = () => {
-      term.write("\r\n\x1b[31m[WebSocket error]\x1b[0m\r\n");
-    };
-
-    ws.onclose = () => {
+    // Replay buffered output and attach listener
+    const buffered = store.attach(storeKey, writeMsg, () => {
       onDisconnectedRef.current();
-    };
+    });
+    for (const msg of buffered) writeMsg(msg);
 
-    const utf8ToB64 = (s: string) => {
-      const bytes = new TextEncoder().encode(s);
-      let bin = "";
-      bytes.forEach((b) => {
-        bin += String.fromCharCode(b);
-      });
-      return btoa(bin);
-    };
+    // Send initial resize
+    fit.fit();
+    store.sendResize(storeKey, term.cols, term.rows);
 
+    // Input handling
     const d = term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "input", data: utf8ToB64(data) }));
-      }
+      store.sendInput(storeKey, utf8ToB64(data));
     });
 
+    // Resize handling
     const onResize = () => {
       if (!activeRef.current) return;
-      try {
-        fit.fit();
-      } catch {
-        /* ignore */
-      }
-      if (ws.readyState === WebSocket.OPEN && term.cols && term.rows) {
-        ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      try { fit.fit(); } catch { /* ignore */ }
+      if (term.cols && term.rows) {
+        store.sendResize(storeKey, term.cols, term.rows);
       }
     };
 
-    const ro = new ResizeObserver(() => {
-      onResize();
-    });
+    const ro = new ResizeObserver(() => onResize());
     ro.observe(el);
     window.addEventListener("resize", onResize);
 
     term.onResize(({ cols, rows }) => {
       if (!activeRef.current) return;
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "resize", cols, rows }));
-      }
+      store.sendResize(storeKey, cols, rows);
     });
 
     return () => {
@@ -192,28 +164,18 @@ export function XtermPane({ taskPath, ticket, active, onDisconnected }: XtermPan
       ro.disconnect();
       window.removeEventListener("resize", onResize);
       d.dispose();
-      ws.onclose = null;
-      ws.onerror = null;
-      try {
-        ws.close();
-      } catch {
-        /* ignore */
-      }
+      // Detach but don't close — WS stays alive in the store
+      store.detach(storeKey);
       term.dispose();
       termRef.current = null;
-      wsRef.current = null;
       fitRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskPath, ticket]);
+  }, [storeKey]);
 
   useEffect(() => {
     if (active && termRef.current && fitRef.current && containerRef.current) {
-      try {
-        fitRef.current.fit();
-      } catch {
-        /* ignore */
-      }
+      try { fitRef.current.fit(); } catch { /* ignore */ }
       termRef.current.focus();
     }
   }, [active]);

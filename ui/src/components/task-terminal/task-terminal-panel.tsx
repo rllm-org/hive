@@ -1,21 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { getAuthHeader, useAuth } from "@/lib/auth";
-import { apiDelete, apiFetch, apiPostJson } from "@/lib/api";
-import type {
-  SandboxInfo,
-  SandboxSessionCreateResponse,
-  SandboxTerminalSessionRow,
-} from "@/types/api";
+import { useEffect, useRef } from "react";
+import { useAuth } from "@/lib/auth";
+import { useTerminal } from "@/lib/terminal-context";
 import { XtermPane } from "./xterm-pane";
-
-type Tab = {
-  key: string;
-  sessionId: number;
-  title: string | null;
-  ticket: string;
-};
 
 interface TaskTerminalPanelProps {
   taskPath: string;
@@ -24,185 +12,26 @@ interface TaskTerminalPanelProps {
 
 export function TaskTerminalPanel({ taskPath, active }: TaskTerminalPanelProps) {
   const { user } = useAuth();
-  const [sandbox, setSandbox] = useState<SandboxInfo | null>(null);
-  const [sandboxLoading, setSandboxLoading] = useState(false);
-  const [sandboxError, setSandboxError] = useState<string | null>(null);
-  const [creatingSandbox, setCreatingSandbox] = useState(false);
-  const [sessions, setSessions] = useState<SandboxTerminalSessionRow[]>([]);
-  const [tabs, setTabs] = useState<Tab[]>([]);
-  const [activeKey, setActiveKey] = useState<string | null>(null);
-
-  const loadSandbox = useCallback(async () => {
-    setSandboxError(null);
-    setSandboxLoading(true);
-    try {
-      const data = await apiFetch<SandboxInfo>(`/tasks/${taskPath}/sandbox`);
-      setSandbox(data);
-    } catch (e) {
-      setSandbox(null);
-      const msg = e instanceof Error ? e.message : "";
-      if (msg.includes("404")) {
-        setSandboxError(null);
-      } else {
-        setSandboxError(msg || "Failed to load sandbox");
-      }
-    } finally {
-      setSandboxLoading(false);
-    }
-  }, [taskPath]);
-
-  const loadSessions = useCallback(async () => {
-    try {
-      const data = await apiFetch<{ sessions: SandboxTerminalSessionRow[] }>(
-        `/tasks/${taskPath}/sandbox/sessions`,
-      );
-      setSessions(data.sessions);
-    } catch {
-      setSessions([]);
-    }
-  }, [taskPath]);
+  const ctx = useTerminal();
+  const state = ctx.getState(taskPath);
 
   const initialLoadDone = useRef(false);
   useEffect(() => {
     if (!active || !user) return;
     if (initialLoadDone.current) return;
     initialLoadDone.current = true;
-    void loadSandbox();
-    void loadSessions();
-  }, [active, user, loadSandbox, loadSessions]);
+    ctx.initTask(taskPath);
+  }, [active, user, taskPath, ctx]);
 
-  const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
-
-  const createSandbox = async () => {
-    setCreatingSandbox(true);
-    setSandboxError(null);
-    try {
-      const res = await fetch(`${API_BASE}/tasks/${taskPath}/sandbox`, {
-        method: "POST",
-        headers: { ...getAuthHeader() },
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => null);
-        throw new Error(typeof d?.detail === "string" ? d.detail : `HTTP ${res.status}`);
-      }
-      const data = (await res.json()) as SandboxInfo;
-      setSandbox(data);
-      if (data.status === "creating") {
-        const t = setInterval(async () => {
-          try {
-            const s = await apiFetch<SandboxInfo>(`/tasks/${taskPath}/sandbox`);
-            setSandbox(s);
-            if (s.status === "ready" || s.status === "error") {
-              clearInterval(t);
-              setCreatingSandbox(false);
-            }
-          } catch {
-            clearInterval(t);
-            setCreatingSandbox(false);
-          }
-        }, 2000);
-        return;
-      }
-    } catch (e) {
-      setSandboxError(e instanceof Error ? e.message : "Failed to create sandbox");
-    } finally {
-      setCreatingSandbox(false);
-    }
-  };
-
-  const deleteSandbox = async () => {
-    if (!confirm("Delete this workspace? All terminal sessions will be lost.")) return;
-    setSandboxError(null);
-    setTabs([]);
-    setActiveKey(null);
-    setSessions([]);
-    setSandbox(null);
-    setSandboxLoading(false);
-    initialLoadDone.current = false;
-    try {
-      await apiDelete(`/tasks/${taskPath}/sandbox`, getAuthHeader());
-    } catch (e) {
-      setSandboxError(e instanceof Error ? e.message : "Failed to delete workspace");
-    }
-  };
-
-  const newTerminal = async () => {
-    setSandboxError(null);
-    try {
-      const created = await apiPostJson<SandboxSessionCreateResponse>(
-        `/tasks/${taskPath}/sandbox/sessions`,
-        {},
-        getAuthHeader(),
-      );
-      const key = `t-${created.id}-${Date.now()}`;
-      setTabs((prev) => [
-        ...prev,
-        { key, sessionId: created.id, title: created.title ?? "zsh", ticket: created.ticket },
-      ]);
-      setActiveKey(key);
-      await loadSessions();
-    } catch (e) {
-      setSandboxError(e instanceof Error ? e.message : "Failed to open terminal session");
-    }
-  };
-
-  const reconnectSession = async (session: SandboxTerminalSessionRow) => {
-    const existing = tabs.find((t) => t.sessionId === session.id);
-    if (existing) {
-      setActiveKey(existing.key);
-      return;
-    }
-    setSandboxError(null);
-    try {
-      const data = await apiPostJson<{ ticket: string }>(
-        `/tasks/${taskPath}/sandbox/sessions/${session.id}/ticket`,
-        {},
-        getAuthHeader(),
-      );
-      const key = `t-${session.id}-${Date.now()}`;
-      setTabs((prev) => [
-        ...prev,
-        { key, sessionId: session.id, title: session.title ?? "zsh", ticket: data.ticket },
-      ]);
-      setActiveKey(key);
-    } catch (e) {
-      setSandboxError(e instanceof Error ? e.message : "Failed to reconnect");
-    }
-  };
-
-  const closeSession = async (sessionId: number) => {
-    setTabs((prev) => {
-      const tab = prev.find((t) => t.sessionId === sessionId);
-      if (tab && activeKey === tab.key) {
-        setActiveKey(null);
-      }
-      return prev.filter((t) => t.sessionId !== sessionId);
-    });
-    try {
-      await apiDelete(`/tasks/${taskPath}/sandbox/sessions/${sessionId}`, getAuthHeader());
-      await loadSessions();
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const onPaneDisconnected = useCallback(
-    (_key: string, _sessionId: number) => {
-      void loadSessions();
-    },
-    [loadSessions],
-  );
-
-  // Auto-open a default terminal when the sandbox becomes ready and there are no sessions
+  // Auto-open a default terminal when sandbox becomes ready and there are no sessions
   const autoOpenedRef = useRef(false);
   useEffect(() => {
     if (autoOpenedRef.current) return;
-    if (sandbox?.status !== "ready") return;
-    if (tabs.length > 0 || sessions.length > 0) return;
+    if (state.sandbox?.status !== "ready") return;
+    if (state.tabs.length > 0 || state.sessions.length > 0) return;
     autoOpenedRef.current = true;
-    void newTerminal();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sandbox?.status, tabs.length, sessions.length]);
+    void ctx.newTerminal(taskPath);
+  }, [state.sandbox?.status, state.tabs.length, state.sessions.length, taskPath, ctx]);
 
   if (!user) {
     return (
@@ -212,6 +41,7 @@ export function TaskTerminalPanel({ taskPath, active }: TaskTerminalPanelProps) 
     );
   }
 
+  const { sandbox, sandboxLoading, sandboxError, creatingSandbox, sessions, tabs, activeKey } = state;
   const ready = sandbox?.status === "ready";
   const creating = sandbox?.status === "creating" || creatingSandbox;
   const detachedSessions = sessions.filter((s) => !tabs.some((t) => t.sessionId === s.id));
@@ -235,7 +65,7 @@ export function TaskTerminalPanel({ taskPath, active }: TaskTerminalPanelProps) 
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => void createSandbox()}
+                onClick={() => void ctx.createSandbox(taskPath)}
                 disabled={creating}
                 className="px-6 py-3 text-sm font-medium bg-[var(--color-accent)] text-white rounded-md disabled:opacity-60 hover:bg-[var(--color-accent-hover)] transition-colors"
               >
@@ -265,7 +95,7 @@ export function TaskTerminalPanel({ taskPath, active }: TaskTerminalPanelProps) 
                   return (
                     <div
                       key={tab.key}
-                      onClick={() => setActiveKey(tab.key)}
+                      onClick={() => ctx.setActiveKey(taskPath, tab.key)}
                       className={`group flex items-center gap-2 pl-3 pr-2 cursor-pointer transition-colors ${
                         isActive
                           ? "bg-[#1a1b26] text-[#c0caf5]"
@@ -277,7 +107,7 @@ export function TaskTerminalPanel({ taskPath, active }: TaskTerminalPanelProps) 
                       <button
                         type="button"
                         aria-label="Close tab"
-                        onClick={(e) => { e.stopPropagation(); void closeSession(tab.sessionId); }}
+                        onClick={(e) => { e.stopPropagation(); void ctx.closeSession(taskPath, tab.sessionId); }}
                         className={`shrink-0 w-4 h-4 flex items-center justify-center rounded-sm transition-opacity ${
                           isActive ? "opacity-60 hover:opacity-100 hover:bg-[#414868]" : "opacity-0 group-hover:opacity-60 hover:opacity-100 hover:bg-[#414868]"
                         }`}
@@ -291,7 +121,7 @@ export function TaskTerminalPanel({ taskPath, active }: TaskTerminalPanelProps) 
                 })}
                 <button
                   type="button"
-                  onClick={() => void newTerminal()}
+                  onClick={() => void ctx.newTerminal(taskPath)}
                   aria-label="New terminal"
                   title="New terminal"
                   className="shrink-0 px-3 text-[#9aa5ce] hover:text-[#c0caf5] hover:bg-[#1a1b26]/50 transition-colors flex items-center"
@@ -304,7 +134,7 @@ export function TaskTerminalPanel({ taskPath, active }: TaskTerminalPanelProps) 
               <div className="ml-auto flex items-center pr-2">
                 <button
                   type="button"
-                  onClick={() => void deleteSandbox()}
+                  onClick={() => void ctx.deleteSandbox(taskPath)}
                   aria-label="Destroy workspace"
                   title="Destroy workspace"
                   className="w-7 h-7 text-[#9aa5ce] hover:text-[#f7768e] hover:bg-[#1a1b26]/50 rounded-sm transition-colors flex items-center justify-center"
@@ -333,14 +163,14 @@ export function TaskTerminalPanel({ taskPath, active }: TaskTerminalPanelProps) 
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => void reconnectSession(s)}
+                          onClick={() => void ctx.reconnectSession(taskPath, s)}
                           className="px-2.5 py-1 text-[11px] font-medium rounded bg-[#7aa2f7] text-[#1a1b26] hover:bg-[#9ab8f9] transition-colors"
                         >
                           Reconnect
                         </button>
                         <button
                           type="button"
-                          onClick={() => void closeSession(s.id)}
+                          onClick={() => void ctx.closeSession(taskPath, s.id)}
                           className="px-2.5 py-1 text-[11px] font-medium rounded border border-[#414868] text-[#9aa5ce] hover:text-[#f7768e] hover:border-[#f7768e] transition-colors"
                         >
                           Close
@@ -358,10 +188,9 @@ export function TaskTerminalPanel({ taskPath, active }: TaskTerminalPanelProps) 
                   style={{ display: activeKey === tab.key ? "block" : "none" }}
                 >
                   <XtermPane
-                    taskPath={taskPath}
-                    ticket={tab.ticket}
+                    storeKey={tab.storeKey}
                     active={activeKey === tab.key}
-                    onDisconnected={() => onPaneDisconnected(tab.key, tab.sessionId)}
+                    onDisconnected={() => void ctx.loadSessions(taskPath)}
                   />
                 </div>
               ))}
