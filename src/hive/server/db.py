@@ -177,6 +177,17 @@ _PG_SCHEMA = [
         error_message       TEXT,
         UNIQUE(task_id, user_id)
     )""",
+    """CREATE TABLE IF NOT EXISTS sandbox_terminal_sessions (
+        id                      SERIAL PRIMARY KEY,
+        sandbox_id              INTEGER NOT NULL REFERENCES sandboxes(id) ON DELETE CASCADE,
+        user_id                 INTEGER NOT NULL REFERENCES users(id),
+        title                   TEXT,
+        connect_ticket          TEXT UNIQUE,
+        connect_ticket_expires_at TIMESTAMPTZ,
+        created_at              TIMESTAMPTZ NOT NULL,
+        last_activity_at        TIMESTAMPTZ,
+        closed_at               TIMESTAMPTZ
+    )""",
 ]
 
 
@@ -209,6 +220,10 @@ def init_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_task_verified_score"
                      " ON runs(task_id, verified_score DESC) WHERE verified_score IS NOT NULL")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sandboxes_task_user ON sandboxes(task_id, user_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_terminal_sessions_sandbox_active"
+            " ON sandbox_terminal_sessions(sandbox_id) WHERE closed_at IS NULL"
+        )
         # Full-text search: add tsvector columns + GIN indexes
         _fts_cols = [
             ("tasks", "search_vec", "to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,''))"),
@@ -486,6 +501,26 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
             error_message       TEXT,
             UNIQUE(task_id, user_id)
         )""")
+
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = 'sandbox_terminal_sessions'"
+    ).fetchone()
+    if not row:
+        conn.execute("""CREATE TABLE sandbox_terminal_sessions (
+            id                      SERIAL PRIMARY KEY,
+            sandbox_id              INTEGER NOT NULL REFERENCES sandboxes(id) ON DELETE CASCADE,
+            user_id                 INTEGER NOT NULL REFERENCES users(id),
+            title                   TEXT,
+            connect_ticket          TEXT UNIQUE,
+            connect_ticket_expires_at TIMESTAMPTZ,
+            created_at              TIMESTAMPTZ NOT NULL,
+            last_activity_at        TIMESTAMPTZ,
+            closed_at               TIMESTAMPTZ
+        )""")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_terminal_sessions_sandbox_active"
+            " ON sandbox_terminal_sessions(sandbox_id) WHERE closed_at IS NULL"
+        )
 
 
 # --- Async connection pool (one per worker process) ---

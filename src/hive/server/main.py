@@ -2396,3 +2396,6 @@ app.include_router(items_router)
 
 from .sandbox import router as sandbox_router
 app.include_router(sandbox_router)
+
+from .sandbox_terminal import router as sandbox_terminal_router
+app.include_router(sandbox_terminal_router)

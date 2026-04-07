@@ -23,6 +23,34 @@ export interface Task {
   installation_id?: string | null;
 }
 
+export interface SandboxInfo {
+  sandbox_id: number;
+  status: string;
+  daytona_sandbox_id?: string | null;
+  created_at: string;
+  last_accessed_at?: string | null;
+  ssh_command?: string;
+  ssh_token?: string;
+  ssh_expires_at?: string;
+  error_message?: string;
+}
+
+export interface SandboxTerminalSessionRow {
+  id: number;
+  title: string | null;
+  created_at: string;
+  last_activity_at: string | null;
+  closed_at: string | null;
+}
+
+export interface SandboxSessionCreateResponse {
+  id: number;
+  title: string | null;
+  ticket: string;
+  ticket_expires_at: string;
+  ws_path: string;
+}
+
 export interface Run {
   id: string;
   task_id: string;

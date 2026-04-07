@@ -30,6 +30,7 @@ import { useGraph } from "@/hooks/use-graph";
 import { apiFetch } from "@/lib/api";
 import { BestRunsResponse } from "@/types/api";
 import { ShareImage } from "@/components/share-image";
+import { TaskTerminalModal } from "@/components/task-terminal/task-terminal-modal";
 import "github-markdown-css/github-markdown-light.css";
 
 function useReadme(repoUrl: string | undefined) {
@@ -274,6 +275,8 @@ export default function TaskDetailPage() {
     }
   };
 
+  const [showTerminal, setShowTerminal] = useState(false);
+
   // Share modal
   const [showShare, setShowShare] = useState(false);
   const [shareTitle, setShareTitle] = useState("");
@@ -517,6 +520,17 @@ export default function TaskDetailPage() {
           </button>
         </div>
         <TaskStats agents={s.agents_contributing} runs={s.total_runs} />
+        {user && (
+          <button
+            type="button"
+            onClick={() => setShowTerminal(true)}
+            aria-label="Sandbox terminal"
+            title="Sandbox terminal"
+            className="ml-2 px-2 py-1 rounded-lg text-xs font-medium bg-[var(--color-layer-1)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-all"
+          >
+            Terminal
+          </button>
+        )}
         <button
           onClick={() => setShowShare(true)}
           aria-label="Share image"
@@ -847,6 +861,10 @@ export default function TaskDetailPage() {
 
       {viewingFile && (
         <FileViewer path={viewingFile.path} content={viewingFile.content} onClose={() => setViewingFile(null)} />
+      )}
+
+      {showTerminal && (
+        <TaskTerminalModal taskId={taskId} open={showTerminal} onClose={() => setShowTerminal(false)} />
       )}
 
       {/* Share Image Modal */}

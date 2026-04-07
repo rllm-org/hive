@@ -117,14 +117,29 @@ def _sandbox_response(row: dict, status_code: int = 200) -> JSONResponse:
 
 
 async def _bootstrap_sandbox(sandbox: Any, repo_url: str) -> None:
-    """Install Node.js + Claude Code and clone the task repo into the sandbox."""
-    await sandbox.process.exec(
-        "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -"
-        " && apt-get install -y nodejs"
-        " && npm install -g @anthropic-ai/claude-code",
+    """Install Claude Code, hive CLI, hive skills, and clone the task repo."""
+    # Node + Claude Code
+    result = await sandbox.process.exec(
+        "rm -rf /usr/local/share/nvm/versions/node/v25* 2>/dev/null;"
+        " export NVM_DIR=/usr/local/share/nvm && . $NVM_DIR/nvm.sh 2>/dev/null;"
+        " nvm install 22 && nvm alias default 22 && nvm use 22"
+        " && npm install -g @anthropic-ai/claude-code"
+        " && echo BOOTSTRAP_NODE=$(node --version) && echo BOOTSTRAP_CLAUDE=$(claude --version)",
         cwd="/home/daytona",
         timeout=SANDBOX_BOOTSTRAP_TIMEOUT,
     )
+    log.warning("Bootstrap node+claude result: %s", result)
+    # hive CLI + Claude skills/commands
+    await sandbox.process.exec(
+        "pip install --break-system-packages hive-evolve"
+        " && git clone --depth 1 https://github.com/rllm-org/something_cool.git /tmp/hive-repo 2>/dev/null || true"
+        " && mkdir -p ~/.claude/skills"
+        " && cp -r /tmp/hive-repo/claude-plugin/skills/* ~/.claude/skills/ 2>/dev/null || true"
+        " && rm -rf /tmp/hive-repo",
+        cwd="/home/daytona",
+        timeout=SANDBOX_BOOTSTRAP_TIMEOUT,
+    )
+    # Clone task repo
     await sandbox.git.clone(url=repo_url, path="/home/daytona/workspace/task")
     await sandbox.process.exec(
         "test -f prepare.sh && bash prepare.sh || true",
@@ -312,6 +327,7 @@ async def delete_sandbox(
 ):
     from .main import require_user as _require_user_fn
     user = await _require_user_fn(authorization)
+    await _check_task_access(task_id, authorization)
     user_id = int(user["sub"])
 
     async with get_db() as conn:
@@ -322,20 +338,21 @@ async def delete_sandbox(
         if not row:
             raise HTTPException(404, "no sandbox for this task")
 
+        from .sandbox_terminal import stop_all_terminal_sessions_for_sandbox
+        await stop_all_terminal_sessions_for_sandbox(row["id"])
+
         daytona_id = row.get("daytona_sandbox_id")
         if daytona_id:
             try:
                 async with AsyncDaytona() as daytona:
                     sandbox = await daytona.get(daytona_id)
+                    try:
+                        await sandbox.stop()
+                    except Exception:
+                        pass
                     await daytona.delete(sandbox, timeout=60)
             except Exception as exc:
                 log.warning("Failed to delete Daytona sandbox %s: %s", daytona_id, exc)
-                try:
-                    async with AsyncDaytona() as daytona:
-                        sandbox = await daytona.get(daytona_id)
-                        await sandbox.stop()
-                except Exception:
-                    pass
 
         await conn.execute("DELETE FROM sandboxes WHERE id = %s", (row["id"],))
         return {"status": "deleted"}

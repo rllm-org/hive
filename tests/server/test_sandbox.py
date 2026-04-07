@@ -1,7 +1,7 @@
 """Tests for terminal sandbox endpoints."""
 
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

@@ -1,6 +1,6 @@
 # Hive Server — REST API Reference
 
-33 endpoints. Metadata-only server — never stores code.
+REST + WebSocket endpoints. Metadata-only server — never stores code.
 
 Auth: `?token=<agent_id>` on all mutating endpoints (except `POST /register` and `POST /tasks`).
 Admin: `X-Admin-Key` header for admin endpoints. Set via `ADMIN_KEY` env var.
@@ -152,6 +152,90 @@ Response: 200
 ```
 
 Returns 403 if the branch doesn't start with the agent's prefix (`hive/<agent_id>/`).
+
+---
+
+## User sandbox (Daytona)
+
+Logged-in users get a **single** interactive workspace VM per `(task_id, user_id)` (Daytona). The browser **never** connects with raw SSH credentials; the UI uses Hive’s REST + WebSocket terminal proxy. SSH from the Hive server into the sandbox uses credentials stored on the `sandboxes` row.
+
+Auth: `Authorization: Bearer <jwt>` on REST routes. Task access matches other task APIs (`require_task_access` — public tasks, or private tasks for the owner / allowed users).
+
+### `POST /api/tasks/{task_id}/sandbox`
+
+Create or reconnect the user’s sandbox. Idempotent: first call `201`, later `200` when already ready.
+
+### `GET /api/tasks/{task_id}/sandbox`
+
+Current sandbox status and SSH metadata (for display / tooling — not for opening a raw browser SSH session).
+
+### `DELETE /api/tasks/{task_id}/sandbox`
+
+Delete the Daytona sandbox and DB row. Associated terminal session rows are removed (CASCADE). In-flight WebSocket sessions are signalled to stop.
+
+### `GET /api/tasks/{task_id}/sandbox/sessions`
+
+List **open** terminal sessions for **this user’s** sandbox on this task.
+
+```
+Response: 200
+{
+  "sessions": [
+    {
+      "id": 1,
+      "title": null,
+      "created_at": "...",
+      "last_activity_at": "...",
+      "closed_at": null
+    }
+  ]
+}
+```
+
+Returns `404` if the user has no sandbox for the task.
+
+### `POST /api/tasks/{task_id}/sandbox/sessions`
+
+Create a new terminal session and mint a **one-time WebSocket connect ticket** (short TTL). Requires sandbox status `ready`.
+
+```
+Request: { "title": "optional tab title" }
+
+Response: 201
+{
+  "id": 1,
+  "title": "optional tab title",
+  "ticket": "<secret>",
+  "ticket_expires_at": "2026-04-06T12:00:00+00:00",
+  "ws_path": "/api/tasks/{task_id}/sandbox/terminal/ws"
+}
+```
+
+### `DELETE /api/tasks/{task_id}/sandbox/sessions/{session_id}`
+
+Close the session (owner-only). Active WebSocket handlers should stop and mark `closed_at`.
+
+### WebSocket `GET /api/tasks/{task_id}/sandbox/terminal/ws`
+
+Browser connects with **query** `ticket=<ticket>` from `POST .../sandbox/sessions`. Browsers often cannot send `Authorization` on WebSocket upgrade; the ticket proves the connect for that session. The ticket is **cleared on first successful validation** (single use).
+
+- URL: `ws://<hive-host>/api/tasks/<task_id>/sandbox/terminal/ws?ticket=<ticket>` (or `wss://` in production).
+- For the Next.js UI, set `NEXT_PUBLIC_HIVE_SERVER` to the Hive API origin (e.g. `http://127.0.0.1:8000`) so WebSocket URLs target the backend even when the app is served elsewhere.
+
+**JSON messages (text frames):**
+
+| `type` | Direction | Fields |
+|--------|-----------|--------|
+| `input` | client → server | `data`: base64-encoded bytes (keyboard) |
+| `output` | server → client | `data`: base64-encoded bytes (terminal output) |
+| `resize` | client → server | `cols`, `rows` (PTY size) |
+| `ping` / `pong` | both | heartbeat |
+| `exit` | server → client | optional `code` |
+| `error` | server → client | `message` (human-readable) |
+
+Invalid or expired tickets: connection closes before/during handshake (e.g. client sees disconnect / `WebSocketDisconnect` in tests).
+
+Env: `TERMINAL_TICKET_TTL_SEC` (default `120`) controls ticket lifetime.
 
 ---
 
