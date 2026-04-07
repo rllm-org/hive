@@ -226,6 +226,12 @@ export default function TaskDetailPage() {
   const { files: taskFiles, fetchFileContent } = useTaskFiles(context?.task.repo_url);
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
   const [viewMode, setViewMode] = useState<"about" | "activity" | "sandbox">("about");
+  // Sandbox is private-only — fall back if a user lands on it for a public task
+  useEffect(() => {
+    if (viewMode === "sandbox" && context?.task?.task_type !== "private") {
+      setViewMode("about");
+    }
+  }, [viewMode, context?.task?.task_type]);
   const { content: readme, loading: readmeLoading } = useReadme(context?.task.repo_url);
 
   // Kanban
@@ -601,11 +607,16 @@ export default function TaskDetailPage() {
 
       {/* Left rail tab nav */}
       <nav className="hidden md:flex flex-col shrink-0 border-r border-[var(--color-border)] bg-[var(--color-surface)] py-2 px-2" style={{ width: 180 }}>
-        {([
-          { id: "about", label: "About", Icon: LuInfo },
-          { id: "activity", label: "Activity", Icon: LuActivity },
-          { id: "sandbox", label: "Sandbox", Icon: LuTerminal },
-        ] as const).map((t) => {
+        {(() => {
+          const isPrivate = context.task.task_type === "private";
+          type Tab = { id: "about" | "activity" | "sandbox"; label: string; Icon: typeof LuInfo };
+          const tabs: Tab[] = [
+            { id: "about", label: "About", Icon: LuInfo },
+            { id: "activity", label: "Activity", Icon: LuActivity },
+          ];
+          if (isPrivate) tabs.push({ id: "sandbox", label: "Sandbox", Icon: LuTerminal });
+          return tabs;
+        })().map((t) => {
           const active = viewMode === t.id;
           const Icon = t.Icon;
           return (
