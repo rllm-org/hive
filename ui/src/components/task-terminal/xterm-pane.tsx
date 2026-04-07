@@ -95,12 +95,31 @@ export function XtermPane({ storeKey, active, onDisconnected }: XtermPaneProps) 
     termRef.current = term;
     fitRef.current = fit;
 
-    // URL detection buffer
+    // Batch incoming writes — collect chunks and flush once per animation frame
+    let writeBuf = "";
+    let writeRaf: number | null = null;
+
+    const flushWrites = () => {
+      writeRaf = null;
+      if (writeBuf) {
+        term.write(writeBuf);
+        detectUrls(writeBuf);
+        writeBuf = "";
+      }
+    };
+
+    const queueWrite = (text: string) => {
+      writeBuf += text;
+      if (!writeRaf) writeRaf = requestAnimationFrame(flushWrites);
+    };
+
+    // URL detection — only keep last 2KB, run regex after 500ms idle
     let urlBuf = "";
     let urlBufTimer: ReturnType<typeof setTimeout> | null = null;
 
     const detectUrls = (text: string) => {
       urlBuf += text;
+      if (urlBuf.length > 2000) urlBuf = urlBuf.slice(-2000);
       if (urlBufTimer) clearTimeout(urlBufTimer);
       urlBufTimer = setTimeout(() => {
         const clean = urlBuf.replace(ANSI_RE, "").replace(/[\r\n\t]/g, "").replace(/\s+/g, "");
@@ -113,24 +132,24 @@ export function XtermPane({ storeKey, active, onDisconnected }: XtermPaneProps) 
       }, 500);
     };
 
-    const writeMsg = (msg: store.TerminalMessage) => {
+    const writeLiveMsg = (msg: store.TerminalMessage) => {
       if (msg.type === "output" && "data" in msg) {
-        const text = decodeOutput(msg.data);
-        term.write(text);
-        detectUrls(text);
+        queueWrite(decodeOutput(msg.data));
       } else if (msg.type === "error" && "message" in msg) {
-        term.write(`\r\n\x1b[31m${msg.message}\x1b[0m\r\n`);
+        queueWrite(`\r\n\x1b[31m${msg.message}\x1b[0m\r\n`);
       } else if (msg.type === "exit") {
-        term.write(`\r\n\x1b[90m[Session ended]\x1b[0m\r\n`);
+        queueWrite(`\r\n\x1b[90m[Session ended]\x1b[0m\r\n`);
         onDisconnectedRef.current();
       }
     };
 
-    // Replay buffered output and attach listener
-    const buffered = store.attach(storeKey, writeMsg, () => {
+    // Replay buffered output in one shot (pre-decoded text), then attach for live messages
+    const replayText = store.attach(storeKey, writeLiveMsg, () => {
       onDisconnectedRef.current();
     });
-    for (const msg of buffered) writeMsg(msg);
+    if (replayText) {
+      term.write(replayText);
+    }
 
     // Send initial resize
     fit.fit();
@@ -160,6 +179,7 @@ export function XtermPane({ storeKey, active, onDisconnected }: XtermPaneProps) 
     });
 
     return () => {
+      if (writeRaf) cancelAnimationFrame(writeRaf);
       if (urlBufTimer) clearTimeout(urlBufTimer);
       ro.disconnect();
       window.removeEventListener("resize", onResize);

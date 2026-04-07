@@ -1,6 +1,8 @@
 /**
  * Singleton store that keeps WebSocket connections and output buffers alive
  * across React component mount/unmount cycles (i.e. page navigations).
+ *
+ * Stores pre-decoded text so replay is a single term.write() call.
  */
 
 import { hiveTerminalWebSocketUrl } from "./ws";
@@ -13,9 +15,20 @@ export type TerminalMessage =
 
 export type OutputListener = (msg: TerminalMessage) => void;
 
+// Max ~500KB of decoded text to keep in the replay buffer
+const MAX_BUFFER_CHARS = 500_000;
+
+function decodeBase64(b64: string): string {
+  const raw = atob(b64);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
 interface SessionEntry {
   ws: WebSocket;
-  buffer: TerminalMessage[];
+  /** Pre-decoded terminal text for fast replay */
+  textBuffer: string;
   listener: OutputListener | null;
   closed: boolean;
   onClose: (() => void) | null;
@@ -38,24 +51,33 @@ export function openSession(taskPath: string, ticket: string): string {
 
   const entry: SessionEntry = {
     ws,
-    buffer: [],
+    textBuffer: "",
     listener: null,
     closed: false,
     onClose: null,
     pingInterval: null,
   };
 
+  const appendText = (text: string) => {
+    entry.textBuffer += text;
+    if (entry.textBuffer.length > MAX_BUFFER_CHARS) {
+      entry.textBuffer = entry.textBuffer.slice(-MAX_BUFFER_CHARS);
+    }
+  };
+
   const dispatch = (msg: TerminalMessage) => {
-    entry.buffer.push(msg);
-    // Cap buffer at ~5000 messages to avoid unbounded memory
-    if (entry.buffer.length > 5000) {
-      entry.buffer = entry.buffer.slice(-4000);
+    // Append decoded text to the replay buffer
+    if (msg.type === "output" && "data" in msg) {
+      appendText(decodeBase64(msg.data));
+    } else if (msg.type === "error" && "message" in msg) {
+      appendText(`\r\n\x1b[31m${msg.message}\x1b[0m\r\n`);
+    } else if (msg.type === "exit") {
+      appendText(`\r\n\x1b[90m[Session ended]\x1b[0m\r\n`);
     }
     if (entry.listener) entry.listener(msg);
   };
 
   ws.onopen = () => {
-    // Keep-alive pings
     entry.pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "ping" }));
@@ -69,7 +91,6 @@ export function openSession(taskPath: string, ticket: string): string {
       if (msg.type === "output" || msg.type === "error" || msg.type === "exit") {
         dispatch(msg);
       }
-      // pong is ignored
     } catch {
       /* ignore */
     }
@@ -89,17 +110,20 @@ export function openSession(taskPath: string, ticket: string): string {
   return k;
 }
 
-/** Attach a listener to receive live messages. Returns the buffered history. */
+/**
+ * Attach a listener for live messages.
+ * Returns the pre-decoded text buffer for a single term.write() replay.
+ */
 export function attach(
   sessionKey: string,
   listener: OutputListener,
   onClose?: () => void,
-): TerminalMessage[] {
+): string {
   const entry = sessions.get(sessionKey);
-  if (!entry) return [];
+  if (!entry) return "";
   entry.listener = listener;
   entry.onClose = onClose ?? null;
-  return [...entry.buffer];
+  return entry.textBuffer;
 }
 
 /** Detach the listener (component unmounting) — WS stays alive. */
