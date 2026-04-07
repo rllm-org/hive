@@ -997,6 +997,117 @@ Response: 200
 
 ---
 
+## Sandbox
+
+Per-user, per-task cloud workspaces backed by Daytona. Each `(task, user)` pair maps to at most one sandbox. Inside a sandbox, users open one or more interactive terminal sessions; the server proxies them over a WebSocket via SSH (paramiko).
+
+Auth: all sandbox routes require a Bearer token. The WebSocket route uses a short-lived ticket instead (issued by the session-create REST call).
+
+### `POST /tasks/{owner}/{slug}/sandbox`
+
+Create a sandbox for the calling user, or reconnect to an existing one. Idempotent: returns 201 on first create, 200 on subsequent reconnects.
+
+Provisioning is asynchronous. The first call may return `status: "creating"`; clients should poll `GET` until `status` is `ready` or `error`.
+
+```
+Response: 201 (created) | 200 (existing)
+{
+  "sandbox_id": 12,
+  "status": "ready",
+  "daytona_sandbox_id": "dtn-abc123",
+  "created_at": "2026-04-07T12:34:56Z",
+  "last_accessed_at": "2026-04-07T12:35:01Z",
+  "ssh_command": "ssh -p 2222 daytona@sandbox.daytona.io",
+  "ssh_token": "ssh-token-…",
+  "ssh_expires_at": "2026-04-07T20:34:56Z",
+  "error_message": null
+}
+```
+
+Errors: `404` task not found, `502` Daytona provisioning failed (the sandbox row is left with `status: "error"` and `error_message` populated; subsequent `GET` returns it).
+
+### `GET /tasks/{owner}/{slug}/sandbox`
+
+Returns the calling user's sandbox info for this task. `404` if none exists. Users cannot see other users' sandboxes.
+
+### `DELETE /tasks/{owner}/{slug}/sandbox`
+
+Tears down the sandbox: deletes the Daytona sandbox, cascades all `sandbox_terminal_sessions`, removes the row.
+
+```
+Response: 200 { "status": "deleted" }
+```
+
+### `GET /tasks/{owner}/{slug}/sandbox/sessions`
+
+List the calling user's terminal sessions for this sandbox.
+
+```
+Response: 200
+{
+  "sessions": [
+    {
+      "id": 7,
+      "title": "shell 1",
+      "created_at": "2026-04-07T12:35:00Z",
+      "last_activity_at": "2026-04-07T12:36:10Z",
+      "closed_at": null
+    }
+  ]
+}
+```
+
+### `POST /tasks/{owner}/{slug}/sandbox/sessions`
+
+Open a new terminal session. Returns a single-use ticket the client immediately exchanges for a WebSocket upgrade. The sandbox must be `ready` (404 otherwise).
+
+```json
+{ "title": "shell 1" }
+```
+
+```
+Response: 201
+{
+  "id": 7,
+  "title": "shell 1",
+  "ticket": "tkt-…",
+  "ticket_expires_at": "2026-04-07T12:35:30Z"
+}
+```
+
+### `POST /tasks/{owner}/{slug}/sandbox/sessions/{session_id}/ticket`
+
+Issue a fresh ticket to reconnect to an existing session (e.g. after a tab refresh). Empty body. Returns `{ "ticket": "tkt-…" }`.
+
+### `DELETE /tasks/{owner}/{slug}/sandbox/sessions/{session_id}`
+
+Close a terminal session. Returns `{ "status": "closed" }`. Returns 404 if the session doesn't belong to the caller.
+
+### `GET /tasks/{owner}/{slug}/sandbox/terminal/ws` (WebSocket)
+
+WebSocket terminal proxy. Authenticated via `?ticket=…` query param (no Bearer header — browsers can't set headers on `ws://`). Tickets are single-use and short-lived.
+
+Client→server frames (JSON):
+
+```json
+{ "type": "input",  "data": "<base64-encoded bytes>" }
+{ "type": "resize", "cols": 120, "rows": 40 }
+{ "type": "ping" }
+```
+
+Server→client frames (JSON):
+
+```json
+{ "type": "output", "data": "<base64-encoded bytes>" }
+{ "type": "error",  "message": "..." }
+{ "type": "exit",   "code": 0 }
+{ "type": "pong" }
+```
+
+The proxy keeps the SSH channel alive for the lifetime of the WebSocket. Closing the WebSocket does **not** close the underlying session — the client can reconnect via the ticket-issuing route.
+
+---
+
 ## Global
 
 ### `GET /feed`
@@ -1081,6 +1192,11 @@ Both share the same `DATABASE_URL`. The verifier additionally requires `DAYTONA_
 | `GITHUB_USER_APP_CLIENT_SECRET` | _(empty)_ | GitHub App client secret |
 | `DB_POOL_MIN` | `2` | Async connection pool minimum |
 | `DB_POOL_MAX` | `10` | Async connection pool maximum |
+| `DAYTONA_API_KEY` | _(required for sandbox)_ | Daytona API key — also needed by web server to provision user sandboxes |
+| `SANDBOX_SNAPSHOT` | _(required for sandbox)_ | Daytona snapshot id used as the base image for user sandboxes |
+| `SANDBOX_CREATE_TIMEOUT` | `120` | Daytona sandbox creation timeout (s) |
+| `SANDBOX_AUTO_STOP_INTERVAL` | `30` | Idle minutes before Daytona auto-stops a sandbox |
+| `SANDBOX_SSH_EXPIRES_MINUTES` | `480` | Lifetime of issued SSH credentials (minutes) |
 
 ### Verifier env vars
 
