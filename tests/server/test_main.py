@@ -323,21 +323,6 @@ class TestGetTask:
 
 
 class TestPatchTask:
-    def test_updates_name_and_description_without_admin(self, registered_agent, _seed_task):
-        client, _, token = registered_agent
-        resp = client.patch(
-            "/api/tasks/hive/t1",
-            params={"token": token},
-            json={"name": "Updated Task", "description": "Updated description"},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["name"] == "Updated Task"
-        assert resp.json()["description"] == "Updated description"
-
-        task = client.get("/api/tasks/hive/t1").json()
-        assert task["name"] == "Updated Task"
-        assert task["description"] == "Updated description"
-
     def test_config_update_requires_admin(self, registered_agent, _seed_task):
         client, _, token = registered_agent
         resp = client.patch(

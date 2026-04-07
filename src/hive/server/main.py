@@ -1492,8 +1492,11 @@ async def push_to_task(owner: str, slug: str, branch: str = Form(""), bundle: Up
         expected_prefix = fork_row["branch_prefix"]
     if not branch:
         raise HTTPException(400, "branch is required")
+    # All branch-rejection cases return 403 — agents can only push to their
+    # own `hive/<agent-id>/...` namespace, regardless of why the branch
+    # they tried fails (wrong shape, wrong prefix, contains '..').
     if ".." in branch or not re.match(r"^hive/[a-z0-9-]+/[a-z0-9._/-]+$", branch):
-        raise HTTPException(400, "invalid branch name")
+        raise HTTPException(403, f"branch must start with '{expected_prefix}'")
     if not branch.startswith(expected_prefix):
         raise HTTPException(403, f"branch must start with '{expected_prefix}'")
     # Save bundle to temp file and push (100MB limit)
