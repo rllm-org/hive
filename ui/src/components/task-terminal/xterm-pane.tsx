@@ -249,7 +249,7 @@ export function XtermPane({ storeKey, active, onDisconnected }: XtermPaneProps) 
   }, [active, storeKey]);
 
   return (
-    <div className="h-full w-full relative">
+    <div className="absolute inset-0">
       {detectedUrl && (
         <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-[#24283b] border-b border-[#33467c]">
           <span className="text-xs text-[#7aa2f7]">URL detected:</span>
