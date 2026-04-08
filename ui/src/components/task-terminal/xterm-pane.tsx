@@ -161,25 +161,34 @@ export function XtermPane({ storeKey, active, onDisconnected }: XtermPaneProps) 
       term.write(replayText);
     }
 
-    // Send initial resize
-    fit.fit();
-    store.sendResize(storeKey, term.cols, term.rows);
-
     // Input handling
     const d = term.onData((data) => {
       store.sendInput(storeKey, utf8ToB64(data));
     });
 
     // Resize handling
+    let initialFitDone = false;
     const onResize = () => {
-      if (!activeRef.current) return;
       try { fit.fit(); } catch { /* ignore */ }
       if (term.cols && term.rows) {
         store.sendResize(storeKey, term.cols, term.rows);
       }
     };
 
-    const ro = new ResizeObserver(() => onResize());
+    // Use ResizeObserver for the initial fit — fires once the container has real dimensions
+    const ro = new ResizeObserver(() => {
+      if (!initialFitDone) {
+        initialFitDone = true;
+        // Delay one frame so the layout is fully settled
+        requestAnimationFrame(() => {
+          onResize();
+          term.focus();
+        });
+      } else {
+        if (!activeRef.current) return;
+        onResize();
+      }
+    });
     ro.observe(el);
     window.addEventListener("resize", onResize);
 
