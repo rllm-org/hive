@@ -138,9 +138,10 @@ async def _bootstrap_sandbox(sandbox: Any, repo_url: str) -> None:
         cwd="/home/daytona",
         timeout=SANDBOX_BOOTSTRAP_TIMEOUT,
     )
-    # opencode
+    # opencode — installer puts binary in ~/.opencode/bin, symlink to /usr/local/bin
     await sandbox.process.exec(
-        "curl -fsSL https://opencode.ai/install | bash",
+        "curl -fsSL https://opencode.ai/install | bash"
+        " && ln -sf /home/daytona/.opencode/bin/opencode /usr/local/bin/opencode",
         cwd="/home/daytona",
         timeout=SANDBOX_BOOTSTRAP_TIMEOUT,
     )
