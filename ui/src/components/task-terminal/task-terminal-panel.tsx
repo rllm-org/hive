@@ -57,7 +57,7 @@ export function TaskTerminalPanel({ taskPath, active }: TaskTerminalPanelProps) 
           <div className="p-6 space-y-4">
             <div className="flex items-start gap-2 px-3 py-2 border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-800 dark:text-amber-300">
               <span className="font-semibold">Beta:</span>
-              <span>Only Claude Code is installed in the sandbox.</span>
+              <span>Opencode and Claude Code installed in the sandbox.</span>
             </div>
             <p className="text-sm text-[var(--color-text-secondary)]">
               Create a cloud workspace for this task to open an interactive terminal (Daytona).
