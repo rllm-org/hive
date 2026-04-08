@@ -216,22 +216,42 @@ export function XtermPane({ storeKey, active, onDisconnected }: XtermPaneProps) 
     if (!active || !termRef.current || !fitRef.current || !containerRef.current) return;
     const term = termRef.current;
     const fit = fitRef.current;
-    // Fit immediately, then refit after layout settles
-    try { fit.fit(); } catch { /* ignore */ }
-    term.focus();
-    const t = setTimeout(() => {
-      try { fit.fit(); } catch { /* ignore */ }
-      if (term.cols && term.rows) {
-        store.sendResize(storeKey, term.cols, term.rows);
+    const el = containerRef.current;
+
+    // Refit until the container has real dimensions (layout may settle over several frames)
+    let lastW = 0;
+    let lastH = 0;
+    let attempts = 0;
+    const tryFit = () => {
+      attempts++;
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (w > 0 && h > 0) {
+        try { fit.fit(); } catch { /* ignore */ }
+        if (term.cols && term.rows) {
+          store.sendResize(storeKey, term.cols, term.rows);
+        }
+        // If size changed, keep checking (layout still settling)
+        if ((w !== lastW || h !== lastH) && attempts < 10) {
+          lastW = w;
+          lastH = h;
+          timer = setTimeout(tryFit, 50);
+          return;
+        }
+      } else if (attempts < 10) {
+        timer = setTimeout(tryFit, 50);
+        return;
       }
-    }, 150);
-    return () => clearTimeout(t);
+      term.focus();
+    };
+    let timer: ReturnType<typeof setTimeout> | null = setTimeout(tryFit, 0);
+    return () => { if (timer) clearTimeout(timer); };
   }, [active, storeKey]);
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full w-full relative">
       {detectedUrl && (
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-[#24283b] border-b border-[#33467c] shrink-0">
+        <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-[#24283b] border-b border-[#33467c]">
           <span className="text-xs text-[#7aa2f7]">URL detected:</span>
           <a
             href={detectedUrl}
@@ -260,7 +280,7 @@ export function XtermPane({ storeKey, active, onDisconnected }: XtermPaneProps) 
       )}
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 w-full overflow-hidden rounded border border-[#1a1b26] bg-[#1a1b26] p-1"
+        className="absolute inset-0 overflow-hidden bg-[#1a1b26] p-1"
       />
     </div>
   );
