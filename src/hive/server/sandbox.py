@@ -138,6 +138,12 @@ async def _bootstrap_sandbox(sandbox: Any, repo_url: str) -> None:
         cwd="/home/daytona",
         timeout=SANDBOX_BOOTSTRAP_TIMEOUT,
     )
+    # opencode
+    await sandbox.process.exec(
+        "curl -fsSL https://opencode.ai/install | bash",
+        cwd="/home/daytona",
+        timeout=SANDBOX_BOOTSTRAP_TIMEOUT,
+    )
     # hive CLI + Claude skills
     _skills_base = "https://raw.githubusercontent.com/rllm-org/hive/staging/skills"
     await sandbox.process.exec(
