@@ -141,14 +141,27 @@ def _author_block(row: dict) -> dict:
 
     Expects either:
       - row['agent_id'] set (agent author)
-      - row['user_id'] set + optional row['user_handle'] (user author from JOIN)
+      - row['user_id'] set + optional row['user_handle'] / row['user_avatar_url']
+        (user author from JOIN with users)
     """
     if row.get("agent_id"):
         agent_id = row["agent_id"]
-        return {"kind": "agent", "id": agent_id, "display": agent_id, "handle": None}
+        return {
+            "kind": "agent",
+            "id": agent_id,
+            "display": agent_id,
+            "handle": None,
+            "avatar_url": None,
+        }
     user_id = row.get("user_id")
     handle = row.get("user_handle") or f"user{user_id}"
-    return {"kind": "user", "id": user_id, "display": handle, "handle": handle}
+    return {
+        "kind": "user",
+        "id": user_id,
+        "display": handle,
+        "handle": handle,
+        "avatar_url": row.get("user_avatar_url"),
+    }
 
 
 def _message_response(row: dict, reply_count: int = 0, thread_participants: list[dict] | None = None) -> dict:
@@ -289,7 +302,7 @@ async def post_message(
             raise HTTPException(500, "failed to allocate message ts")
         # Re-fetch with user handle joined for the response
         row = await (await conn.execute(
-            "SELECT m.*, u.handle AS user_handle FROM messages m"
+            "SELECT m.*, u.handle AS user_handle, u.avatar_url AS user_avatar_url FROM messages m"
             " LEFT JOIN users u ON u.id = m.user_id"
             " WHERE m.channel_id = %s AND m.ts = %s",
             (channel["id"], msg_ts),
@@ -336,7 +349,7 @@ async def edit_message(
             (new_text, mentions, edited_at, channel["id"], ts),
         )
         row = await (await conn.execute(
-            "SELECT m.*, u.handle AS user_handle FROM messages m"
+            "SELECT m.*, u.handle AS user_handle, u.avatar_url AS user_avatar_url FROM messages m"
             " LEFT JOIN users u ON u.id = m.user_id"
             " WHERE m.channel_id = %s AND m.ts = %s",
             (channel["id"], ts),
@@ -364,7 +377,7 @@ async def list_messages(
             params.append(before)
         params.append(limit)
         rows = await (await conn.execute(
-            f"SELECT m.*, u.handle AS user_handle FROM messages m"
+            f"SELECT m.*, u.handle AS user_handle, u.avatar_url AS user_avatar_url FROM messages m"
             f" LEFT JOIN users u ON u.id = m.user_id"
             f" WHERE {where} ORDER BY m.ts DESC LIMIT %s",
             params,
@@ -412,7 +425,7 @@ async def list_replies(owner: str, slug: str, name: str, ts: str):
         await _ensure_default_channels(task_id, None, conn)
         channel = await _resolve_channel(task_id, name, conn)
         parent = await (await conn.execute(
-            "SELECT m.*, u.handle AS user_handle FROM messages m"
+            "SELECT m.*, u.handle AS user_handle, u.avatar_url AS user_avatar_url FROM messages m"
             " LEFT JOIN users u ON u.id = m.user_id"
             " WHERE m.channel_id = %s AND m.ts = %s",
             (channel["id"], ts),
@@ -422,7 +435,7 @@ async def list_replies(owner: str, slug: str, name: str, ts: str):
         if parent["thread_ts"] is not None:
             raise HTTPException(400, "not a thread parent")
         replies = await (await conn.execute(
-            "SELECT m.*, u.handle AS user_handle FROM messages m"
+            "SELECT m.*, u.handle AS user_handle, u.avatar_url AS user_avatar_url FROM messages m"
             " LEFT JOIN users u ON u.id = m.user_id"
             " WHERE m.channel_id = %s AND m.thread_ts = %s ORDER BY m.ts ASC",
             (channel["id"], ts),

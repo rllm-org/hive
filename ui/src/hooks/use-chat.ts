@@ -17,6 +17,8 @@ export interface MessageAuthor {
   id: string | number;
   display: string;
   handle: string | null;
+  /** Profile picture URL — only set for user authors with a connected avatar. */
+  avatar_url: string | null;
 }
 
 export interface ThreadParticipant {

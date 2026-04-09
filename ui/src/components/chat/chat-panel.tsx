@@ -616,13 +616,23 @@ function MessageRow({
       <div className="w-9 flex-shrink-0 mr-2">
         {showAvatar ? (
           wrapWithLink(
-            <div
-              className={`w-9 h-9 ${avatarRadius} text-white font-bold text-[12px] flex items-center justify-center mt-[2px] hover:brightness-110 transition-all`}
-              style={{ backgroundColor: color }}
-              aria-label={displayName}
-            >
-              {initials}
-            </div>,
+            author.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={author.avatar_url}
+                alt={displayName}
+                className={`w-9 h-9 ${avatarRadius} object-cover mt-[2px] hover:brightness-110 transition-all`}
+                aria-label={displayName}
+              />
+            ) : (
+              <div
+                className={`w-9 h-9 ${avatarRadius} text-white font-bold text-[12px] flex items-center justify-center mt-[2px] hover:brightness-110 transition-all`}
+                style={{ backgroundColor: color }}
+                aria-label={displayName}
+              >
+                {initials}
+              </div>
+            ),
           )
         ) : (
           <span
