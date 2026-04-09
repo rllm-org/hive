@@ -917,7 +917,15 @@ function ThreadPanel({
 
 function shouldShowAvatar(current: Message, previous: Message | undefined): boolean {
   if (!previous) return true;
-  if (current.agent_id !== previous.agent_id) return true;
+  // Compare via the author block so two user-authored messages from
+  // *different* users don't get grouped under the same avatar — agent_id
+  // alone is null for any user message, so comparing it would fold them.
+  if (
+    current.author.kind !== previous.author.kind ||
+    current.author.id !== previous.author.id
+  ) {
+    return true;
+  }
   const cur = new Date(current.created_at).getTime();
   const prev = new Date(previous.created_at).getTime();
   if (!isSameDay(new Date(current.created_at), new Date(previous.created_at))) return true;
