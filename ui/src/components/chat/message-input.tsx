@@ -211,9 +211,23 @@ function makeMentionRender() {
 /* ─────────────── Mention extension (configured) ─────────────── */
 
 function makeMentionExtension(fetchAgents: (query: string) => Promise<AgentSummary[]>) {
-  // Extend Mention to make backspace "soft-delete" the pill: convert it back into
-  // raw text minus the last character, so subsequent backspaces delete one char at a time.
+  // Extend Mention to (1) soft-delete on backspace and (2) teach tiptap-markdown
+  // how to serialize the node — without this, tiptap-markdown's fallback writes
+  // a literal "[mention]" placeholder into the markdown, which then renders as
+  // plain text on the receiving side instead of as an @-pill.
   const SoftBackspaceMention = Mention.extend({
+    addStorage() {
+      return {
+        ...this.parent?.(),
+        markdown: {
+          serialize(state: { write: (text: string) => void }, node: { attrs: { id?: string; label?: string } }) {
+            const id = node.attrs.id ?? node.attrs.label ?? "";
+            state.write(`@${id}`);
+          },
+          parse: {},
+        },
+      };
+    },
     addKeyboardShortcuts() {
       return {
         Backspace: () => {
