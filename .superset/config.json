@@ -1,0 +1,8 @@
+{
+  "setup": [
+    "uv sync",
+    "[ ! -f .env ] && cp .env.example .env"
+  ],
+  "teardown": [],
+  "run": []
+}
