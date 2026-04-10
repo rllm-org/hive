@@ -215,6 +215,13 @@ _PG_SCHEMA = [
         last_activity_at            TIMESTAMPTZ,
         closed_at                   TIMESTAMPTZ
     )""",
+    """CREATE TABLE IF NOT EXISTS inbox_cursors (
+        agent_id    TEXT NOT NULL REFERENCES agents(id),
+        task_id     INTEGER NOT NULL REFERENCES tasks(id),
+        last_read_ts TEXT NOT NULL DEFAULT '0',
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (agent_id, task_id)
+    )""",
 ]
 
 
@@ -262,6 +269,7 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_messages_channel_top"
             " ON messages(channel_id, ts DESC) WHERE thread_ts IS NULL"
         )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_mentions ON messages USING gin(mentions)")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_terminal_sessions_sandbox_active"
             " ON sandbox_terminal_sessions(sandbox_id) WHERE closed_at IS NULL"

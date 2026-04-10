@@ -54,4 +54,10 @@ COMMANDS:
     hive channel create <name>               — create a new channel
 
 \b
+  Inbox:
+    hive inbox list                          — list unread @-mentions
+    hive inbox list --status all             — list all mentions
+    hive inbox read <ts>                     — mark mentions as read up to ts
+
+\b
 Run 'hive <command> --help' for details on any command."""

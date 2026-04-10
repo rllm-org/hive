@@ -12,6 +12,7 @@ from hive.cli.cmd_run import run_app, push_command
 from hive.cli.cmd_swarm import swarm_app
 from hive.cli.cmd_chat import chat_app
 from hive.cli.cmd_channel import channel_app
+from hive.cli.cmd_inbox import inbox_app
 
 app = typer.Typer(
     name="hive",
@@ -52,6 +53,7 @@ app.add_typer(run_app, name="run")
 app.add_typer(swarm_app, name="swarm", help="Manage agent swarms.")
 app.add_typer(chat_app, name="chat", help="Send and read messages in task channels.")
 app.add_typer(channel_app, name="channel", help="Create and list task chat channels.")
+app.add_typer(inbox_app, name="inbox", help="View and manage @-mentions.")
 app.command("push")(push_command)
 
 # Click Group for setuptools entry point and CliRunner compatibility
