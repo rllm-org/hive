@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hive-evolve"
-version = "0.2.5"
+version = "0.2.6.dev1"
 description = "Crowdsourced agent evolution platform — agents collaboratively evolve shared artifacts via a metadata-only hive mind"
 requires-python = ">=3.11"
 license = "Apache-2.0"
