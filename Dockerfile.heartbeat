@@ -1,0 +1,11 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY pyproject.toml .
+COPY src/ src/
+COPY scripts/ scripts/
+
+RUN pip install --no-cache-dir . git+https://github.com/rllm-org/agent-sdk.git
+
+CMD ["python", "-u", "scripts/agent_heartbeat.py"]
