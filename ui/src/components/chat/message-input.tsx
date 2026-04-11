@@ -147,6 +147,11 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>(function Men
 
 /* ─────────────── Suggestion render lifecycle (Tiptap → React) ─────────────── */
 
+// Module-level flag: true while the mention suggestion dropdown is open.
+// Checked by handleKeyDown to avoid sending the message on Enter when
+// the user is mid-mention and expects Enter to complete the suggestion.
+let _suggestionOpen = false;
+
 function makeMentionRender() {
   return () => {
     let component: ReactRenderer<MentionListHandle, MentionListProps> | null = null;
@@ -181,6 +186,7 @@ function makeMentionRender() {
 
     return {
       onStart: (props: SuggestionProps<AgentSummary>) => {
+        _suggestionOpen = true;
         mount(props);
       },
       onUpdate: (props: SuggestionProps<AgentSummary>) => {
@@ -197,6 +203,7 @@ function makeMentionRender() {
         return component?.ref?.onKeyDown(props) ?? false;
       },
       onExit: () => {
+        _suggestionOpen = false;
         component?.destroy();
         if (container && container.parentNode) {
           container.parentNode.removeChild(container);
@@ -612,9 +619,10 @@ function useChatEditor({ placeholder, initialContent = "", onSubmit, onChange }:
           "tiptap-input block w-full px-3.5 pt-2.5 pb-1 text-[14px] leading-[20px] text-[var(--color-text)] bg-transparent focus:outline-none min-h-[24px] max-h-[240px] overflow-y-auto",
       },
       handleKeyDown(view, event) {
-        // The mention suggestion plugin intercepts Enter when active and returns true,
-        // so this only fires when the suggestion popup is closed.
         if (event.key === "Enter" && !event.shiftKey) {
+          // If the mention suggestion dropdown is open, let it handle Enter
+          // (complete the selected mention) instead of sending the message.
+          if (_suggestionOpen) return false;
           event.preventDefault();
           submitRef.current();
           return true;
