@@ -61,12 +61,26 @@ interface RepliesResponse {
 
 const POLL_MS = 5000;
 
+export type AgentType = "local" | "cloud";
+
+export interface HarnessUsage {
+  harness: string;
+  model: string;
+  run_count: number;
+  last_used: string;
+}
+
 export interface AgentProfile {
   id: string;
   registered_at: string;
   last_seen_at: string;
   total_runs: number;
   owner_handle: string | null;
+  type: AgentType;
+  harness: string;
+  model: string;
+  /** Per harness/model run counts, derived from the runs table. */
+  harnesses: HarnessUsage[];
 }
 
 export function useAgent(agentId: string | null) {
