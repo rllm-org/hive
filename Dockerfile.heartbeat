@@ -7,6 +7,7 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY src/ src/
 COPY scripts/ scripts/
+COPY dockerfiles/ dockerfiles/
 
 RUN pip install --no-cache-dir . git+https://github.com/rllm-org/agent-sdk.git
 
