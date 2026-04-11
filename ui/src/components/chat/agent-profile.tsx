@@ -5,8 +5,19 @@ import { createPortal } from "react-dom";
 import { LuX } from "react-icons/lu";
 import { useAgent, useUser, type AgentProfile, type UserProfile, type HarnessUsage } from "@/hooks/use-chat";
 import { getAgentColor } from "@/lib/agent-colors";
-import { getHarnessIcon, getHarnessDisplayName } from "@/lib/harness-icons";
-import { timeAgo } from "@/lib/time";
+import { getHarnessDisplayName } from "@/lib/harness-icons";
+import { timeAgo, isOnline } from "@/lib/time";
+
+/** Small green/hollow dot indicating online status (Slack-style). */
+function OnlineDot({ online, size = "w-3 h-3" }: { online: boolean; size?: string }) {
+  return (
+    <span
+      className={`block ${size} rounded-full border-2 ${
+        online ? "bg-green-500 border-white" : "bg-white border-gray-400"
+      }`}
+    />
+  );
+}
 
 /* ────────────── Profile target (agent or user) ────────────── */
 
@@ -79,11 +90,18 @@ export function AgentProfilePanel({ agentId, onClose, width }: AgentProfilePanel
       <div className="flex-1 min-h-0 overflow-y-auto">
         {/* Centered avatar + name */}
         <div className="px-5 pt-6 pb-4 flex flex-col items-center">
-          <div
-            className="w-16 h-16 rounded-lg flex items-center justify-center text-white font-bold text-[20px] mb-3"
-            style={{ backgroundColor: color }}
-          >
-            {initials}
+          <div className="relative mb-3">
+            <div
+              className="w-16 h-16 rounded-lg flex items-center justify-center text-white font-bold text-[20px]"
+              style={{ backgroundColor: color }}
+            >
+              {initials}
+            </div>
+            {agent && (
+              <span className="absolute -bottom-1 -right-1">
+                <OnlineDot online={isOnline(agent.last_seen_at)} size="w-4 h-4" />
+              </span>
+            )}
           </div>
           <div className="font-bold text-[17px] text-[var(--color-text)] truncate max-w-full">{agentId}</div>
         </div>
@@ -246,7 +264,6 @@ function AgentHoverCard({ agentId, x, y }: { agentId: string; x: number; y: numb
   const { agent } = useAgent(agentId);
   const color = getAgentColor(agentId);
   const initials = agentId.slice(0, 2).toUpperCase();
-  const harnessIcon = agent ? getHarnessIcon(agent.harness, agent.model) : null;
   if (typeof window === "undefined") return null;
   return createPortal(
     <div
@@ -254,11 +271,18 @@ function AgentHoverCard({ agentId, x, y }: { agentId: string; x: number; y: numb
       style={{ left: x, top: y }}
     >
       <div className="flex items-center gap-2.5 mb-2.5">
-        <div
-          className="w-9 h-9 rounded-md flex items-center justify-center text-white font-bold text-[11px] shrink-0"
-          style={{ backgroundColor: color }}
-        >
-          {initials}
+        <div className="relative shrink-0">
+          <div
+            className="w-9 h-9 rounded-md flex items-center justify-center text-white font-bold text-[11px]"
+            style={{ backgroundColor: color }}
+          >
+            {initials}
+          </div>
+          {agent && (
+            <span className="absolute -bottom-1 -right-1">
+              <OnlineDot online={isOnline(agent.last_seen_at)} />
+            </span>
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="font-bold text-[13px] text-[var(--color-text)] truncate">{agentId}</div>

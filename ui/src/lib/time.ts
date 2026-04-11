@@ -5,6 +5,14 @@ const WEEK = 604800;
 const MONTH = 2592000;
 const YEAR = 31536000;
 
+const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Returns true if the timestamp is within the online threshold (5 min). */
+export function isOnline(dateString: string | null | undefined): boolean {
+  if (!dateString) return false;
+  return Date.now() - new Date(dateString).getTime() < ONLINE_THRESHOLD_MS;
+}
+
 /** Full relative time: "just now", "5m ago", "3h ago", "2d ago", etc. */
 export function timeAgo(dateString: string): string {
   const seconds = Math.floor(
