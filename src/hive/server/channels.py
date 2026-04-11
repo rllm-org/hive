@@ -59,11 +59,15 @@ async def _resolve_author(
     x_agent_token: str,
     authorization: str,
     conn,
+    x_agent_harness: str = "",
+    x_agent_model: str = "",
 ) -> tuple[str, str | int]:
     """Authenticate the caller as either an agent or a user.
 
     Returns ('agent', agent_id) or ('user', user_id). Agent token takes
-    precedence so the CLI keeps working unchanged.
+    precedence so the CLI keeps working unchanged. If X-Agent-Harness /
+    X-Agent-Model headers are present, updates the agent's harness/model
+    fields (auto-detection from the CLI).
     """
     # Try agent token first (CLI flow)
     effective = x_agent_token or token
@@ -72,7 +76,14 @@ async def _resolve_author(
             "SELECT id FROM agents WHERE token = %s OR id = %s", (effective, effective)
         )).fetchone()
         if row:
-            await conn.execute("UPDATE agents SET last_seen_at = %s WHERE id = %s", (now(), row["id"]))
+            # Update last_seen + harness/model from auto-detection headers
+            if x_agent_harness:
+                await conn.execute(
+                    "UPDATE agents SET last_seen_at = %s, harness = %s, model = %s WHERE id = %s",
+                    (now(), x_agent_harness, x_agent_model or "unknown", row["id"]),
+                )
+            else:
+                await conn.execute("UPDATE agents SET last_seen_at = %s WHERE id = %s", (now(), row["id"]))
             return ("agent", row["id"])
     # Try user auth header (UI flow)
     if authorization:
@@ -217,6 +228,8 @@ async def create_channel(
     token: str = Query(""),
     x_agent_token: str = Header(""),
     authorization: str = Header(""),
+    x_agent_harness: str = Header(""),
+    x_agent_model: str = Header(""),
 ):
     name = (body.get("name") or "").strip()
     _validate_channel_name(name)
@@ -224,7 +237,7 @@ async def create_channel(
         raise HTTPException(409, f"'{name}' is reserved")
     ts = now()
     async with get_db() as conn:
-        kind, _author_id = await _resolve_author(token, x_agent_token, authorization, conn)
+        kind, _author_id = await _resolve_author(token, x_agent_token, authorization, conn, x_agent_harness, x_agent_model)
         task_id = await _resolve_task_id(owner, slug, conn)
         # created_by FK references agents — set it for agent authors only
         created_by = _author_id if kind == "agent" else None
@@ -263,6 +276,8 @@ async def post_message(
     token: str = Query(""),
     x_agent_token: str = Header(""),
     authorization: str = Header(""),
+    x_agent_harness: str = Header(""),
+    x_agent_model: str = Header(""),
 ):
     text = body.get("text") or ""
     _validate_text(text)
@@ -271,7 +286,7 @@ async def post_message(
         raise HTTPException(400, "thread_ts must be a string")
     ts = now()
     async with get_db() as conn:
-        kind, author_id = await _resolve_author(token, x_agent_token, authorization, conn)
+        kind, author_id = await _resolve_author(token, x_agent_token, authorization, conn, x_agent_harness, x_agent_model)
         task_id = await _resolve_task_id(owner, slug, conn)
         await _ensure_default_channels(task_id, author_id if kind == "agent" else None, conn)
         channel = await _resolve_channel(task_id, name, conn)
@@ -320,13 +335,15 @@ async def edit_message(
     token: str = Query(""),
     x_agent_token: str = Header(""),
     authorization: str = Header(""),
+    x_agent_harness: str = Header(""),
+    x_agent_model: str = Header(""),
 ):
     """Edit a message's text. Only the original author can edit."""
     new_text = body.get("text") or ""
     _validate_text(new_text)
     edited_at = now()
     async with get_db() as conn:
-        kind, author_id = await _resolve_author(token, x_agent_token, authorization, conn)
+        kind, author_id = await _resolve_author(token, x_agent_token, authorization, conn, x_agent_harness, x_agent_model)
         task_id = await _resolve_task_id(owner, slug, conn)
         channel = await _resolve_channel(task_id, name, conn)
         existing = await (await conn.execute(

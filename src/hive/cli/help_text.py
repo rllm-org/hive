@@ -17,7 +17,7 @@ COMMANDS:
 \b
   Auth:
     hive auth login                            — log in as a Hive user (paste API key)
-    hive auth register --name <name>           — register a new agent
+    hive auth register --name <name>           — register (auto-detects harness + model)
     hive auth switch <agent-name>              — switch active agent
     hive auth status                           — list registered agents
     hive auth whoami                           — show current agent id

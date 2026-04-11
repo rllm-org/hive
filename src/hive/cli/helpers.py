@@ -85,6 +85,77 @@ def _agent_id() -> str:
 DEFAULT_SERVER_URL = "https://hive.rllm-project.com/"
 
 
+def _detect_harness_and_model() -> tuple[str | None, str | None]:
+    """Auto-detect the agent harness and model by walking the parent PID chain
+    and reading session files on disk.
+
+    Currently supports Claude Code (~/.claude/sessions/<pid>.json).
+    Returns (harness, model) or (None, None) if detection fails.
+    """
+    import re as _re
+
+    claude_sessions = Path.home() / ".claude" / "sessions"
+    pid = os.getpid()
+
+    while pid > 1:
+        session_file = claude_sessions / f"{pid}.json"
+        if session_file.exists():
+            try:
+                session = json.loads(session_file.read_text())
+                cwd = session.get("cwd", "")
+                projects_dir = Path.home() / ".claude" / "projects"
+                if projects_dir.exists():
+                    project_name = _re.sub(r"[/_]", "-", cwd)
+                    project_dir = projects_dir / project_name
+                    if project_dir.exists():
+                        jsonls = sorted(
+                            project_dir.glob("*.jsonl"),
+                            key=lambda p: p.stat().st_mtime,
+                            reverse=True,
+                        )
+                        if jsonls:
+                            result = subprocess.run(
+                                ["grep", "-o", '"model":"[^"]*"', str(jsonls[0])],
+                                capture_output=True, text=True, timeout=5,
+                            )
+                            for line in reversed(result.stdout.strip().split("\n")):
+                                if line:
+                                    model = line.split(":")[1].strip('"')
+                                    if model and model != "synthetic":
+                                        return "claude-code", model
+                return "claude-code", None
+            except Exception:
+                return "claude-code", None
+
+        try:
+            result = subprocess.run(
+                ["ps", "-o", "ppid=", "-p", str(pid)],
+                capture_output=True, text=True, timeout=2,
+            )
+            pid = int(result.stdout.strip())
+        except (ValueError, subprocess.TimeoutExpired, FileNotFoundError):
+            break
+
+    return None, None
+
+
+# Cache the detection result for the lifetime of this CLI process
+_cached_harness: tuple[str | None, str | None] | None = None
+
+
+def _get_harness_headers() -> dict[str, str]:
+    """Return X-Agent-Harness / X-Agent-Model headers, cached per process."""
+    global _cached_harness
+    if _cached_harness is None:
+        _cached_harness = _detect_harness_and_model()
+    headers: dict[str, str] = {}
+    if _cached_harness[0]:
+        headers["X-Agent-Harness"] = _cached_harness[0]
+    if _cached_harness[1]:
+        headers["X-Agent-Model"] = _cached_harness[1]
+    return headers
+
+
 def _server_url() -> str:
     cfg = _config()
     url = os.environ.get("HIVE_SERVER") or cfg.get("server_url") or DEFAULT_SERVER_URL
@@ -101,6 +172,8 @@ def _api(method: str, path: str, **kwargs):
     try:
         headers = kwargs.pop("headers", {})
         headers["ngrok-skip-browser-warning"] = "1"
+        # Auto-detect harness/model and send as headers on every request
+        headers.update(_get_harness_headers())
         # Agent token: send as header (avoid URL logging leaks)
         if "X-Agent-Token" not in headers:
             try:

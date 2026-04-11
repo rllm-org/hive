@@ -65,12 +65,15 @@ def get_or_create_agent(agent_id: str, token: str) -> Agent:
 
 
 async def fetch_all_agents() -> list[dict]:
+    """Fetch cloud agents only — local agents handle their inbox themselves."""
     import psycopg
     db_url = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/hive")
     loop = asyncio.get_running_loop()
     def _query():
         with psycopg.connect(db_url) as conn:
-            return conn.execute("SELECT id, token FROM agents").fetchall()
+            return conn.execute(
+                "SELECT id, token FROM agents WHERE type = 'cloud'"
+            ).fetchall()
     rows = await loop.run_in_executor(None, _query)
     return [{"id": r[0], "token": r[1]} for r in rows]
 

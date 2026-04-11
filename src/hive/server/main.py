@@ -897,14 +897,26 @@ def _resolve_agent_token(token: str = "", x_agent_token: str = "") -> str:
     return x_agent_token or token
 
 
-async def get_agent(token: str, conn) -> str:
+async def get_agent(token: str, conn, harness: str = "", model: str = "") -> str:
     # Try real token first, fall back to legacy id-as-token
     row = await (await conn.execute("SELECT id FROM agents WHERE token = %s", (token,))).fetchone()
     if not row:
         row = await (await conn.execute("SELECT id FROM agents WHERE id = %s", (token,))).fetchone()
     if not row:
         raise HTTPException(401, "invalid token")
-    await conn.execute("UPDATE agents SET last_seen_at = %s WHERE id = %s", (now(), row["id"]))
+    # Update last_seen + harness/model if headers were sent
+    if harness and model:
+        await conn.execute(
+            "UPDATE agents SET last_seen_at = %s, harness = %s, model = %s WHERE id = %s",
+            (now(), harness, model, row["id"]),
+        )
+    elif harness:
+        await conn.execute(
+            "UPDATE agents SET last_seen_at = %s, harness = %s WHERE id = %s",
+            (now(), harness, row["id"]),
+        )
+    else:
+        await conn.execute("UPDATE agents SET last_seen_at = %s WHERE id = %s", (now(), row["id"]))
     return row["id"]
 
 
@@ -921,8 +933,21 @@ def _validate_agent_id(agent_id: str):
 
 
 @router.post("/register", status_code=201)
-async def register(body: dict[str, Any] = {}):
+async def register(
+    body: dict[str, Any] = {},
+    x_agent_harness: str = Header(""),
+    x_agent_model: str = Header(""),
+    x_admin_key: str = Header(""),
+):
     preferred, ts = body.get("preferred_name"), now()
+    agent_type = body.get("type", "local")
+    harness = x_agent_harness or body.get("harness", "unknown")
+    model = x_agent_model or body.get("model", "unknown")
+    if agent_type not in ("local", "cloud"):
+        raise HTTPException(400, "type must be 'local' or 'cloud'")
+    if agent_type == "cloud":
+        if not ADMIN_KEY or not x_admin_key or x_admin_key != ADMIN_KEY:
+            raise HTTPException(403, "cloud agents require admin access")
     agent_token = str(uuid.uuid4())
     async with get_db() as conn:
         if preferred:
@@ -934,12 +959,16 @@ async def register(body: dict[str, Any] = {}):
             agent_id = await generate_name(conn)
         try:
             await conn.execute(
-                "INSERT INTO agents (id, token, registered_at, last_seen_at) VALUES (%s, %s, %s, %s)",
-                (agent_id, agent_token, ts, ts),
+                "INSERT INTO agents (id, token, registered_at, last_seen_at, type, harness, model)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (agent_id, agent_token, ts, ts, agent_type, harness, model),
             )
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, f"name '{agent_id}' is already taken")
-    return JSONResponse({"id": agent_id, "token": agent_token, "registered_at": ts}, status_code=201)
+    return JSONResponse({
+        "id": agent_id, "token": agent_token, "registered_at": ts,
+        "type": agent_type, "harness": harness, "model": model,
+    }, status_code=201)
 
 
 @router.get("/agents")
@@ -949,20 +978,26 @@ async def list_agents(q: str | None = Query(None), limit: int = Query(50)):
     async with get_db() as conn:
         if q:
             rows = await (await conn.execute(
-                "SELECT a.id, a.total_runs, u.handle AS owner_handle FROM agents a"
+                "SELECT a.id, a.total_runs, a.type, a.harness, a.model,"
+                " u.handle AS owner_handle FROM agents a"
                 " LEFT JOIN users u ON u.id = a.user_id"
                 " WHERE a.id ILIKE %s ORDER BY a.total_runs DESC, a.id ASC LIMIT %s",
                 (f"%{q}%", limit),
             )).fetchall()
         else:
             rows = await (await conn.execute(
-                "SELECT a.id, a.total_runs, u.handle AS owner_handle FROM agents a"
+                "SELECT a.id, a.total_runs, a.type, a.harness, a.model,"
+                " u.handle AS owner_handle FROM agents a"
                 " LEFT JOIN users u ON u.id = a.user_id"
                 " ORDER BY a.total_runs DESC, a.id ASC LIMIT %s",
                 (limit,),
             )).fetchall()
     return JSONResponse({"agents": [
-        {"id": r["id"], "total_runs": r["total_runs"], "owner_handle": r["owner_handle"]}
+        {
+            "id": r["id"], "total_runs": r["total_runs"],
+            "owner_handle": r["owner_handle"],
+            "type": r["type"], "harness": r["harness"], "model": r["model"],
+        }
         for r in rows
     ]})
 
@@ -972,19 +1007,36 @@ async def get_agent_profile(agent_id: str):
     """Public agent profile: identity, timestamps, total runs, and owner handle if claimed."""
     async with get_db() as conn:
         row = await (await conn.execute(
-            "SELECT a.id, a.registered_at, a.last_seen_at, a.total_runs, u.handle AS owner_handle"
+            "SELECT a.id, a.registered_at, a.last_seen_at, a.total_runs,"
+            " a.type, a.harness, a.model, u.handle AS owner_handle"
             " FROM agents a LEFT JOIN users u ON u.id = a.user_id"
             " WHERE a.id = %s",
             (agent_id,),
         )).fetchone()
-    if not row:
-        raise HTTPException(404, "agent not found")
+        if not row:
+            raise HTTPException(404, "agent not found")
+        # Aggregate harness/model usage from runs
+        harness_rows = await (await conn.execute(
+            "SELECT harness, model, COUNT(*) AS run_count, MAX(created_at) AS last_used"
+            " FROM runs WHERE agent_id = %s AND harness IS NOT NULL"
+            " GROUP BY harness, model ORDER BY run_count DESC",
+            (agent_id,),
+        )).fetchall()
+    harnesses = [
+        {"harness": r["harness"], "model": r["model"],
+         "run_count": r["run_count"], "last_used": r["last_used"]}
+        for r in harness_rows
+    ]
     return JSONResponse({
         "id": row["id"],
         "registered_at": row["registered_at"],
         "last_seen_at": row["last_seen_at"],
         "total_runs": row["total_runs"],
         "owner_handle": row["owner_handle"],
+        "type": row["type"],
+        "harness": row["harness"],
+        "model": row["model"],
+        "harnesses": harnesses,
     })
 
 
@@ -1590,7 +1642,7 @@ async def push_to_task(owner: str, slug: str, branch: str = Form(""), bundle: Up
 
 
 @router.post("/tasks/{owner}/{slug}/submit", status_code=201)
-async def submit_run(owner: str, slug: str, body: dict[str, Any], token: str = Query(""), x_agent_token: str = Header(""), authorization: str = Header("")):
+async def submit_run(owner: str, slug: str, body: dict[str, Any], token: str = Query(""), x_agent_token: str = Header(""), authorization: str = Header(""), x_agent_harness: str = Header(""), x_agent_model: str = Header("")):
     """Record a run submission and queue verification when the task requires it."""
 
     await require_task_access(owner, slug, authorization)
@@ -1638,13 +1690,16 @@ async def submit_run(owner: str, slug: str, body: dict[str, Any], token: str = Q
             verification_snapshot = json.dumps(verification.to_dict())
 
         verification_status = verification.submission_status
+        run_harness = x_agent_harness or None
+        run_model = x_agent_model or None
         await conn.execute(
             "INSERT INTO runs (id, task_id, parent_id, agent_id, branch, tldr, message, score,"
-            " verified, verification_status, task_repo_sha, verification_config, created_at, fork_id)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s, %s, %s, %s, %s)",
+            " verified, verification_status, task_repo_sha, verification_config, created_at, fork_id,"
+            " harness, model)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s, %s, %s, %s, %s, %s, %s)",
             (sha, task_id, parent_id, agent_id, body.get("branch", ""),
              body.get("tldr", ""), body.get("message", ""), score, verification_status,
-             task_repo_sha, verification_snapshot, ts, fork_id),
+             task_repo_sha, verification_snapshot, ts, fork_id, run_harness, run_model),
         )
         await conn.execute("UPDATE agents SET total_runs = total_runs + 1 WHERE id = %s", (agent_id,))
         if not verification.enabled:

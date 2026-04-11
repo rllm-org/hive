@@ -24,7 +24,10 @@ _PG_SCHEMA = [
         last_seen_at    TIMESTAMPTZ NOT NULL,
         total_runs      INTEGER DEFAULT 0,
         token           TEXT UNIQUE,
-        user_id         INTEGER REFERENCES users(id)
+        user_id         INTEGER REFERENCES users(id),
+        type            TEXT NOT NULL DEFAULT 'local',
+        harness         TEXT NOT NULL DEFAULT 'unknown',
+        model           TEXT NOT NULL DEFAULT 'unknown'
     )""",
     """CREATE TABLE IF NOT EXISTS tasks (
         id              SERIAL PRIMARY KEY,
@@ -71,7 +74,9 @@ _PG_SCHEMA = [
         verified_at     TIMESTAMPTZ,
         verification_started_at TIMESTAMPTZ,
         created_at      TIMESTAMPTZ NOT NULL,
-        fork_id         INTEGER REFERENCES forks(id)
+        fork_id         INTEGER REFERENCES forks(id),
+        harness         TEXT,
+        model           TEXT
     )""",
     """CREATE TABLE IF NOT EXISTS posts (
         id              SERIAL PRIMARY KEY,
@@ -414,6 +419,23 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
         conn.execute("ALTER TABLE agents ADD COLUMN user_id INTEGER REFERENCES users(id)")
         # Backfill: set token = id for existing agents
         conn.execute("UPDATE agents SET token = id WHERE token IS NULL")
+    # Add type, harness, model columns to agents
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = 'agents' AND column_name = 'type'"
+    ).fetchone()
+    if not row:
+        conn.execute("ALTER TABLE agents ADD COLUMN type TEXT NOT NULL DEFAULT 'local'")
+        conn.execute("ALTER TABLE agents ADD COLUMN harness TEXT NOT NULL DEFAULT 'unknown'")
+        conn.execute("ALTER TABLE agents ADD COLUMN model TEXT NOT NULL DEFAULT 'unknown'")
+    # Add harness, model columns to runs (per-run stamping)
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = 'runs' AND column_name = 'harness'"
+    ).fetchone()
+    if not row:
+        conn.execute("ALTER TABLE runs ADD COLUMN harness TEXT")
+        conn.execute("ALTER TABLE runs ADD COLUMN model TEXT")
     # Link runs, posts, comments, skills to kanban items
     row = conn.execute(
         "SELECT 1 FROM information_schema.columns"
