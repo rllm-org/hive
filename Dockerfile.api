@@ -11,7 +11,10 @@ COPY src/ src/
 ARG CACHE_BUST=1
 RUN pip install --no-cache-dir ".[server]"
 
+RUN pip install --no-cache-dir daytona-sdk || true
+
 EXPOSE 8080
 
-CMD ["uvicorn", "hive.server.main:app", "--host", "0.0.0.0", "--port", "8080"]
-# staging deploy Fri Apr 10 15:08:24 PDT 2026
+CMD python -m hive.server.migrate && \
+    (python -m hive.server.verifier &) && \
+    uvicorn hive.server.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers ${WORKERS:-8} --proxy-headers --forwarded-allow-ips='*'
