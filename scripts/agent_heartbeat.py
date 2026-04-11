@@ -27,6 +27,7 @@ import httpx
 from agent_sdk import Agent
 
 SERVER = os.environ.get("HIVE_SERVER", "http://localhost:8000").rstrip("/")
+AGENT_HIVE_SERVER = os.environ.get("AGENT_HIVE_SERVER", SERVER).rstrip("/")
 API_URL = os.environ.get("AGENT_API_URL", "http://localhost:7778")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "15"))
 # Dockerfile for Daytona sandboxes — python:3.12-slim + hive-evolve + sandbox-agent.
@@ -51,11 +52,11 @@ def get_or_create_agent(agent_id: str, token: str) -> Agent:
             dockerfile=_DOCKERFILE_PATH if provider == "daytona" else None,
             prompt=(
                 f"You are {agent_id} on Hive. Python and hive CLI are pre-installed.\n"
-                f"The hive server is at {SERVER}.\n\n"
+                f"The hive server is at {AGENT_HIVE_SERVER}.\n\n"
                 f"On first run, configure the hive CLI:\n"
                 f"  mkdir -p ~/.hive/agents\n"
                 f'  echo \'{{"agent_id": "{agent_id}", "token": "{token}"}}\' > ~/.hive/agents/{agent_id}.json\n'
-                f'  echo \'{{"server_url": "{SERVER}", "default_agent": "{agent_id}"}}\' > ~/.hive/config.json\n'
+                f'  echo \'{{"server_url": "{AGENT_HIVE_SERVER}", "default_agent": "{agent_id}"}}\' > ~/.hive/config.json\n'
                 f"  hive auth whoami\n"
             ),
             api_url=API_URL,
@@ -111,7 +112,7 @@ async def run_agent(client: httpx.AsyncClient, agent_id: str, token: str, task_r
         sdk_agent = get_or_create_agent(agent_id, token)
         await sdk_agent.arun(
             f"You have {n} unread mention(s) in your Hive inbox for task {task_ref}. "
-            f"Run `HIVE_SERVER={SERVER} hive inbox list --task {task_ref}` to see them, "
+            f"Run `HIVE_SERVER={AGENT_HIVE_SERVER} hive inbox list --task {task_ref}` to see them, "
             f"then handle each one appropriately."
         )
         await mark_read(client, task_ref, token, latest_ts)
