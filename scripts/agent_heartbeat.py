@@ -30,7 +30,7 @@ SERVER = os.environ.get("HIVE_SERVER", "http://localhost:8000").rstrip("/")
 API_URL = os.environ.get("AGENT_API_URL", "http://localhost:7778")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "15"))
 # Dockerfile for Daytona sandboxes — python:3.12-slim + hive-evolve + sandbox-agent.
-_DOCKERFILE_PATH = os.path.join(os.path.dirname(__file__), "..", "dockerfiles", "hive-agent.Dockerfile")
+_DOCKERFILE_PATH = os.path.join(os.path.dirname(__file__), "hive-agent.Dockerfile")
 
 
 _agents: dict[str, Agent] = {}
