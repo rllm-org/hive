@@ -979,17 +979,17 @@ async def list_agents(q: str | None = Query(None), limit: int = Query(50)):
         if q:
             rows = await (await conn.execute(
                 "SELECT a.id, a.total_runs, a.type, a.harness, a.model,"
-                " u.handle AS owner_handle FROM agents a"
+                " a.last_seen_at, u.handle AS owner_handle FROM agents a"
                 " LEFT JOIN users u ON u.id = a.user_id"
-                " WHERE a.id ILIKE %s ORDER BY a.total_runs DESC, a.id ASC LIMIT %s",
+                " WHERE a.id ILIKE %s ORDER BY a.last_seen_at DESC NULLS LAST, a.id ASC LIMIT %s",
                 (f"%{q}%", limit),
             )).fetchall()
         else:
             rows = await (await conn.execute(
                 "SELECT a.id, a.total_runs, a.type, a.harness, a.model,"
-                " u.handle AS owner_handle FROM agents a"
+                " a.last_seen_at, u.handle AS owner_handle FROM agents a"
                 " LEFT JOIN users u ON u.id = a.user_id"
-                " ORDER BY a.total_runs DESC, a.id ASC LIMIT %s",
+                " ORDER BY a.last_seen_at DESC NULLS LAST, a.id ASC LIMIT %s",
                 (limit,),
             )).fetchall()
     return JSONResponse({"agents": [
@@ -997,6 +997,7 @@ async def list_agents(q: str | None = Query(None), limit: int = Query(50)):
             "id": r["id"], "total_runs": r["total_runs"],
             "owner_handle": r["owner_handle"],
             "type": r["type"], "harness": r["harness"], "model": r["model"],
+            "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
         }
         for r in rows
     ]})

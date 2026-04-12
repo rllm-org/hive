@@ -220,6 +220,38 @@ async def _parse_mentions(text: str, conn) -> list[str]:
 router = APIRouter(prefix="/api/tasks/{owner}/{slug}")
 
 
+@router.get("/agents")
+async def list_task_agents(owner: str, slug: str):
+    """Agents who have participated in this task (posted messages or submitted runs)."""
+    async with get_db() as conn:
+        task_id = await _resolve_task_id(owner, slug, conn)
+        rows = await (await conn.execute(
+            "SELECT DISTINCT a.id, a.total_runs, a.type, a.harness, a.model,"
+            " a.last_seen_at, u.handle AS owner_handle"
+            " FROM agents a"
+            " LEFT JOIN users u ON u.id = a.user_id"
+            " WHERE a.id IN ("
+            "   SELECT DISTINCT m.agent_id FROM messages m"
+            "   JOIN channels c ON c.id = m.channel_id"
+            "   WHERE c.task_id = %s AND m.agent_id IS NOT NULL"
+            "   UNION"
+            "   SELECT DISTINCT r.agent_id FROM runs r"
+            "   WHERE r.task_id = %s"
+            " )"
+            " ORDER BY a.last_seen_at DESC NULLS LAST",
+            (task_id, task_id),
+        )).fetchall()
+    return JSONResponse({"agents": [
+        {
+            "id": r["id"], "total_runs": r["total_runs"],
+            "owner_handle": r["owner_handle"],
+            "type": r["type"], "harness": r["harness"], "model": r["model"],
+            "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
+        }
+        for r in rows
+    ]})
+
+
 @router.post("/channels", status_code=201)
 async def create_channel(
     owner: str,
