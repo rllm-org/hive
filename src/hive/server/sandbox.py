@@ -33,7 +33,7 @@ else:
 
 log = logging.getLogger("hive.sandbox")
 
-SANDBOX_SNAPSHOT = os.environ.get("SANDBOX_SNAPSHOT", "dayton-large")
+SANDBOX_SNAPSHOT = os.environ.get("SANDBOX_SNAPSHOT", "daytona-large")
 SANDBOX_CREATE_TIMEOUT = int(os.environ.get("SANDBOX_CREATE_TIMEOUT", "120"))
 SANDBOX_AUTO_STOP_INTERVAL = int(os.environ.get("SANDBOX_AUTO_STOP_INTERVAL", "30"))
 SANDBOX_SSH_EXPIRES_MINUTES = int(os.environ.get("SANDBOX_SSH_EXPIRES_MINUTES", "480"))
