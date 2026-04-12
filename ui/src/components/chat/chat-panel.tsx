@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type ComponentType } from "react";
-import { LuHash, LuX, LuMessageSquare, LuChevronRight, LuInfo, LuActivity, LuTerminal, LuPencil, LuPlus } from "react-icons/lu";
-import { useChannels, useMessages, useThread, type Channel, type Message, type ThreadParticipant } from "@/hooks/use-chat";
+import { LuHash, LuX, LuMessageSquare, LuChevronRight, LuInfo, LuActivity, LuTerminal, LuPencil, LuPlus, LuBot } from "react-icons/lu";
+import { useChannels, useMessages, useThread, useTaskAgents, type Channel, type Message, type ThreadParticipant, type AgentSummary } from "@/hooks/use-chat";
 import { getAgentColor } from "@/lib/agent-colors";
+import { isOnline } from "@/lib/time";
 import { RenderMessage } from "@/components/chat/render-message";
 import { ResizeHandle, useResizableWidth } from "@/components/shared/resize-handle";
 import { AgentLink, AgentProfilePanel, UserLink, UserProfilePanel, type ProfileTarget } from "@/components/chat/agent-profile";
@@ -71,6 +72,7 @@ function saveSelection(taskPath: string, sel: Selection): void {
 
 export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, sandboxContent }: ChatPanelProps) {
   const { channels, loading: channelsLoading, refetch: refetchChannels } = useChannels(taskPath);
+  const { agents: taskAgents } = useTaskAgents(taskPath);
   const { user } = useAuth();
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const showSandbox = sandboxContent != null;
@@ -165,11 +167,13 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
             header={sidebarHeader}
             systemViews={visibleSystemViews}
             channels={channels}
+            agents={taskAgents}
             selection={effectiveSelection}
             loading={channelsLoading}
             onSelectSystem={handleSelectSystem}
             onSelectChannel={handleSelectChannel}
             onCreateChannel={user ? () => setCreateChannelOpen(true) : undefined}
+            onOpenProfile={handleOpenProfile}
             width={sidebarResize.width}
           />
           <ResizeHandle
@@ -245,23 +249,38 @@ function ChannelSidebar({
   header,
   systemViews,
   channels,
+  agents,
   selection,
   loading,
   onSelectSystem,
   onSelectChannel,
   onCreateChannel,
+  onOpenProfile,
   width,
 }: {
   header?: ReactNode;
   systemViews: SystemViewDef[];
   channels: Channel[];
+  agents: AgentSummary[];
   selection: Selection;
   loading: boolean;
   onSelectSystem: (view: SystemView) => void;
   onSelectChannel: (name: string) => void;
   onCreateChannel?: () => void;
+  onOpenProfile: (target: ProfileTarget) => void;
   width: number;
 }) {
+  // Sort agents: online first, then by last_seen_at desc
+  const sortedAgents = useMemo(() => {
+    return [...agents].sort((a, b) => {
+      const aOnline = isOnline(a.last_seen_at);
+      const bOnline = isOnline(b.last_seen_at);
+      if (aOnline !== bOnline) return aOnline ? -1 : 1;
+      const aTime = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0;
+      const bTime = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0;
+      return bTime - aTime;
+    });
+  }, [agents]);
   return (
     <aside
       className="hidden md:flex flex-col shrink-0"
@@ -315,6 +334,10 @@ function ChannelSidebar({
             ))
           )}
         </div>
+        {/* Divider */}
+        <div className="mx-4 my-4 h-px bg-white/15" />
+        {/* Agents section */}
+        <AgentsSidebarSection agents={sortedAgents} onOpenProfile={onOpenProfile} />
       </div>
     </aside>
   );
@@ -370,7 +393,7 @@ function SidebarChannelItem({
     return (
       <button
         onClick={onClick}
-        className={`${SIDEBAR_ITEM_BASE} pl-6 bg-white text-[#1D1C1D] font-bold`}
+        className={`${SIDEBAR_ITEM_BASE} pl-5 bg-white text-[#1D1C1D] font-bold`}
       >
         <LuHash size={14} className="shrink-0 opacity-80" />
         <span className="truncate">{name}</span>
@@ -380,10 +403,73 @@ function SidebarChannelItem({
   return (
     <button
       onClick={onClick}
-      className={`${SIDEBAR_ITEM_BASE} pl-6 text-white/75 hover:bg-white/10 hover:text-white`}
+      className={`${SIDEBAR_ITEM_BASE} pl-5 text-white/75 hover:bg-white/10 hover:text-white`}
     >
       <LuHash size={14} className="shrink-0 opacity-80" />
       <span className="truncate">{name}</span>
+    </button>
+  );
+}
+
+const AGENT_SIDEBAR_LIMIT = 10;
+
+function AgentsSidebarSection({ agents, onOpenProfile }: { agents: AgentSummary[]; onOpenProfile: (target: ProfileTarget) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? agents : agents.slice(0, AGENT_SIDEBAR_LIMIT);
+  const hasMore = agents.length > AGENT_SIDEBAR_LIMIT;
+
+  return (
+    <>
+      <div className="flex w-[calc(100%-16px)] items-center gap-2.5 h-[30px] mx-2 pl-4 pr-2 text-[15px] text-white/75">
+        <LuBot size={14} className="shrink-0 opacity-80" />
+        <span className="truncate flex-1">Agents</span>
+      </div>
+      <div className="space-y-0.5">
+        {visible.map((a) => (
+          <SidebarAgentItem
+            key={a.id}
+            agent={a}
+            onClick={() => onOpenProfile({ kind: "agent", id: a.id })}
+          />
+        ))}
+        {hasMore && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className={`${SIDEBAR_ITEM_BASE} pl-5 text-white/50 hover:bg-white/10 hover:text-white/75`}
+          >
+            <span className="truncate">
+              {expanded ? "Show less" : `Show ${agents.length - AGENT_SIDEBAR_LIMIT} more`}
+            </span>
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+function SidebarAgentItem({ agent, onClick }: { agent: AgentSummary; onClick: () => void }) {
+  const online = isOnline(agent.last_seen_at);
+  const color = getAgentColor(agent.id);
+  const initials = agent.id.slice(0, 2).toUpperCase();
+  return (
+    <button
+      onClick={onClick}
+      className={`${SIDEBAR_ITEM_BASE} pl-5 text-[13px] text-white/75 hover:bg-white/10 hover:text-white`}
+    >
+      <div className="relative shrink-0">
+        <div
+          className="w-5 h-5 rounded text-white text-[9px] font-bold flex items-center justify-center"
+          style={{ backgroundColor: color }}
+        >
+          {initials}
+        </div>
+        <span className="absolute -bottom-0.5 -right-0.5">
+          <span className={`block w-2.5 h-2.5 rounded-full border-[1.5px] ${
+            online ? "bg-green-500 border-[#264d80]" : "bg-[#264d80] border-white/40"
+          }`} />
+        </span>
+      </div>
+      <span className={`truncate ${online ? "text-white" : ""}`}>{agent.id}</span>
     </button>
   );
 }

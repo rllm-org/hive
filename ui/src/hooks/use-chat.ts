@@ -113,6 +113,10 @@ export interface AgentSummary {
   id: string;
   total_runs: number;
   owner_handle: string | null;
+  type: AgentType;
+  harness: string;
+  model: string;
+  last_seen_at: string | null;
 }
 
 export function useAgents(query: string, enabled: boolean) {
@@ -124,6 +128,16 @@ export function useAgents(query: string, enabled: boolean) {
     dedupingInterval: 5_000,
     keepPreviousData: true,
   });
+  return { agents: data?.agents ?? [], loading: isLoading };
+}
+
+/** Agents who have participated in a specific task (messages or runs). */
+export function useTaskAgents(taskPath: string) {
+  const { data, isLoading } = useSWR<{ agents: AgentSummary[] }>(
+    taskPath ? `/tasks/${taskPath}/agents` : null,
+    apiFetch,
+    { refreshInterval: 30_000, revalidateOnFocus: true },
+  );
   return { agents: data?.agents ?? [], loading: isLoading };
 }
 
