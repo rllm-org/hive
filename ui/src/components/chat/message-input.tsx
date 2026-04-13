@@ -36,12 +36,20 @@ function draftKey(taskPath: string, channelName: string, threadTs?: string): str
 
 /* ─────────────── Mention suggestion list (React component) ─────────────── */
 
+interface MentionItem {
+  id: string;
+  kind: "agent" | "user";
+  avatar_url?: string | null;
+  owner_handle?: string | null;
+  total_runs?: number;
+}
+
 interface MentionListHandle {
   onKeyDown: (props: SuggestionKeyDownProps) => boolean;
 }
 
 interface MentionListProps {
-  items: AgentSummary[];
+  items: MentionItem[];
   command: (item: { id: string; label: string }) => void;
 }
 
@@ -85,62 +93,81 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>(function Men
   if (items.length === 0) {
     return (
       <div className="w-[280px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl px-3 py-2 text-[12px] text-[var(--color-text-tertiary)]">
-        No matching agents
+        No matches
       </div>
     );
   }
 
-  return (
-    <div className="w-[300px] max-h-[260px] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl">
-      <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)] border-b border-[var(--color-border)]">
-        Agents
-      </div>
-      {items.map((item, index) => {
-        const color = getAgentColor(item.id);
-        const initials = item.id.slice(0, 2).toUpperCase();
-        const active = index === selectedIndex;
-        return (
-          <button
-            key={item.id}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              select(index);
-            }}
-            onMouseEnter={() => setSelectedIndex(index)}
-            className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] transition-colors ${
-              active
-                ? "bg-[var(--color-accent)] text-white"
-                : "text-[var(--color-text)] hover:bg-[var(--color-layer-1)]"
+  const agents = items.filter((i) => i.kind === "agent");
+  const users = items.filter((i) => i.kind === "user");
+
+  const renderItem = (item: MentionItem, index: number) => {
+    const active = index === selectedIndex;
+    const isAgent = item.kind === "agent";
+    const color = isAgent ? getAgentColor(item.id) : "#6b7280";
+    const initials = item.id.slice(0, 2).toUpperCase();
+    return (
+      <button
+        key={`${item.kind}-${item.id}`}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          select(index);
+        }}
+        onMouseEnter={() => setSelectedIndex(index)}
+        className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] transition-colors ${
+          active
+            ? "bg-[var(--color-accent)] text-white"
+            : "text-[var(--color-text)] hover:bg-[var(--color-layer-1)]"
+        }`}
+      >
+        {item.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={item.avatar_url} alt={item.id} className="w-6 h-6 rounded-full object-cover shrink-0" />
+        ) : (
+          <div
+            className={`w-6 h-6 ${isAgent ? "rounded" : "rounded-full"} text-white text-[10px] font-bold flex items-center justify-center shrink-0`}
+            style={{ backgroundColor: color }}
+          >
+            {initials}
+          </div>
+        )}
+        <div className="flex-1 min-w-0 truncate">
+          <span className="font-medium">{item.id}</span>
+        </div>
+        {isAgent && (
+          <span
+            className={`text-[11px] tabular-nums ${
+              active ? "text-white/80" : "text-[var(--color-text-tertiary)]"
             }`}
           >
-            <div
-              className="w-6 h-6 rounded text-white text-[10px] font-bold flex items-center justify-center shrink-0"
-              style={{ backgroundColor: color }}
-            >
-              {initials}
-            </div>
-            <div className="flex-1 min-w-0 truncate">
-              <span className="font-medium">{item.id}</span>
-              {item.owner_handle && (
-                <span
-                  className={`ml-2 text-[12px] ${
-                    active ? "text-white/80" : "text-[var(--color-text-secondary)]"
-                  }`}
-                >
-                  @{item.owner_handle}
-                </span>
-              )}
-            </div>
-            <span
-              className={`text-[11px] tabular-nums ${
-                active ? "text-white/80" : "text-[var(--color-text-tertiary)]"
-              }`}
-            >
-              {item.total_runs} runs
-            </span>
-          </button>
-        );
-      })}
+            {item.total_runs ?? 0} runs
+          </span>
+        )}
+      </button>
+    );
+  };
+
+  // Track global index across sections for keyboard navigation
+  let globalIndex = 0;
+
+  return (
+    <div className="w-[300px] max-h-[260px] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl">
+      {agents.length > 0 && (
+        <>
+          <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)] border-b border-[var(--color-border)]">
+            Agents
+          </div>
+          {agents.map((item) => renderItem(item, globalIndex++))}
+        </>
+      )}
+      {users.length > 0 && (
+        <>
+          <div className={`px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)] border-b border-[var(--color-border)] ${agents.length > 0 ? "border-t" : ""}`}>
+            Users
+          </div>
+          {users.map((item) => renderItem(item, globalIndex++))}
+        </>
+      )}
     </div>
   );
 });
@@ -217,7 +244,7 @@ function makeMentionRender() {
 
 /* ─────────────── Mention extension (configured) ─────────────── */
 
-function makeMentionExtension(fetchAgents: (query: string) => Promise<AgentSummary[]>) {
+function makeMentionExtension(fetchItems: (query: string) => Promise<MentionItem[]>) {
   // Extend Mention to (1) soft-delete on backspace and (2) teach tiptap-markdown
   // how to serialize the node — without this, tiptap-markdown's fallback writes
   // a literal "[mention]" placeholder into the markdown, which then renders as
@@ -269,7 +296,7 @@ function makeMentionExtension(fetchAgents: (query: string) => Promise<AgentSumma
       allowSpaces: false,
       items: async ({ query }) => {
         try {
-          return await fetchAgents(query);
+          return await fetchItems(query);
         } catch {
           return [];
         }
@@ -549,11 +576,25 @@ function getEditorMarkdown(editor: Editor | null): string {
 
 /* ─────────────── Shared chat editor hook ─────────────── */
 
-async function fetchAgentsForMention(query: string): Promise<AgentSummary[]> {
+async function fetchMentionItems(query: string): Promise<MentionItem[]> {
   const params = new URLSearchParams({ limit: "10" });
   if (query) params.set("q", query);
-  const data = await apiFetch<{ agents: AgentSummary[] }>(`/agents?${params.toString()}`);
-  return data.agents;
+  const [agentData, userData] = await Promise.all([
+    apiFetch<{ agents: AgentSummary[] }>(`/agents?${params.toString()}`),
+    apiFetch<{ users: { id: number; handle: string; avatar_url: string | null }[] }>(`/users?${params.toString()}`),
+  ]);
+  const agents: MentionItem[] = agentData.agents.map((a) => ({
+    id: a.id,
+    kind: "agent",
+    owner_handle: a.owner_handle,
+    total_runs: a.total_runs,
+  }));
+  const users: MentionItem[] = userData.users.map((u) => ({
+    id: u.handle,
+    kind: "user",
+    avatar_url: u.avatar_url,
+  }));
+  return [...agents, ...users];
 }
 
 interface UseChatEditorOptions {
@@ -609,7 +650,7 @@ function useChatEditor({ placeholder, initialContent = "", onSubmit, onChange }:
         transformPastedText: true,
         transformCopiedText: true,
       }),
-      makeMentionExtension(fetchAgentsForMention),
+      makeMentionExtension(fetchMentionItems),
     ],
     content: initialContent,
     immediatelyRender: false,

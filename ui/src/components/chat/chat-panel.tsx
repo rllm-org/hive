@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type ComponentType } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type ComponentType } from "react";
 import { LuHash, LuX, LuMessageSquare, LuChevronRight, LuInfo, LuActivity, LuTerminal, LuPencil, LuPlus, LuBot } from "react-icons/lu";
-import { useChannels, useMessages, useThread, useTaskAgents, type Channel, type Message, type ThreadParticipant, type AgentSummary } from "@/hooks/use-chat";
+import { useAgent, useChannels, useMessages, useThread, useTaskAgents, type Channel, type Message, type ThreadParticipant, type AgentSummary } from "@/hooks/use-chat";
 import { getAgentColor } from "@/lib/agent-colors";
 import { isOnline } from "@/lib/time";
 import { RenderMessage } from "@/components/chat/render-message";
@@ -22,6 +22,7 @@ interface ChatPanelProps {
 }
 
 const HIVE_SIDEBAR_BG = "#264d80"; // hive accent-hover, used as Slack-style dark sidebar
+const AgentIdsContext = createContext<Set<string>>(new Set());
 const GROUP_GAP_MS = 5 * 60 * 1000;
 
 /* ────────────── System views (not channels — hardcoded sidebar surfaces) ────────────── */
@@ -151,7 +152,10 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
     setActiveThreadTs(null);
   }, []);
 
+  const agentIds = useMemo(() => new Set(taskAgents.map((a) => a.id)), [taskAgents]);
+
   return (
+    <AgentIdsContext.Provider value={agentIds}>
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden pt-1 bg-[var(--color-surface)]">
       {/* Inner blue chrome — top + left only; right and bottom continue to the page edge */}
       <div
@@ -240,6 +244,7 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
         }}
       />
     </div>
+    </AgentIdsContext.Provider>
   );
 }
 
@@ -831,32 +836,60 @@ function MessageBody({
   mentions: string[];
   onOpenProfile?: (target: ProfileTarget) => void;
 }) {
+  const agentIds = useContext(AgentIdsContext);
   return (
     <RenderMessage
       text={text}
       validatedMentions={mentions}
-      renderMention={(id) => <MentionPill agent={id} onOpenProfile={onOpenProfile} />}
+      renderMention={(id) => {
+        // Default to agent (blue). Only show as user (gray) if we know for sure
+        // it's not an agent. agentIds comes from useTaskAgents which may be incomplete,
+        // so we check message authors for user handles instead.
+        return <MentionPill id={id} agentIds={agentIds} onOpenProfile={onOpenProfile} />;
+      }}
     />
   );
 }
 
 function MentionPill({
-  agent,
+  id,
+  agentIds,
   onOpenProfile,
 }: {
-  agent: string;
+  id: string;
+  agentIds: Set<string>;
   onOpenProfile?: (target: ProfileTarget) => void;
 }) {
+  const { agent } = useAgent(agentIds.has(id) ? null : id);
+  const isAgent = agentIds.has(id) || agent !== null;
+  const kind = isAgent ? "agent" : "user";
   const pill = (
-    <span className="hive-mention-pill inline-flex items-center mx-px hover:brightness-95 transition-all">
-      @{agent}
+    <span
+      className="hive-mention-pill inline-flex items-center mx-px hover:brightness-95 transition-all"
+      style={{
+        background: kind === "agent"
+          ? "rgba(47, 95, 153, 0.13)"
+          : "rgba(107, 114, 128, 0.13)",
+        color: kind === "agent"
+          ? "var(--color-accent)"
+          : "var(--color-text-secondary)",
+      }}
+    >
+      @{id}
     </span>
   );
   if (!onOpenProfile) return pill;
+  if (kind === "agent") {
+    return (
+      <AgentLink agentId={id} onOpenProfile={onOpenProfile}>
+        {pill}
+      </AgentLink>
+    );
+  }
   return (
-    <AgentLink agentId={agent} onOpenProfile={onOpenProfile}>
+    <UserLink handle={id} onOpenProfile={onOpenProfile}>
       {pill}
-    </AgentLink>
+    </UserLink>
   );
 }
 
