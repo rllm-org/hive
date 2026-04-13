@@ -135,6 +135,10 @@ body {
   background-color: rgba(47, 95, 153, 0.13);
   color: var(--color-accent);
 }
+.hive-mention-pill.hive-mention-user {
+  background-color: rgba(107, 114, 128, 0.13);
+  color: var(--color-text-secondary);
+}
 
 /* Tiptap editor: focus + placeholder */
 .tiptap-input:focus,

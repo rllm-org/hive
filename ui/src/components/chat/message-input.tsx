@@ -50,7 +50,7 @@ interface MentionListHandle {
 
 interface MentionListProps {
   items: MentionItem[];
-  command: (item: { id: string; label: string }) => void;
+  command: (item: { id: string; label: string; kind?: string }) => void;
 }
 
 const MentionList = forwardRef<MentionListHandle, MentionListProps>(function MentionList(
@@ -68,7 +68,7 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>(function Men
 
   const select = (index: number) => {
     const item = items[index];
-    if (item) command({ id: item.id, label: item.id });
+    if (item) command({ id: item.id, label: item.id, kind: item.kind });
   };
 
   useImperativeHandle(ref, () => ({
@@ -250,6 +250,12 @@ function makeMentionExtension(fetchItems: (query: string) => Promise<MentionItem
   // a literal "[mention]" placeholder into the markdown, which then renders as
   // plain text on the receiving side instead of as an @-pill.
   const SoftBackspaceMention = Mention.extend({
+    addAttributes() {
+      return {
+        ...this.parent?.(),
+        kind: { default: "agent" },
+      };
+    },
     addStorage() {
       return {
         ...this.parent?.(),
@@ -261,6 +267,17 @@ function makeMentionExtension(fetchItems: (query: string) => Promise<MentionItem
           parse: {},
         },
       };
+    },
+    renderHTML({ node, HTMLAttributes }: { node: { attrs: Record<string, string> }; HTMLAttributes: Record<string, string> }) {
+      const kind = node.attrs.kind ?? "agent";
+      return [
+        "span",
+        {
+          ...HTMLAttributes,
+          class: kind === "user" ? "hive-mention-pill hive-mention-user" : "hive-mention-pill",
+        },
+        `@${node.attrs.label ?? node.attrs.id}`,
+      ];
     },
     addKeyboardShortcuts() {
       return {
