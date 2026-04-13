@@ -39,6 +39,7 @@ function draftKey(taskPath: string, channelName: string, threadTs?: string): str
 interface MentionItem {
   id: string;
   kind: "agent" | "user";
+  agentType?: "local" | "cloud";
   avatar_url?: string | null;
   owner_handle?: string | null;
   total_runs?: number;
@@ -68,7 +69,7 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>(function Men
 
   const select = (index: number) => {
     const item = items[index];
-    if (item) command({ id: item.id, label: item.id, kind: item.kind });
+    if (item) command({ id: item.id, label: item.id, kind: item.agentType === "cloud" ? "cloud" : item.kind });
   };
 
   useImperativeHandle(ref, () => ({
@@ -274,7 +275,9 @@ function makeMentionExtension(fetchItems: (query: string) => Promise<MentionItem
         "span",
         {
           ...HTMLAttributes,
-          class: kind === "user" ? "hive-mention-pill hive-mention-user" : "hive-mention-pill",
+          class: kind === "cloud" ? "hive-mention-pill hive-mention-cloud"
+            : kind === "user" ? "hive-mention-pill hive-mention-user"
+            : "hive-mention-pill",
         },
         `@${node.attrs.label ?? node.attrs.id}`,
       ];
@@ -603,6 +606,7 @@ async function fetchMentionItems(query: string): Promise<MentionItem[]> {
   const agents: MentionItem[] = agentData.agents.map((a) => ({
     id: a.id,
     kind: "agent",
+    agentType: a.type as "local" | "cloud",
     owner_handle: a.owner_handle,
     total_runs: a.total_runs,
   }));

@@ -22,7 +22,7 @@ interface ChatPanelProps {
 }
 
 const HIVE_SIDEBAR_BG = "#264d80"; // hive accent-hover, used as Slack-style dark sidebar
-const AgentIdsContext = createContext<Set<string>>(new Set());
+const AgentMapContext = createContext<Map<string, string>>(new Map());
 const GROUP_GAP_MS = 5 * 60 * 1000;
 
 /* ────────────── System views (not channels — hardcoded sidebar surfaces) ────────────── */
@@ -152,10 +152,10 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
     setActiveThreadTs(null);
   }, []);
 
-  const agentIds = useMemo(() => new Set(taskAgents.map((a) => a.id)), [taskAgents]);
+  const agentMap = useMemo(() => new Map(taskAgents.map((a) => [a.id, a.type])), [taskAgents]);
 
   return (
-    <AgentIdsContext.Provider value={agentIds}>
+    <AgentMapContext.Provider value={agentMap}>
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden pt-1 bg-[var(--color-surface)]">
       {/* Inner blue chrome — top + left only; right and bottom continue to the page edge */}
       <div
@@ -244,7 +244,7 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
         }}
       />
     </div>
-    </AgentIdsContext.Provider>
+    </AgentMapContext.Provider>
   );
 }
 
@@ -836,50 +836,50 @@ function MessageBody({
   mentions: string[];
   onOpenProfile?: (target: ProfileTarget) => void;
 }) {
-  const agentIds = useContext(AgentIdsContext);
+  const agentMap = useContext(AgentMapContext);
   return (
     <RenderMessage
       text={text}
       validatedMentions={mentions}
       renderMention={(id) => {
-        // Default to agent (blue). Only show as user (gray) if we know for sure
-        // it's not an agent. agentIds comes from useTaskAgents which may be incomplete,
-        // so we check message authors for user handles instead.
-        return <MentionPill id={id} agentIds={agentIds} onOpenProfile={onOpenProfile} />;
+        return <MentionPill id={id} agentMap={agentMap} onOpenProfile={onOpenProfile} />;
       }}
     />
   );
 }
 
+const PILL_STYLES = {
+  agent: { background: "rgba(47, 95, 153, 0.13)", color: "var(--color-accent)" },
+  cloud: { background: "rgba(234, 138, 0, 0.13)", color: "#c27200" },
+  user: { background: "rgba(107, 114, 128, 0.13)", color: "var(--color-text-secondary)" },
+};
+
 function MentionPill({
   id,
-  agentIds,
+  agentMap,
   onOpenProfile,
 }: {
   id: string;
-  agentIds: Set<string>;
+  agentMap: Map<string, string>;
   onOpenProfile?: (target: ProfileTarget) => void;
 }) {
-  const { agent } = useAgent(agentIds.has(id) ? null : id);
-  const isAgent = agentIds.has(id) || agent !== null;
-  const kind = isAgent ? "agent" : "user";
+  // Check task agents first, fall back to global agent lookup
+  const knownType = agentMap.get(id);
+  const { agent } = useAgent(knownType !== undefined ? null : id);
+  const agentType = knownType ?? agent?.type ?? null;
+  const isAgent = agentType !== null;
+  const pillKind = agentType === "cloud" ? "cloud" : isAgent ? "agent" : "user";
+  const style = PILL_STYLES[pillKind];
   const pill = (
     <span
       className="hive-mention-pill inline-flex items-center mx-px hover:brightness-95 transition-all"
-      style={{
-        background: kind === "agent"
-          ? "rgba(47, 95, 153, 0.13)"
-          : "rgba(107, 114, 128, 0.13)",
-        color: kind === "agent"
-          ? "var(--color-accent)"
-          : "var(--color-text-secondary)",
-      }}
+      style={style}
     >
       @{id}
     </span>
   );
   if (!onOpenProfile) return pill;
-  if (kind === "agent") {
+  if (isAgent) {
     return (
       <AgentLink agentId={id} onOpenProfile={onOpenProfile}>
         {pill}
