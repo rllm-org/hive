@@ -38,7 +38,7 @@ export function RenderMessage({ text, validatedMentions, renderMention }: Render
       `@(${validatedMentions.map(escapeRegex).join("|")})\\b`,
       "gi",
     );
-    safeText = safeText.replace(mentionRe, (_, id) => `[@${id}](hive-mention://${id})`);
+    safeText = safeText.replace(mentionRe, (_, id) => `[@${id}](https://hive-mention/${id})`);
   }
 
   return (
@@ -73,8 +73,8 @@ export function RenderMessage({ text, validatedMentions, renderMention }: Render
 
         // Links + mention pills
         a: ({ href, children }) => {
-          if (href?.startsWith("hive-mention://")) {
-            const id = href.replace("hive-mention://", "").toLowerCase();
+          if (href?.startsWith("https://hive-mention/")) {
+            const id = href.replace("https://hive-mention/", "").toLowerCase();
             return <span>{renderMention(id)}</span>;
           }
           return (
