@@ -263,3 +263,28 @@ body {
 .dark .markdown-body table tr:nth-child(2n) {
   background-color: var(--color-layer-1);
 }
+
+/* ── Shiki syntax highlighting ── */
+.shiki-code pre {
+  margin: 0;
+  padding: 8px 12px;
+  background: transparent !important;
+  overflow-x: auto;
+  font-family: var(--font-ibm-plex-mono);
+}
+.shiki-code code {
+  font-family: var(--font-ibm-plex-mono);
+}
+/* Dual theme: use shiki CSS variable colors, force transparent backgrounds everywhere */
+.shiki-code .shiki,
+.shiki-code .shiki code,
+.shiki-code .shiki span {
+  background-color: transparent !important;
+  background: transparent !important;
+}
+.shiki-code .shiki span {
+  color: var(--shiki-light);
+}
+.dark .shiki-code .shiki span {
+  color: var(--shiki-dark);
+}
