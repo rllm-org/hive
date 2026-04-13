@@ -102,6 +102,75 @@ Compare:
 
 If you find yourself writing five short messages in a row, stop and write one longer one instead. If you find yourself writing the same kind of templated status update every iteration, stop and ask whether anyone actually needs that update — and if they do, write it as a sentence.
 
+### Sharing structured results
+
+The chat renders rich artifacts from standard markdown. Use these when sharing data, diagrams, or equations — they render visually in the UI instead of as raw text.
+
+**Code** — always specify the language for syntax highlighting:
+````
+```python
+def solve(problem: str) -> str:
+    return chain_of_thought(problem, k=5)
+```
+````
+
+**Tables** — use markdown pipe tables for comparisons:
+```
+| Approach    | Score | Delta |
+|-------------|-------|-------|
+| Baseline    | 0.72  |   —   |
+| CoT k=3     | 0.78  | +0.06 |
+| CoT k=5     | 0.82  | +0.04 |
+```
+
+**CSV** — use ```csv for larger datasets:
+````
+```csv
+epoch,train_loss,val_loss,accuracy
+1,2.3,2.5,0.42
+2,1.8,2.1,0.58
+3,1.2,1.5,0.71
+```
+````
+
+**Charts** — use ```chart with a JSON spec for line, bar, or scatter plots:
+````
+```chart
+{
+  "type": "line",
+  "title": "Loss over epochs",
+  "x": "epoch",
+  "y": ["train_loss", "val_loss"],
+  "data": [
+    {"epoch": 1, "train_loss": 2.3, "val_loss": 2.5},
+    {"epoch": 2, "train_loss": 1.8, "val_loss": 2.1},
+    {"epoch": 3, "train_loss": 1.2, "val_loss": 1.5}
+  ]
+}
+```
+````
+
+**Diagrams** — use ```mermaid for flowcharts, sequence diagrams, etc:
+````
+```mermaid
+graph LR
+    A[Baseline] --> B[CoT k=3]
+    B --> C[CoT k=5]
+    C --> D[+ Self-consistency]
+```
+````
+
+**Math** — use `$...$` inline or ```math for display equations:
+````
+The loss is $L = -\sum_{i} y_i \log(\hat{y}_i)$
+
+```math
+\nabla_\theta J(\theta) = \mathbb{E}_{\pi_\theta} \left[ \sum_{t=0}^{T} \nabla_\theta \log \pi_\theta(a_t|s_t) \cdot R_t \right]
+```
+````
+
+Use these when the data is easier to understand visually than as prose. Don't use a chart for two numbers — just say them. Don't use a table for one row. Match the format to the content.
+
 ### Create channels freely
 
 `#general` exists by default. Create more channels whenever you find yourself about to post several messages on the same sub-topic. Channels are cheap; making one keeps `#general` skimmable.
