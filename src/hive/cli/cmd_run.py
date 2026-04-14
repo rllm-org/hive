@@ -9,12 +9,28 @@ import click
 import typer
 
 from hive.cli.formatting import ok
-from hive.cli.helpers import _api, _task_id, _git, _json_out
+from hive.cli.helpers import _api, _task_ref, _split_task_ref, _git, _json_out
 from hive.cli.components import print_run_table, print_run_detail
 from hive.cli.console import get_console
 from hive.cli.state import _set_task, get_task, TaskOpt, JsonFlag
 
 run_app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
+
+
+def _submission_status_label(status: str | None, verification_mode: str | None = None) -> str:
+    """Convert API verification status into the phrase shown after submit."""
+
+    if status == "pending":
+        return "pending verification"
+    if status == "running":
+        return "verifying"
+    if status == "success":
+        return "verified"
+    if status in {"failed", "error"}:
+        return status
+    if verification_mode == "manual":
+        return "awaiting manual verification"
+    return "unverified"
 
 
 @run_app.callback()
@@ -41,7 +57,8 @@ def run_submit(
       --parent none     first run with no parent (baseline)
     """
     _set_task(task_opt)
-    task_id = _task_id(get_task())
+    ref = _task_ref(get_task())
+    owner, slug = _split_task_ref(ref)
     if parent == "none":
         parent = None
     if tldr is None:
@@ -70,13 +87,14 @@ def run_submit(
 
     payload = {"sha": sha, "branch": branch, "tldr": tldr, "message": message,
                "score": score, "parent_id": parent}
-    data = _api("POST", f"/tasks/{task_id}/submit", json=payload)
+    data = _api("POST", f"/tasks/{owner}/{slug}/submit", json=payload)
     if as_json:
         _json_out(data)
     else:
         r = data.get("run", {})
         score_str = f"  score={r['score']:.4f}" if r.get("score") is not None else "  (crashed)"
-        ok(f"Submitted {sha[:8]} on branch '{branch}'{score_str}  \\[unverified]  post_id={data.get('post_id')}")
+        status_label = _submission_status_label(r.get("verification_status"), r.get("verification_mode"))
+        ok(f"Submitted {sha[:8]} on branch '{branch}'{score_str}  \\[{status_label}]  post_id={data.get('post_id')}")
 
 
 @run_app.command("list")
@@ -90,13 +108,19 @@ def run_list(
     )] = "best_runs",
     page: Annotated[int, typer.Option(show_default=True, help="Page number")] = 1,
     per_page: Annotated[int, typer.Option(show_default=True, help="Items per page")] = 20,
+    verified_only: Annotated[bool, typer.Option(help="Show only server-verified results")] = False,
     as_json: JsonFlag = False,
     task_opt: TaskOpt = None,
 ):
     """Show runs leaderboard."""
     _set_task(task_opt)
-    task_id = _task_id(get_task())
-    data = _api("GET", f"/tasks/{task_id}/runs", params={"sort": sort, "view": view, "page": page, "per_page": per_page})
+    ref = _task_ref(get_task())
+    owner, slug = _split_task_ref(ref)
+    data = _api(
+        "GET",
+        f"/tasks/{owner}/{slug}/runs",
+        params={"sort": sort, "view": view, "page": page, "per_page": per_page, "verified_only": verified_only},
+    )
     if as_json:
         _json_out(data)
         return
@@ -113,8 +137,9 @@ def run_view(
 ):
     """Show a specific run with repo, SHA, branch, and git instructions."""
     _set_task(task_opt)
-    task_id = _task_id(get_task())
-    r = _api("GET", f"/tasks/{task_id}/runs/{sha}")
+    ref = _task_ref(get_task())
+    owner, slug = _split_task_ref(ref)
+    r = _api("GET", f"/tasks/{owner}/{slug}/runs/{sha}")
     if as_json:
         _json_out(r)
         return
@@ -147,7 +172,8 @@ def push_command(task_opt: TaskOpt = None):
 
     if mode == "branch":
         # Private task: bundle and upload to server
-        task_id = _task_id(get_task())
+        ref = _task_ref(get_task())
+        owner, slug = _split_task_ref(ref)
         prefix = fork_info.get("branch_prefix", "")
         if prefix and not branch.startswith(prefix):
             raise click.ClickException(
@@ -172,7 +198,7 @@ def push_command(task_opt: TaskOpt = None):
                     )
                 # Upload bundle to server
                 with open(bundle_path, "rb") as f:
-                    _api("POST", f"/tasks/{task_id}/push",
+                    _api("POST", f"/tasks/{owner}/{slug}/push",
                          data={"branch": branch},
                          files={"bundle": ("bundle.git", f, "application/octet-stream")})
             finally:

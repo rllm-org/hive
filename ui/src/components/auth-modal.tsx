@@ -9,11 +9,23 @@ interface AuthModalProps {
   initialMode?: "login" | "signup";
 }
 
+function suggestHandleFromEmail(email: string): string {
+  const local = (email.split("@", 1)[0] || "").toLowerCase();
+  const sanitized = local.replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
+  return sanitized.slice(0, 20).replace(/-+$/, "");
+}
+
+type HandleStatus = "idle" | "checking" | "available" | "taken" | "invalid";
+
 export function AuthModal({ onClose, initialMode = "login" }: AuthModalProps) {
-  const { login, signup, verifyCode, resendCode, forgotPassword, resetPassword } = useAuth();
+  const { login, signup, verifyCode, resendCode, forgotPassword, resetPassword, checkHandleAvailable } = useAuth();
   const [mode, setMode] = useState<"login" | "signup" | "verify" | "forgot" | "reset">(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [handle, setHandle] = useState("");
+  const [handleTouched, setHandleTouched] = useState(false);
+  const [handleStatus, setHandleStatus] = useState<HandleStatus>("idle");
+  const [handleReason, setHandleReason] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -31,6 +43,41 @@ export function AuthModal({ onClose, initialMode = "login" }: AuthModalProps) {
     fetchAuthConfig().then((c) => setGithubEnabled(c.oauth_providers.includes("github")));
   }, []);
 
+  // Auto-suggest handle from email (only if user hasn't typed in handle field yet)
+  useEffect(() => {
+    if (mode !== "signup" || handleTouched) return;
+    const suggestion = suggestHandleFromEmail(email);
+    setHandle(suggestion);
+  }, [email, mode, handleTouched]);
+
+  // Debounced handle availability check
+  useEffect(() => {
+    if (mode !== "signup" || !handle) {
+      setHandleStatus("idle");
+      setHandleReason("");
+      return;
+    }
+    setHandleStatus("checking");
+    const t = setTimeout(async () => {
+      try {
+        const result = await checkHandleAvailable(handle);
+        if (result.available) {
+          setHandleStatus("available");
+          setHandleReason("");
+        } else if (result.reason) {
+          setHandleStatus("invalid");
+          setHandleReason(result.reason);
+        } else {
+          setHandleStatus("taken");
+          setHandleReason("already taken");
+        }
+      } catch {
+        setHandleStatus("idle");
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [handle, mode, checkHandleAvailable]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -40,7 +87,7 @@ export function AuthModal({ onClose, initialMode = "login" }: AuthModalProps) {
         await login(email, password);
         window.location.href = "/me";
       } else if (mode === "signup") {
-        await signup(email, password);
+        await signup(email, password, handle);
         setMode("verify");
       }
     } catch (err: unknown) {
@@ -323,6 +370,36 @@ export function AuthModal({ onClose, initialMode = "login" }: AuthModalProps) {
                     placeholder="you@example.com"
                   />
                 </div>
+                {mode === "signup" && (
+                  <div>
+                    <label className={labelCls}>Handle</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={handle}
+                        onChange={(e) => { setHandle(e.target.value.toLowerCase()); setHandleTouched(true); }}
+                        required
+                        minLength={2}
+                        maxLength={20}
+                        style={{ outline: "none", boxShadow: "none" }}
+                        className={inputCls}
+                        placeholder="alice"
+                      />
+                      {handleStatus === "checking" && (
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[var(--color-text-tertiary)]">…</span>
+                      )}
+                      {handleStatus === "available" && (
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-emerald-500">✓</span>
+                      )}
+                      {(handleStatus === "taken" || handleStatus === "invalid") && (
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-red-500">✗</span>
+                      )}
+                    </div>
+                    {handleReason && (
+                      <p className="mt-1 text-[11px] text-red-500">{handleReason}</p>
+                    )}
+                  </div>
+                )}
                 <div>
                   <label className={labelCls}>Password</label>
                   <input
@@ -350,7 +427,7 @@ export function AuthModal({ onClose, initialMode = "login" }: AuthModalProps) {
 
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || (mode === "signup" && handleStatus !== "available")}
                   className="w-full py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
                 >
                   {loading ? "..." : mode === "login" ? "Log in" : "Sign up"}

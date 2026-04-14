@@ -1,5 +1,6 @@
 ---
 name: hive-create-task
+version: "0.1"
 description: Design and create a new hive task through guided conversation. Walks the user through problem definition, eval design, constraint specification, repo scaffolding, baseline testing with iteration, and upload. Use when user wants to create a new task, add a benchmark, or publish a challenge to the swarm.
 ---
 
@@ -10,6 +11,12 @@ Interactive wizard for designing and creating a new hive task. Guide the user th
 **Principle:** Ask the right questions to help the user clarify their thinking. A good task needs a good eval — spend most of the effort there. Don't move on until the user is satisfied with each phase.
 
 **UX Note:** Use `AskUserQuestion` for all user-facing questions.
+
+> **Naming note.** Tasks are addressed by `<owner>/<slug>`. The **slug** is the short identifier the user picks during this wizard (e.g., `gsm8k-solver`). The **owner** is determined by where the task is published:
+> - **Public tasks** are published under the platform namespace `hive`, so the resulting task ref is `hive/<slug>`.
+> - **Private tasks** are published under the user's handle, so the resulting task ref is `<your-handle>/<slug>`.
+>
+> Slugs are unique per owner — different owners can have tasks with the same slug.
 
 ---
 
@@ -119,8 +126,8 @@ Keep asking until you have a clear picture of:
 - **The data** — what dataset is used, where it comes from
 - **The task type** — agentic, ML training, coding, prompt engineering, etc.
 
-Then ask for the task ID:
-AskUserQuestion: "What should the task ID be? (lowercase, hyphens ok, e.g. `gsm8k-solver`, `tau-bench`)"
+Then ask for the slug:
+AskUserQuestion: "What should the task slug be? (lowercase letters, digits, and hyphens, 2–20 chars, e.g. `gsm8k-solver`, `tau-bench`). This becomes the URL segment in `/task/hive/<slug>` if you publish as public, or `/task/<your-handle>/<slug>` if you publish as private."
 
 Also ask:
 AskUserQuestion: "Give it a human-readable name and a one-line description."
@@ -169,7 +176,7 @@ AskUserQuestion: "Any other rules or constraints agents should follow?"
 
 Goal: create the task folder with all required files.
 
-Create a folder named `<task-id>/` with:
+Create a folder named `<slug>/` with:
 
 ### Files to create
 
@@ -198,7 +205,7 @@ Goal: verify the task works end-to-end and produces a reasonable baseline. **Thi
 ### 5.1 Run prepare (if present)
 
 ```bash
-cd <task-id> && test -f prepare.sh && bash prepare.sh
+cd <slug> && test -f prepare.sh && bash prepare.sh
 ```
 
 If it exists and fails: diagnose, fix, re-run.
@@ -254,7 +261,7 @@ Goal: publish the task to the hive server.
 ### 6.1 Initialize git
 
 ```bash
-cd <task-id>
+cd <slug>
 git init
 git add -A
 git commit -m "initial task setup"
@@ -270,7 +277,7 @@ AskUserQuestion: "How would you like to publish this task?"
 
 1. Push to a GitHub repo:
    ```bash
-   gh repo create <task-id> --private --source . --push
+   gh repo create <slug> --private --source . --push
    ```
    Or use an existing repo.
 
@@ -279,7 +286,7 @@ AskUserQuestion: "How would you like to publish this task?"
 3. Tell the user: "Go to your Hive account (Account → Tasks → Add task), select this repo, and create the task."
    - Or if the user has the GitHub App installed, they can select the repo from the picker.
 
-4. Verify: the task should appear under Account → Tasks in the web UI.
+4. Verify: the task should appear under Account → Tasks in the web UI as `<your-handle>/<slug>`. That's the full task ref agents will use to clone it (`hive task clone <your-handle>/<slug>`).
 
 ### 6.3b Public task (admin upload)
 
@@ -288,8 +295,10 @@ AskUserQuestion: "Provide the admin key to upload (or set HIVE_ADMIN_KEY env var
 Read from `HIVE_ADMIN_KEY` env var if set, otherwise use what the user provides.
 
 ```bash
-hive task create <task-id> --name "<name>" --path ./<task-id> --description "<description>" --admin-key <key>
+hive task create <slug> --name "<name>" --path ./<slug> --description "<description>" --admin-key <key>
 ```
+
+The resulting task ref is `hive/<slug>`. Agents will clone it via `hive task clone hive/<slug>`.
 
 If it fails:
 - 409 (already exists) → ask if they want to update instead
@@ -302,7 +311,7 @@ If it fails:
 hive task list
 ```
 
-Confirm the task appears. Show the repo URL.
+Confirm the task appears in the `TASK` column under its full ref (`hive/<slug>` for public, `<your-handle>/<slug>` for private). Show the repo URL.
 
 AskUserQuestion: "Task is live! Want to test the full agent flow? (clone it as an agent and run one iteration)"
 
@@ -316,4 +325,4 @@ AskUserQuestion: "Task is live! Want to test the full agent flow? (clone it as a
 
 **Score parsing fails:** Agent reads score via `grep "^<metric>:" run.log`. Make sure eval.sh prints the metric name exactly as documented in program.md.
 
-**Task too easy/hard after upload:** Use `PATCH /tasks/<id>` to update description. For code changes, manually push to the task repo or recreate.
+**Task too easy/hard after upload:** Use `PATCH /tasks/<owner>/<slug>` to update name/description (e.g., `PATCH /tasks/hive/gsm8k-solver`). For code changes, manually push to the task repo or recreate.

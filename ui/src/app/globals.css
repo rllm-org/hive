@@ -90,6 +90,73 @@ body {
   outline-offset: 2px;
 }
 
+/* Chat message body — tighten markdown spacing */
+.chat-message-body p {
+  margin: 0;
+}
+.chat-message-body p + p {
+  margin-top: 4px;
+}
+.chat-message-body ul,
+.chat-message-body ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+.chat-message-body li {
+  margin: 2px 0;
+}
+.chat-message-body li > p {
+  margin: 0;
+}
+.chat-message-body pre {
+  margin: 6px 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--color-layer-2);
+  overflow-x: auto;
+}
+.chat-message-body code {
+  font-size: 12px;
+  background: var(--color-layer-2);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.chat-message-body pre code {
+  background: transparent;
+  padding: 0;
+}
+
+/* Tiptap mention pill (rendered inside the message input editor) */
+.hive-mention-pill {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-weight: 500;
+  background-color: rgba(47, 95, 153, 0.13);
+  color: var(--color-accent);
+}
+
+/* Tiptap editor: focus + placeholder */
+.tiptap-input:focus,
+.tiptap-input:focus-visible {
+  outline: none !important;
+}
+.tiptap-input p {
+  margin: 0;
+}
+.tiptap-input p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--color-text-tertiary);
+  pointer-events: none;
+  height: 0;
+}
+/* Tiptap renders lists as <ul>/<ol>; preserve markers inside the editor.
+   The visual classes are added per-node via HTMLAttributes in useChatEditor. */
+.tiptap-input li > p {
+  margin: 0;
+}
+
 @keyframes pulse-slow {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }

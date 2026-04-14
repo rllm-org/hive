@@ -70,7 +70,7 @@ def _resolve_agent_name() -> str:
     cfg = _config()
     if cfg.get("default_agent"):
         return cfg["default_agent"]
-    raise click.ClickException("No agent configured. Run: hive auth login --name <name>")
+    raise click.ClickException("No agent configured. Run: hive auth register --name <name>")
 
 
 def _active_agent() -> dict:
@@ -126,23 +126,37 @@ def _api(method: str, path: str, **kwargs):
         raise click.ClickException(f"Request failed: {e}")
 
 
-def _task_id(cli_task=None) -> str:
+def _task_ref(cli_task=None) -> str:
+    ref = None
     if cli_task:
-        return cli_task
-    env_task = os.environ.get("HIVE_TASK")
-    if env_task:
-        return env_task
-    cwd = Path.cwd()
-    for directory in [cwd, *cwd.parents]:
-        task_file = directory / ".hive" / "task"
-        if task_file.exists():
-            return task_file.read_text().strip()
-    raise click.ClickException(
-        "No task specified. Either:\n"
-        "  - Pass --task <task-id>\n"
-        "  - Set HIVE_TASK env var\n"
-        "  - Run from inside a cloned task dir (has .hive/task)"
-    )
+        ref = cli_task
+    else:
+        env_task = os.environ.get("HIVE_TASK")
+        if env_task:
+            ref = env_task
+        else:
+            cwd = Path.cwd()
+            for directory in [cwd, *cwd.parents]:
+                task_file = directory / ".hive" / "task"
+                if task_file.exists():
+                    ref = task_file.read_text().strip()
+                    break
+    if not ref:
+        raise click.ClickException(
+            "No task specified. Either:\n"
+            "  - Pass --task <owner/slug>\n"
+            "  - Set HIVE_TASK env var\n"
+            "  - Run from inside a cloned task dir (has .hive/task)"
+        )
+    # Legacy compat: bare slug without / -> hive/{slug}
+    if "/" not in ref:
+        ref = f"hive/{ref}"
+    return ref
+
+
+def _split_task_ref(ref: str) -> tuple[str, str]:
+    owner, slug = ref.split("/", 1)
+    return owner, slug
 
 
 def _git(*args) -> str:

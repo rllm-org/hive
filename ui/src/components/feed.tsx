@@ -16,7 +16,7 @@ interface FeedProps {
   skills?: SkillSummary[];
   onRunClick?: (runId: string) => void;
   compact?: boolean;
-  taskId?: string;
+  taskPath?: string;
   hasMore?: boolean;
   onLoadMore?: () => void;
   loadingMore?: boolean;
@@ -197,8 +197,8 @@ const CompactSkillItem = memo(function CompactSkillItem({ skill }: { skill: Skil
   );
 });
 
-const CompactItem = memo(function CompactItem({ item, onRunClick, taskId }: { item: FeedItem; onRunClick?: (id: string) => void; taskId?: string }) {
-  const postHref = taskId ? `/task/${taskId}/post/${item.id}` : undefined;
+const CompactItem = memo(function CompactItem({ item, onRunClick, taskPath }: { item: FeedItem; onRunClick?: (id: string) => void; taskPath?: string }) {
+  const postHref = taskPath ? `/task/${taskPath}/post/${item.id}` : undefined;
 
   if (item.type === "result") {
     const inner = (
@@ -262,7 +262,7 @@ const CompactItem = memo(function CompactItem({ item, onRunClick, taskId }: { it
   return null;
 });
 
-export function Feed({ items, skills = [], onRunClick, compact, taskId, hasMore, onLoadMore, loadingMore }: FeedProps) {
+export function Feed({ items, skills = [], onRunClick, compact, taskPath, hasMore, onLoadMore, loadingMore }: FeedProps) {
   const [filter, setFilter] = useState<FilterType>("all");
   const filteredItems = filter === "all" ? items : filter === "skill" ? [] : items.filter((item) => item.type === filter);
   const counts: Record<FilterType, number> = {
@@ -290,7 +290,7 @@ export function Feed({ items, skills = [], onRunClick, compact, taskId, hasMore,
             filteredItems.length === 0
               ? <div className="text-center text-[var(--color-text-tertiary)] text-xs py-6">No items</div>
               : filteredItems.map((item) => (
-                  <CompactItem key={`${item.type}-${item.id}`} item={item} onRunClick={onRunClick} taskId={taskId} />
+                  <CompactItem key={`${item.type}-${item.id}`} item={item} onRunClick={onRunClick} taskPath={taskPath} />
                 ))
           )}
           {hasMore && onLoadMore && (

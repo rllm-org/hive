@@ -1,7 +1,7 @@
 "use client";
 
 import { useLeaderboard } from "@/hooks/use-runs";
-import { Run, ContributorEntry } from "@/types/api";
+import { Run, ContributorEntry, LeaderboardRun } from "@/types/api";
 import { Avatar, Score } from "@/components/shared";
 import { TabButtons } from "@/components/shared/toggle";
 
@@ -13,19 +13,20 @@ const LEADERBOARD_OPTIONS: { value: LeaderboardView; label: string }[] = [
 ];
 
 interface LeaderboardProps {
-  taskId: string;
+  taskPath: string;
   view: LeaderboardView;
+  section?: string;
   onRunClick?: (runId: string) => void;
 }
 
-export function Leaderboard({ taskId, view, onRunClick }: LeaderboardProps) {
-  const data = useLeaderboard(taskId, view);
+export function Leaderboard({ taskPath, view, section, onRunClick }: LeaderboardProps) {
+  const data = useLeaderboard(taskPath, view, section);
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto min-h-0">
         {data?.view === "best_runs" && (
-          <BestScoreList runs={data.runs} onRunClick={onRunClick} />
+          <BestScoreList runs={data.runs} onRunClick={onRunClick} scoreKey={section === "verified" ? "verified_score" : section === "all" ? "effective" : "score"} />
         )}
         {data?.view === "contributors" && (
           <ContributorList entries={data.entries} />
@@ -43,6 +44,30 @@ export function LeaderboardToggle({
   onChange: (v: LeaderboardView) => void;
 }) {
   return <TabButtons value={view} onChange={onChange} options={LEADERBOARD_OPTIONS} />;
+}
+
+export function VerifiedLeaderboardFiltered({
+  runs,
+  scoreKey,
+  onRunClick,
+}: {
+  runs: LeaderboardRun[];
+  scoreKey: "score" | "verified_score";
+  onRunClick?: (runId: string) => void;
+}) {
+  return (
+    <div className="h-full flex flex-col overflow-hidden">
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {runs.length > 0 ? (
+          <BestScoreList runs={runs} onRunClick={onRunClick} scoreKey={scoreKey} />
+        ) : (
+          <div className="px-4 py-3 text-xs text-[var(--color-text-tertiary)]">
+            No {scoreKey === "verified_score" ? "verified" : "unverified"} runs yet
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function RankBadge({ rank, highlight }: { rank: number; highlight: boolean }) {
@@ -68,17 +93,25 @@ function buildDenseRanks<T>(items: T[], getValue: (item: T) => number | null): n
 function BestScoreList({
   runs,
   onRunClick,
+  scoreKey = "score",
 }: {
-  runs: Pick<Run, "id" | "agent_id" | "branch" | "parent_id" | "tldr" | "score" | "verified" | "created_at" | "fork_url">[];
+  runs: LeaderboardRun[];
   onRunClick?: (runId: string) => void;
+  scoreKey?: "score" | "verified_score" | "effective";
 }) {
-  const ranks = buildDenseRanks(runs, (r) => r.score);
-  const bestScore = runs.length > 0 ? runs[0].score : null;
+  const getScore = (r: LeaderboardRun) => {
+    if (scoreKey === "verified_score") return r.verified_score ?? null;
+    if (scoreKey === "effective") return r.verified ? (r.verified_score ?? r.score) : r.score;
+    return r.score;
+  };
+  const ranks = buildDenseRanks(runs, getScore);
+  const bestScore = runs.length > 0 ? getScore(runs[0]) : null;
 
   return (
     <>
       {runs.map((run, i) => {
-        const isWinner = run.score !== null && run.score === bestScore;
+        const displayScore = getScore(run);
+        const isWinner = displayScore !== null && displayScore === bestScore;
         return (
           <div
             key={run.id}
@@ -92,14 +125,39 @@ function BestScoreList({
                 <span className="text-sm font-semibold text-[var(--color-text)] truncate">
                   {run.agent_id}
                 </span>
+                {scoreKey !== "verified_score" && run.verification_status && run.verification_status !== "none" && (
+                  <StatusBadge status={run.verification_status} />
+                )}
               </div>
               <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5 truncate">{run.tldr}</div>
             </div>
-            <Score value={run.score} className="text-sm shrink-0 text-[var(--color-text)]" />
+            <Score value={displayScore} className="text-sm shrink-0 text-[var(--color-text)]" />
           </div>
         );
       })}
     </>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  if (status === "success") {
+    return (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-green-600 shrink-0">
+        <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.2" />
+        <path d="M4.5 7L6.5 9L9.5 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  const colors: Record<string, string> = {
+    pending: "text-yellow-600 bg-yellow-50",
+    running: "text-blue-600 bg-blue-50",
+    failed: "text-red-600 bg-red-50",
+    error: "text-red-600 bg-red-50",
+  };
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${colors[status] ?? "text-[var(--color-text-tertiary)] bg-[var(--color-layer-1)]"}`}>
+      {status}
+    </span>
   );
 }
 

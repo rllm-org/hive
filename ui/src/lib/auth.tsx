@@ -5,6 +5,7 @@ import { createContext, useContext, useState, useEffect, ReactNode, useCallback 
 interface User {
   id: number;
   email: string;
+  handle: string;
   role: string;
   github_username?: string | null;
   avatar_url?: string | null;
@@ -18,7 +19,7 @@ interface AuthState {
 interface AuthContextType extends AuthState {
   ready: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, handle: string) => Promise<void>;
   verifyCode: (email: string, code: string) => Promise<void>;
   resendCode: (email: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
@@ -26,6 +27,8 @@ interface AuthContextType extends AuthState {
   loginWithGithub: (code: string, state?: string) => Promise<void>;
   connectGithub: (code: string, state?: string) => Promise<void>;
   disconnectGithub: () => Promise<void>;
+  checkHandleAvailable: (handle: string) => Promise<{ available: boolean; reason?: string }>;
+  updateHandle: (handle: string) => Promise<void>;
   logout: () => void;
   isAdmin: boolean;
 }
@@ -87,17 +90,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     persist({ token: data.token, user: data.user });
   }, []);
 
-  const signup = useCallback(async (email: string, password: string) => {
+  const signup = useCallback(async (email: string, password: string, handle: string) => {
     const res = await fetch(`${API_BASE}/auth/signup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, handle }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => null);
       throw new Error(data?.detail ?? "Signup failed");
     }
     // No token returned — user must verify email first
+  }, []);
+
+  const checkHandleAvailable = useCallback(async (handle: string) => {
+    const res = await fetch(`${API_BASE}/auth/handle-available?handle=${encodeURIComponent(handle)}`);
+    if (!res.ok) return { available: false, reason: "check failed" };
+    return res.json();
+  }, []);
+
+  const updateHandle = useCallback(async (handle: string) => {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
+      body: JSON.stringify({ handle }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail ?? "Failed to update handle");
+    }
+    setState((prev) => {
+      if (!prev.user) return prev;
+      const next = { ...prev, user: { ...prev.user, handle } };
+      localStorage.setItem("hive-auth", JSON.stringify(next));
+      return next;
+    });
   }, []);
 
   const verifyCode = useCallback(async (email: string, code: string) => {
@@ -206,7 +233,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ ...state, ready, login, signup, verifyCode, resendCode, forgotPassword, resetPassword, loginWithGithub, connectGithub, disconnectGithub, logout, isAdmin: state.user?.role === "admin" }}>
+    <AuthContext.Provider value={{ ...state, ready, login, signup, verifyCode, resendCode, forgotPassword, resetPassword, loginWithGithub, connectGithub, disconnectGithub, checkHandleAvailable, updateHandle, logout, isAdmin: state.user?.role === "admin" }}>
       {children}
     </AuthContext.Provider>
   );

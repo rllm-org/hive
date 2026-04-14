@@ -10,12 +10,12 @@ import pytest
 import hive.server.db as _db
 
 
-def _post_task(client, task_id="adv-task"):
+def _post_task(client, slug="adv-task"):
     with psycopg.connect(_db.DATABASE_URL, autocommit=True) as conn:
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, created_at, item_seq)"
-            " VALUES (%s, %s, %s, %s, %s, 0)",
-            (task_id, task_id, "test", "https://github.com/test", _db.now()),
+            "INSERT INTO tasks (slug, owner, name, description, repo_url, created_at, item_seq)"
+            " VALUES (%s, 'hive', %s, %s, %s, %s, 0)",
+            (slug, slug, "test", "https://github.com/test", _db.now()),
         )
 
 
@@ -36,7 +36,7 @@ class TestSQLInjection:
         token = _register(client)
         malicious_title = "'; DROP TABLE items; --"
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": malicious_title},
             params={"token": token},
         )
@@ -47,10 +47,10 @@ class TestSQLInjection:
         """SQL injection in status query param is safe via parameterized query."""
         _post_task(client)
         token = _register(client)
-        client.post("/api/tasks/adv-task/items", json={"title": "safe item"}, params={"token": token})
+        client.post("/api/tasks/hive/adv-task/items", json={"title": "safe item"}, params={"token": token})
         # The injected status value is passed as a parameter, not interpolated
         resp = client.get(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             params={"status": "todo'; DROP TABLE items; --"},
         )
         # Should return 200 with empty items (no items match that status) or 400, never 500
@@ -62,10 +62,10 @@ class TestSQLInjection:
         """SQL injection in sort param is defused by the allowlist lookup."""
         _post_task(client)
         token = _register(client)
-        client.post("/api/tasks/adv-task/items", json={"title": "item"}, params={"token": token})
+        client.post("/api/tasks/hive/adv-task/items", json={"title": "item"}, params={"token": token})
         # _parse_sort does allowed.get(field, default) so unknown field gets default sort
         resp = client.get(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             params={"sort": "recent; DROP TABLE items"},
         )
         assert resp.status_code == 200
@@ -75,7 +75,7 @@ class TestSQLInjection:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": "item", "labels": ["bug'; DROP TABLE items; --"]},
             params={"token": token},
         )
@@ -94,7 +94,7 @@ class TestTypeConfusion:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": "item", "labels": "bug"},
             params={"token": token},
         )
@@ -105,7 +105,7 @@ class TestTypeConfusion:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": "item", "labels": None},
             params={"token": token},
         )
@@ -116,7 +116,7 @@ class TestTypeConfusion:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": "item", "status": 1},
             params={"token": token},
         )
@@ -128,7 +128,7 @@ class TestTypeConfusion:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": "item", "priority": True},
             params={"token": token},
         )
@@ -140,7 +140,7 @@ class TestTypeConfusion:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": "item", "parent_id": 1},
             params={"token": token},
         )
@@ -151,7 +151,7 @@ class TestTypeConfusion:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             content=b'["not a dict"]',
             headers={"Content-Type": "application/json"},
             params={"token": token},
@@ -163,7 +163,7 @@ class TestTypeConfusion:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={},
             params={"token": token},
         )
@@ -174,7 +174,7 @@ class TestTypeConfusion:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": None},
             params={"token": token},
         )
@@ -193,7 +193,7 @@ class TestCrossTaskIsolation:
         _post_task(client, "taskbeta")
         token = _register(client)
         resp = client.post(
-            "/api/tasks/taskalpha/items",
+            "/api/tasks/hive/taskalpha/items",
             json={"title": "Alpha item"},
             params={"token": token},
         )
@@ -203,14 +203,14 @@ class TestCrossTaskIsolation:
     def test_get_item_wrong_task(self, client):
         """GET item via wrong task should 404."""
         token, item_id = self._setup(client)
-        resp = client.get(f"/api/tasks/taskbeta/items/{item_id}")
+        resp = client.get(f"/api/tasks/hive/taskbeta/items/{item_id}")
         assert resp.status_code == 404
 
     def test_patch_item_wrong_task(self, client):
         """PATCH item via wrong task should 404."""
         token, item_id = self._setup(client)
         resp = client.patch(
-            f"/api/tasks/taskbeta/items/{item_id}",
+            f"/api/tasks/hive/taskbeta/items/{item_id}",
             json={"status": "archived"},
             params={"token": token},
         )
@@ -220,7 +220,7 @@ class TestCrossTaskIsolation:
         """DELETE item via wrong task should 404."""
         token, item_id = self._setup(client)
         resp = client.delete(
-            f"/api/tasks/taskbeta/items/{item_id}",
+            f"/api/tasks/hive/taskbeta/items/{item_id}",
             params={"token": token},
         )
         assert resp.status_code == 404
@@ -229,7 +229,7 @@ class TestCrossTaskIsolation:
         """Creating item in task-b with parent from task-a should 404."""
         token, item_id_a = self._setup(client)
         resp = client.post(
-            "/api/tasks/taskbeta/items",
+            "/api/tasks/hive/taskbeta/items",
             json={"title": "Beta item", "parent_id": item_id_a},
             params={"token": token},
         )
@@ -240,11 +240,11 @@ class TestCrossTaskIsolation:
         """List comments on task-a item via task-b URL should 404."""
         token, item_id = self._setup(client)
         client.post(
-            f"/api/tasks/taskalpha/items/{item_id}/comments",
+            f"/api/tasks/hive/taskalpha/items/{item_id}/comments",
             json={"content": "hello"},
             params={"token": token},
         )
-        resp = client.get(f"/api/tasks/taskbeta/items/{item_id}/comments")
+        resp = client.get(f"/api/tasks/hive/taskbeta/items/{item_id}/comments")
         assert resp.status_code == 404
 
 
@@ -261,7 +261,7 @@ class TestRapidSequential:
         ids = []
         for i in range(200):
             resp = client.post(
-                "/api/tasks/adv-task/items",
+                "/api/tasks/hive/adv-task/items",
                 json={"title": f"Item {i}"},
                 params={"token": token},
             )
@@ -283,7 +283,7 @@ class TestPaginationEdgeCases:
         token = _register(client)
         for i in range(n):
             client.post(
-                "/api/tasks/adv-task/items",
+                "/api/tasks/hive/adv-task/items",
                 json={"title": f"Item {i}"},
                 params={"token": token},
             )
@@ -291,7 +291,7 @@ class TestPaginationEdgeCases:
     def test_page_zero_clamped(self, client):
         """page=0 should be clamped to 1 and return the first page."""
         self._setup_items(client)
-        resp = client.get("/api/tasks/adv-task/items", params={"page": 0})
+        resp = client.get("/api/tasks/hive/adv-task/items", params={"page": 0})
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["items"]) > 0
@@ -299,7 +299,7 @@ class TestPaginationEdgeCases:
     def test_page_negative(self, client):
         """page=-1 should be clamped to 1 and return the first page."""
         self._setup_items(client)
-        resp = client.get("/api/tasks/adv-task/items", params={"page": -1})
+        resp = client.get("/api/tasks/hive/adv-task/items", params={"page": -1})
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["items"]) > 0
@@ -307,7 +307,7 @@ class TestPaginationEdgeCases:
     def test_per_page_zero(self, client):
         """per_page=0 should be clamped to 1 and return 1 item."""
         self._setup_items(client)
-        resp = client.get("/api/tasks/adv-task/items", params={"per_page": 0})
+        resp = client.get("/api/tasks/hive/adv-task/items", params={"per_page": 0})
         assert resp.status_code == 200
         data = resp.json()
         # clamped to 1, so we get exactly 1 item (and has_next=True since 5 items)
@@ -316,7 +316,7 @@ class TestPaginationEdgeCases:
     def test_per_page_101_clamped(self, client):
         """per_page=101 should be clamped to 100."""
         self._setup_items(client)
-        resp = client.get("/api/tasks/adv-task/items", params={"per_page": 101})
+        resp = client.get("/api/tasks/hive/adv-task/items", params={"per_page": 101})
         assert resp.status_code == 200
         data = resp.json()
         # All 5 items returned (within clamped 100 limit)
@@ -326,7 +326,7 @@ class TestPaginationEdgeCases:
     def test_per_page_negative(self, client):
         """per_page=-5 should be clamped to 1."""
         self._setup_items(client)
-        resp = client.get("/api/tasks/adv-task/items", params={"per_page": -5})
+        resp = client.get("/api/tasks/hive/adv-task/items", params={"per_page": -5})
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["items"]) == 1
@@ -334,7 +334,7 @@ class TestPaginationEdgeCases:
     def test_very_large_page(self, client):
         """page=99999 with only 5 items should return empty list and has_next=False."""
         self._setup_items(client)
-        resp = client.get("/api/tasks/adv-task/items", params={"page": 99999})
+        resp = client.get("/api/tasks/hive/adv-task/items", params={"page": 99999})
         assert resp.status_code == 200
         data = resp.json()
         assert data["items"] == []
@@ -353,7 +353,7 @@ class TestUnicodeAndSpecialChars:
         token = _register(client)
         title = "Fix bug \U0001f41b in parser"
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": title},
             params={"token": token},
         )
@@ -366,7 +366,7 @@ class TestUnicodeAndSpecialChars:
         token = _register(client)
         title = "\u4fee\u590d\u89e3\u6790\u5668\u4e2d\u7684\u9519\u8bef"
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": title},
             params={"token": token},
         )
@@ -379,7 +379,7 @@ class TestUnicodeAndSpecialChars:
         token = _register(client)
         title = "\u0625\u0635\u0644\u0627\u062d \u062e\u0637\u0623"
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": title},
             params={"token": token},
         )
@@ -391,7 +391,7 @@ class TestUnicodeAndSpecialChars:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": "item", "description": "has\x00null"},
             params={"token": token},
         )
@@ -403,7 +403,7 @@ class TestUnicodeAndSpecialChars:
         token = _register(client)
         title = "title\nwith\nnewlines\tand\ttabs"
         resp = client.post(
-            "/api/tasks/adv-task/items",
+            "/api/tasks/hive/adv-task/items",
             json={"title": title},
             params={"token": token},
         )
@@ -416,9 +416,9 @@ class TestUnicodeAndSpecialChars:
         """Comment with exactly 5000 chars (no newlines) is accepted."""
         _post_task(client)
         token = _register(client)
-        client.post("/api/tasks/adv-task/items", json={"title": "item"}, params={"token": token})
+        client.post("/api/tasks/hive/adv-task/items", json={"title": "item"}, params={"token": token})
         resp = client.post(
-            "/api/tasks/adv-task/items/ADV-1/comments",
+            "/api/tasks/hive/adv-task/items/ADV-1/comments",
             json={"content": "x" * 5000},
             params={"token": token},
         )
@@ -435,10 +435,10 @@ class TestDoubleOperations:
         """Deleting the same item twice — second should 404."""
         _post_task(client)
         token = _register(client)
-        client.post("/api/tasks/adv-task/items", json={"title": "item"}, params={"token": token})
-        r1 = client.delete("/api/tasks/adv-task/items/ADV-1", params={"token": token})
+        client.post("/api/tasks/hive/adv-task/items", json={"title": "item"}, params={"token": token})
+        r1 = client.delete("/api/tasks/hive/adv-task/items/ADV-1", params={"token": token})
         assert r1.status_code == 204
-        r2 = client.delete("/api/tasks/adv-task/items/ADV-1", params={"token": token})
+        r2 = client.delete("/api/tasks/hive/adv-task/items/ADV-1", params={"token": token})
         assert r2.status_code == 404
 
     def test_assign_third_agent(self, client):
@@ -446,8 +446,8 @@ class TestDoubleOperations:
         _post_task(client)
         token_a = _register(client, "agent-alpha")
         token_b = _register(client, "agent-beta")
-        client.post("/api/tasks/adv-task/items", json={"title": "item"}, params={"token": token_a})
-        r1 = client.post("/api/tasks/adv-task/items/ADV-1/assign", params={"token": token_a})
+        client.post("/api/tasks/hive/adv-task/items", json={"title": "item"}, params={"token": token_a})
+        r1 = client.post("/api/tasks/hive/adv-task/items/ADV-1/assign", params={"token": token_a})
         assert r1.status_code == 200
-        r2 = client.post("/api/tasks/adv-task/items/ADV-1/assign", params={"token": token_b})
+        r2 = client.post("/api/tasks/hive/adv-task/items/ADV-1/assign", params={"token": token_b})
         assert r2.status_code == 409

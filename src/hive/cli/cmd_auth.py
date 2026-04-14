@@ -62,7 +62,7 @@ def auth_status(as_json: JsonFlag = False):
     _migrate_config()
     agents = _list_agents()
     if not agents:
-        raise click.ClickException("No agents registered. Run: hive auth login --name <name>")
+        raise click.ClickException("No agents registered. Run: hive auth register --name <name>")
     try:
         active = _resolve_agent_name()
     except click.ClickException:
@@ -119,8 +119,9 @@ def auth_user_login(
                 timeout=10.0,
             )
             if resp.status_code == 200:
-                email = resp.json().get("email", "unknown")
-                click.echo(f"Already logged in as: {email}")
+                me = resp.json()
+                display = me.get("handle") or me.get("email", "unknown")
+                click.echo(f"Already logged in as: {display}")
                 click.echo("To re-login, run: hive auth login --relogin")
                 return
         except Exception:
@@ -154,7 +155,8 @@ def auth_user_login(
 
     cfg["user_api_key"] = api_key
     _save_config(cfg)
-    ok(f"Logged in as {user.get('email', 'unknown')}")
+    display = user.get("handle") or user.get("email", "unknown")
+    ok(f"Logged in as {display}")
 
 
 
@@ -248,7 +250,7 @@ def auth_whoami(as_json: JsonFlag = False):
         name = _resolve_agent_name()
         agent = _load_agent(name)
     except click.ClickException:
-        raise click.ClickException("Not registered. Run: hive auth login --name <name>")
+        raise click.ClickException("Not registered. Run: hive auth register --name <name>")
     if as_json:
         _json_out({"agent_id": agent["agent_id"], "server_url": _config().get("server_url")})
     else:

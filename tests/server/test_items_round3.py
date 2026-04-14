@@ -9,12 +9,12 @@ import pytest
 import hive.server.db as _db
 
 
-def _post_task(client, task_id="r3-task"):
+def _post_task(client, slug="r3-task"):
     with psycopg.connect(_db.DATABASE_URL, autocommit=True) as conn:
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, created_at, item_seq)"
-            " VALUES (%s, %s, %s, %s, %s, 0)",
-            (task_id, task_id, "test", "https://github.com/test", _db.now()),
+            "INSERT INTO tasks (slug, owner, name, description, repo_url, created_at, item_seq)"
+            " VALUES (%s, 'hive', %s, %s, %s, %s, 0)",
+            (slug, slug, "test", "https://github.com/test", _db.now()),
         )
 
 
@@ -23,9 +23,9 @@ def _register(client, name=None):
     return client.post("/api/register", json=body).json()["token"]
 
 
-def _create_item(client, task_id="r3-task", token=None, **kwargs):
+def _create_item(client, slug="r3-task", token=None, **kwargs):
     body = {"title": "test item", **kwargs}
-    return client.post(f"/api/tasks/{task_id}/items", json=body, params={"token": token})
+    return client.post(f"/api/tasks/hive/{slug}/items", json=body, params={"token": token})
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ class TestPatchEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.patch(
-            "/api/tasks/r3-task/items/R3-1",
+            "/api/tasks/hive/r3-task/items/R3-1",
             json={"labels": None},
             params={"token": token},
         )
@@ -53,7 +53,7 @@ class TestPatchEdgeCases:
         token = _register(client)
         _create_item(client, token=token, labels=["bug", "feature"])
         resp = client.patch(
-            "/api/tasks/r3-task/items/R3-1",
+            "/api/tasks/hive/r3-task/items/R3-1",
             json={"labels": []},
             params={"token": token},
         )
@@ -66,11 +66,11 @@ class TestPatchEdgeCases:
         token = _register(client, "r3-agent")
         _create_item(client, token=token, assignee_id="r3-agent")
         # Confirm initially assigned
-        item = client.get("/api/tasks/r3-task/items/R3-1").json()
+        item = client.get("/api/tasks/hive/r3-task/items/R3-1").json()
         assert item["assignee_id"] == "r3-agent"
         # Unassign
         resp = client.patch(
-            "/api/tasks/r3-task/items/R3-1",
+            "/api/tasks/hive/r3-task/items/R3-1",
             json={"assignee_id": None},
             params={"token": token},
         )
@@ -84,11 +84,11 @@ class TestPatchEdgeCases:
         _create_item(client, token=token)
         _create_item(client, token=token, parent_id="R3-1")
         # Confirm parented
-        item = client.get("/api/tasks/r3-task/items/R3-2").json()
+        item = client.get("/api/tasks/hive/r3-task/items/R3-2").json()
         assert item["parent_id"] == "R3-1"
         # Unparent
         resp = client.patch(
-            "/api/tasks/r3-task/items/R3-2",
+            "/api/tasks/hive/r3-task/items/R3-2",
             json={"parent_id": None},
             params={"token": token},
         )
@@ -101,7 +101,7 @@ class TestPatchEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.patch(
-            "/api/tasks/r3-task/items/R3-1",
+            "/api/tasks/hive/r3-task/items/R3-1",
             json={"title": ""},
             params={"token": token},
         )
@@ -113,7 +113,7 @@ class TestPatchEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.patch(
-            "/api/tasks/r3-task/items/R3-1",
+            "/api/tasks/hive/r3-task/items/R3-1",
             json={"title": "   "},
             params={"token": token},
         )
@@ -125,11 +125,11 @@ class TestPatchEdgeCases:
         token = _register(client)
         _create_item(client, token=token, description="some description")
         # Confirm description is set
-        item = client.get("/api/tasks/r3-task/items/R3-1").json()
+        item = client.get("/api/tasks/hive/r3-task/items/R3-1").json()
         assert item["description"] == "some description"
         # Clear it
         resp = client.patch(
-            "/api/tasks/r3-task/items/R3-1",
+            "/api/tasks/hive/r3-task/items/R3-1",
             json={"description": None},
             params={"token": token},
         )
@@ -144,25 +144,25 @@ class TestPatchEdgeCases:
         _create_item(client, token=token)  # R3-2 standalone
         # Assign R3-2's parent to R3-1
         resp = client.patch(
-            "/api/tasks/r3-task/items/R3-2",
+            "/api/tasks/hive/r3-task/items/R3-2",
             json={"parent_id": "R3-1"},
             params={"token": token},
         )
         assert resp.status_code == 200
         # Now try to delete R3-1 (it has a child R3-2) — should 409
-        del_resp = client.delete("/api/tasks/r3-task/items/R3-1", params={"token": token})
+        del_resp = client.delete("/api/tasks/hive/r3-task/items/R3-1", params={"token": token})
         assert del_resp.status_code == 409
         # Remove parent from R3-2 first
         client.patch(
-            "/api/tasks/r3-task/items/R3-2",
+            "/api/tasks/hive/r3-task/items/R3-2",
             json={"parent_id": None},
             params={"token": token},
         )
         # Now delete R3-1
-        del_resp2 = client.delete("/api/tasks/r3-task/items/R3-1", params={"token": token})
+        del_resp2 = client.delete("/api/tasks/hive/r3-task/items/R3-1", params={"token": token})
         assert del_resp2.status_code == 204
         # R3-2 still accessible and parent_id is None
-        child = client.get("/api/tasks/r3-task/items/R3-2").json()
+        child = client.get("/api/tasks/hive/r3-task/items/R3-2").json()
         assert child["id"] == "R3-2"
         assert child["parent_id"] is None
 
@@ -172,7 +172,7 @@ class TestPatchEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.patch(
-            "/api/tasks/r3-task/items/R3-1",
+            "/api/tasks/hive/r3-task/items/R3-1",
             json={"assignee_id": "ghost-agent-xyz"},
             params={"token": token},
         )
@@ -190,11 +190,11 @@ class TestAssignEdgeCases:
         _post_task(client)
         token = _register(client, "r3-assign-agent")
         _create_item(client, token=token)
-        r1 = client.post("/api/tasks/r3-task/items/R3-1/assign", params={"token": token})
+        r1 = client.post("/api/tasks/hive/r3-task/items/R3-1/assign", params={"token": token})
         assert r1.status_code == 200
         updated_at_1 = r1.json()["updated_at"]
         assigned_at_1 = r1.json()["assigned_at"]
-        r2 = client.post("/api/tasks/r3-task/items/R3-1/assign", params={"token": token})
+        r2 = client.post("/api/tasks/hive/r3-task/items/R3-1/assign", params={"token": token})
         assert r2.status_code == 200
         updated_at_2 = r2.json()["updated_at"]
         assigned_at_2 = r2.json()["assigned_at"]
@@ -206,8 +206,8 @@ class TestAssignEdgeCases:
         _post_task(client)
         token = _register(client)
         _create_item(client, token=token)
-        client.delete("/api/tasks/r3-task/items/R3-1", params={"token": token})
-        resp = client.post("/api/tasks/r3-task/items/R3-1/assign", params={"token": token})
+        client.delete("/api/tasks/hive/r3-task/items/R3-1", params={"token": token})
+        resp = client.post("/api/tasks/hive/r3-task/items/R3-1/assign", params={"token": token})
         assert resp.status_code == 404
 
     def test_unassign_via_patch_assignee_null(self, client):
@@ -215,9 +215,9 @@ class TestAssignEdgeCases:
         _post_task(client)
         token = _register(client, "r3-unassign-agent")
         _create_item(client, token=token)
-        client.post("/api/tasks/r3-task/items/R3-1/assign", params={"token": token})
+        client.post("/api/tasks/hive/r3-task/items/R3-1/assign", params={"token": token})
         resp = client.patch(
-            "/api/tasks/r3-task/items/R3-1",
+            "/api/tasks/hive/r3-task/items/R3-1",
             json={"assignee_id": None},
             params={"token": token},
         )
@@ -236,9 +236,9 @@ class TestCommentEdgeCases:
         _post_task(client)
         token = _register(client)
         _create_item(client, token=token)
-        client.delete("/api/tasks/r3-task/items/R3-1", params={"token": token})
+        client.delete("/api/tasks/hive/r3-task/items/R3-1", params={"token": token})
         resp = client.post(
-            "/api/tasks/r3-task/items/R3-1/comments",
+            "/api/tasks/hive/r3-task/items/R3-1/comments",
             json={"content": "ghost comment"},
             params={"token": token},
         )
@@ -250,12 +250,12 @@ class TestCommentEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         client.post(
-            "/api/tasks/r3-task/items/R3-1/comments",
+            "/api/tasks/hive/r3-task/items/R3-1/comments",
             json={"content": "a comment"},
             params={"token": token},
         )
-        client.delete("/api/tasks/r3-task/items/R3-1", params={"token": token})
-        resp = client.get("/api/tasks/r3-task/items/R3-1/comments")
+        client.delete("/api/tasks/hive/r3-task/items/R3-1", params={"token": token})
+        resp = client.get("/api/tasks/hive/r3-task/items/R3-1/comments")
         assert resp.status_code == 404
 
     def test_delete_comment_on_soft_deleted_item_404(self, client):
@@ -264,14 +264,14 @@ class TestCommentEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         c = client.post(
-            "/api/tasks/r3-task/items/R3-1/comments",
+            "/api/tasks/hive/r3-task/items/R3-1/comments",
             json={"content": "doomed comment"},
             params={"token": token},
         )
         comment_id = c.json()["id"]
-        client.delete("/api/tasks/r3-task/items/R3-1", params={"token": token})
+        client.delete("/api/tasks/hive/r3-task/items/R3-1", params={"token": token})
         resp = client.delete(
-            f"/api/tasks/r3-task/items/R3-1/comments/{comment_id}",
+            f"/api/tasks/hive/r3-task/items/R3-1/comments/{comment_id}",
             params={"token": token},
         )
         assert resp.status_code == 404
@@ -282,7 +282,7 @@ class TestCommentEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.post(
-            "/api/tasks/r3-task/items/R3-1/comments",
+            "/api/tasks/hive/r3-task/items/R3-1/comments",
             json={"content": ""},
             params={"token": token},
         )
@@ -294,7 +294,7 @@ class TestCommentEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.post(
-            "/api/tasks/r3-task/items/R3-1/comments",
+            "/api/tasks/hive/r3-task/items/R3-1/comments",
             json={"content": "   "},
             params={"token": token},
         )
@@ -309,7 +309,7 @@ class TestCommentEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.post(
-            "/api/tasks/r3-task/items/R3-1/comments",
+            "/api/tasks/hive/r3-task/items/R3-1/comments",
             json={"content": "has\x00null"},
             params={"token": token},
         )
@@ -329,15 +329,15 @@ class TestSoftDeleteCascading:
         _create_item(client, token=token)
         for i in range(3):
             client.post(
-                "/api/tasks/r3-task/items/R3-1/comments",
+                "/api/tasks/hive/r3-task/items/R3-1/comments",
                 json={"content": f"comment {i}"},
                 params={"token": token},
             )
         # Confirm 3 comments exist
-        item = client.get("/api/tasks/r3-task/items/R3-1").json()
+        item = client.get("/api/tasks/hive/r3-task/items/R3-1").json()
         assert item["comment_count"] == 3
         # Soft-delete the item
-        client.delete("/api/tasks/r3-task/items/R3-1", params={"token": token})
+        client.delete("/api/tasks/hive/r3-task/items/R3-1", params={"token": token})
         # Verify all comments are soft-deleted in DB
         with psycopg.connect(_db.DATABASE_URL) as conn:
             rows = conn.execute(
@@ -352,13 +352,13 @@ class TestSoftDeleteCascading:
         token = _register(client)
         _create_item(client, token=token)
         client.post(
-            "/api/tasks/r3-task/items/R3-1/comments",
+            "/api/tasks/hive/r3-task/items/R3-1/comments",
             json={"content": "a comment"},
             params={"token": token},
         )
-        client.delete("/api/tasks/r3-task/items/R3-1", params={"token": token})
+        client.delete("/api/tasks/hive/r3-task/items/R3-1", params={"token": token})
         # Item is gone — 404
-        resp = client.get("/api/tasks/r3-task/items/R3-1")
+        resp = client.get("/api/tasks/hive/r3-task/items/R3-1")
         assert resp.status_code == 404
 
     def test_soft_delete_parent_child_still_accessible(self, client):
@@ -368,19 +368,19 @@ class TestSoftDeleteCascading:
         _create_item(client, token=token)  # R3-1 parent
         _create_item(client, token=token, parent_id="R3-1")  # R3-2 child
         # Cannot delete parent while child exists
-        del_resp = client.delete("/api/tasks/r3-task/items/R3-1", params={"token": token})
+        del_resp = client.delete("/api/tasks/hive/r3-task/items/R3-1", params={"token": token})
         assert del_resp.status_code == 409
         # Unparent child first
         client.patch(
-            "/api/tasks/r3-task/items/R3-2",
+            "/api/tasks/hive/r3-task/items/R3-2",
             json={"parent_id": None},
             params={"token": token},
         )
         # Now delete parent
-        del_resp2 = client.delete("/api/tasks/r3-task/items/R3-1", params={"token": token})
+        del_resp2 = client.delete("/api/tasks/hive/r3-task/items/R3-1", params={"token": token})
         assert del_resp2.status_code == 204
         # Child still accessible, parent_id reflects None (was already unparented)
-        child = client.get("/api/tasks/r3-task/items/R3-2").json()
+        child = client.get("/api/tasks/hive/r3-task/items/R3-2").json()
         assert child["id"] == "R3-2"
         assert child["parent_id"] is None
 
@@ -399,9 +399,9 @@ class TestSoftDeleteCascading:
                 (_db.now(), "R3-1"),
             )
         # Parent is soft-deleted — GET returns 404
-        assert client.get("/api/tasks/r3-task/items/R3-1").status_code == 404
+        assert client.get("/api/tasks/hive/r3-task/items/R3-1").status_code == 404
         # Child is still accessible via GET
-        child_resp = client.get("/api/tasks/r3-task/items/R3-2")
+        child_resp = client.get("/api/tasks/hive/r3-task/items/R3-2")
         assert child_resp.status_code == 200
         # Child's parent_id still shows "R3-1" (the deleted item's ID)
         assert child_resp.json()["parent_id"] == "R3-1"
@@ -419,10 +419,10 @@ class TestIDGenerationEdgeCases:
         _post_task(client, "beta-task")
         token = _register(client)
         # Create items in both tasks
-        ra1 = _create_item(client, task_id="alpha-task", token=token)
-        rb1 = _create_item(client, task_id="beta-task", token=token)
-        ra2 = _create_item(client, task_id="alpha-task", token=token)
-        rb2 = _create_item(client, task_id="beta-task", token=token)
+        ra1 = _create_item(client, slug="alpha-task", token=token)
+        rb1 = _create_item(client, slug="beta-task", token=token)
+        ra2 = _create_item(client, slug="alpha-task", token=token)
+        rb2 = _create_item(client, slug="beta-task", token=token)
         assert ra1.status_code == 201
         assert rb1.status_code == 201
         assert ra2.status_code == 201
@@ -437,7 +437,7 @@ class TestIDGenerationEdgeCases:
         """Task ID with no hyphen (e.g. 'simple') — prefix is the whole ID uppercased."""
         _post_task(client, "simple")
         token = _register(client)
-        resp = _create_item(client, task_id="simple", token=token)
+        resp = _create_item(client, slug="simple", token=token)
         assert resp.status_code == 201
         # _task_prefix("simple") = "simple".split("-")[0].upper() = "SIMPLE"
         assert resp.json()["id"] == "SIMPLE-1"
@@ -446,7 +446,7 @@ class TestIDGenerationEdgeCases:
         """Task ID starting with a number (e.g. '8k-math') — prefix should be '8K'."""
         _post_task(client, "8k-math")
         token = _register(client)
-        resp = _create_item(client, task_id="8k-math", token=token)
+        resp = _create_item(client, slug="8k-math", token=token)
         assert resp.status_code == 201
         # _task_prefix("8k-math") = "8k-math".split("-")[0].upper() = "8K"
         assert resp.json()["id"] == "8K-1"

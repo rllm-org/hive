@@ -13,12 +13,12 @@ import time
 import hive.server.db as _db
 
 
-def _post_task(client, task_id="r6-task"):
+def _post_task(client, slug="r6-task"):
     with psycopg.connect(_db.DATABASE_URL, autocommit=True) as conn:
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, created_at, item_seq)"
-            " VALUES (%s, %s, %s, %s, %s, 0)",
-            (task_id, task_id, "test", "https://github.com/test", _db.now()),
+            "INSERT INTO tasks (slug, owner, name, description, repo_url, created_at, item_seq)"
+            " VALUES (%s, 'hive', %s, %s, %s, %s, 0)",
+            (slug, slug, "test", "https://github.com/test", _db.now()),
         )
 
 
@@ -27,9 +27,9 @@ def _register(client, name=None):
     return client.post("/api/register", json=body).json()["token"]
 
 
-def _create_item(client, task_id="r6-task", token=None, **kwargs):
+def _create_item(client, slug="r6-task", token=None, **kwargs):
     body = {"title": "test item", **kwargs}
-    return client.post(f"/api/tasks/{task_id}/items", json=body, params={"token": token})
+    return client.post(f"/api/tasks/hive/{slug}/items", json=body, params={"token": token})
 
 
 # ---------------------------------------------------------------------------
@@ -47,17 +47,17 @@ class TestCrossTaskParentId:
         _post_task(client, "bravo-xtask")
         token = _register(client)
 
-        r_a = _create_item(client, task_id="alpha-xtask", token=token, title="item in alpha")
+        r_a = _create_item(client, slug="alpha-xtask", token=token, title="item in alpha")
         assert r_a.status_code == 201
         item_a_id = r_a.json()["id"]  # ALPHA-1
 
-        r_b = _create_item(client, task_id="bravo-xtask", token=token, title="item in bravo")
+        r_b = _create_item(client, slug="bravo-xtask", token=token, title="item in bravo")
         assert r_b.status_code == 201
         item_b_id = r_b.json()["id"]  # BRAVO-1
 
         # Attempt to set item in alpha-task's parent to item in bravo-task
         resp = client.patch(
-            f"/api/tasks/alpha-xtask/items/{item_a_id}",
+            f"/api/tasks/hive/alpha-xtask/items/{item_a_id}",
             json={"parent_id": item_b_id},
             params={"token": token},
         )
@@ -83,14 +83,14 @@ class TestAssignThenDelete:
         item_id = r.json()["id"]
 
         assign_r = client.post(
-            f"/api/tasks/r6-task/items/{item_id}/assign",
+            f"/api/tasks/hive/r6-task/items/{item_id}/assign",
             params={"token": token_other},
         )
         assert assign_r.status_code == 200
         assert assign_r.json()["assignee_id"] == "r6-assignee"
 
         del_r = client.delete(
-            f"/api/tasks/r6-task/items/{item_id}",
+            f"/api/tasks/hive/r6-task/items/{item_id}",
             params={"token": token_creator},
         )
         assert del_r.status_code == 204
@@ -105,13 +105,13 @@ class TestAssignThenDelete:
         item_id = r.json()["id"]
 
         del_r = client.delete(
-            f"/api/tasks/r6-task/items/{item_id}",
+            f"/api/tasks/hive/r6-task/items/{item_id}",
             params={"token": token},
         )
         assert del_r.status_code == 204
 
         assign_r = client.post(
-            f"/api/tasks/r6-task/items/{item_id}/assign",
+            f"/api/tasks/hive/r6-task/items/{item_id}/assign",
             params={"token": token},
         )
         assert assign_r.status_code == 404
@@ -135,13 +135,13 @@ class TestCommentAfterReassign:
         item_id = r.json()["id"]
 
         assign_r = client.post(
-            f"/api/tasks/r6-task/items/{item_id}/assign",
+            f"/api/tasks/hive/r6-task/items/{item_id}/assign",
             params={"token": token_b},
         )
         assert assign_r.status_code == 200
 
         comment_r = client.post(
-            f"/api/tasks/r6-task/items/{item_id}/comments",
+            f"/api/tasks/hive/r6-task/items/{item_id}/comments",
             json={"content": "agent-b's comment"},
             params={"token": token_b},
         )
@@ -149,7 +149,7 @@ class TestCommentAfterReassign:
         comment_id = comment_r.json()["id"]
 
         del_r = client.delete(
-            f"/api/tasks/r6-task/items/{item_id}",
+            f"/api/tasks/hive/r6-task/items/{item_id}",
             params={"token": token_a},
         )
         assert del_r.status_code == 204
@@ -184,7 +184,7 @@ class TestDeeplyNestedStress:
             if parent_id:
                 body["parent_id"] = parent_id
             r = client.post(
-                "/api/tasks/r6-task/items",
+                "/api/tasks/hive/r6-task/items",
                 json=body,
                 params={"token": token},
             )
@@ -195,7 +195,7 @@ class TestDeeplyNestedStress:
         # Add 1 comment at each level
         for item_id in ids:
             r = client.post(
-                f"/api/tasks/r6-task/items/{item_id}/comments",
+                f"/api/tasks/hive/r6-task/items/{item_id}/comments",
                 json={"content": f"comment on {item_id}"},
                 params={"token": token},
             )
@@ -203,7 +203,7 @@ class TestDeeplyNestedStress:
 
         # Verify each item has comment_count == 1
         for item_id in ids:
-            r = client.get(f"/api/tasks/r6-task/items/{item_id}")
+            r = client.get(f"/api/tasks/hive/r6-task/items/{item_id}")
             assert r.status_code == 200
             assert r.json()["comment_count"] == 1, (
                 f"Expected comment_count=1 for {item_id}, got {r.json()['comment_count']}"
@@ -212,13 +212,13 @@ class TestDeeplyNestedStress:
         # Delete leaf (level 5)
         leaf_id = ids[4]
         del_r = client.delete(
-            f"/api/tasks/r6-task/items/{leaf_id}",
+            f"/api/tasks/hive/r6-task/items/{leaf_id}",
             params={"token": token},
         )
         assert del_r.status_code == 204
 
         # Verify level-4's children list no longer includes the leaf
-        parent_detail = client.get(f"/api/tasks/r6-task/items/{ids[3]}")
+        parent_detail = client.get(f"/api/tasks/hive/r6-task/items/{ids[3]}")
         assert parent_detail.status_code == 200
         children = parent_detail.json()["children"]
         child_ids = [c["id"] for c in children]
@@ -238,7 +238,7 @@ class TestDeeplyNestedStress:
             if parent_id:
                 body["parent_id"] = parent_id
             r = client.post(
-                "/api/tasks/r6-task/items",
+                "/api/tasks/hive/r6-task/items",
                 json=body,
                 params={"token": token},
             )
@@ -248,7 +248,7 @@ class TestDeeplyNestedStress:
 
         # Try to delete level-3 item (ids[2]) which has a child (ids[3])
         resp = client.delete(
-            f"/api/tasks/r6-task/items/{ids[2]}",
+            f"/api/tasks/hive/r6-task/items/{ids[2]}",
             params={"token": token},
         )
         assert resp.status_code == 409, (
@@ -281,7 +281,7 @@ class TestListSortOptions:
     def test_sort_recent_default_newest_first(self, client):
         """sort=recent (default) — verify newest first."""
         token, ids = self._setup_items(client)
-        resp = client.get("/api/tasks/r6-task/items", params={"sort": "recent"})
+        resp = client.get("/api/tasks/hive/r6-task/items", params={"sort": "recent"})
         assert resp.status_code == 200
         returned = [item["id"] for item in resp.json()["items"]]
         # ids[-1] should be first (most recently created)
@@ -292,7 +292,7 @@ class TestListSortOptions:
     def test_sort_recent_asc_oldest_first(self, client):
         """sort=recent:asc — oldest first."""
         token, ids = self._setup_items(client)
-        resp = client.get("/api/tasks/r6-task/items", params={"sort": "recent:asc"})
+        resp = client.get("/api/tasks/hive/r6-task/items", params={"sort": "recent:asc"})
         assert resp.status_code == 200
         returned = [item["id"] for item in resp.json()["items"]]
         assert returned[0] == ids[0], (
@@ -305,13 +305,13 @@ class TestListSortOptions:
         # Patch the first created item (oldest) to make it most recently updated
         time.sleep(0.02)
         patch_r = client.patch(
-            f"/api/tasks/r6-task/items/{ids[0]}",
+            f"/api/tasks/hive/r6-task/items/{ids[0]}",
             json={"status": "in_progress"},
             params={"token": token},
         )
         assert patch_r.status_code == 200
 
-        resp = client.get("/api/tasks/r6-task/items", params={"sort": "updated"})
+        resp = client.get("/api/tasks/hive/r6-task/items", params={"sort": "updated"})
         assert resp.status_code == 200
         returned = [item["id"] for item in resp.json()["items"]]
         assert returned[0] == ids[0], (
@@ -324,12 +324,12 @@ class TestListSortOptions:
         # Patch the last item to make it the most recently updated
         time.sleep(0.02)
         client.patch(
-            f"/api/tasks/r6-task/items/{ids[-1]}",
+            f"/api/tasks/hive/r6-task/items/{ids[-1]}",
             json={"status": "in_progress"},
             params={"token": token},
         )
 
-        resp = client.get("/api/tasks/r6-task/items", params={"sort": "updated:asc"})
+        resp = client.get("/api/tasks/hive/r6-task/items", params={"sort": "updated:asc"})
         assert resp.status_code == 200
         returned = [item["id"] for item in resp.json()["items"]]
         # ids[-1] was just updated, so it should be last in asc order
@@ -341,7 +341,7 @@ class TestListSortOptions:
         """sort=priority — urgent first (default asc: urgent > high > medium > low > none)."""
         token, ids = self._setup_items(client)
         # priorities created: none, low, urgent, high, medium -> ids[2] is urgent
-        resp = client.get("/api/tasks/r6-task/items", params={"sort": "priority"})
+        resp = client.get("/api/tasks/hive/r6-task/items", params={"sort": "priority"})
         assert resp.status_code == 200
         returned = [item["id"] for item in resp.json()["items"]]
         # urgent should be first
@@ -354,7 +354,7 @@ class TestListSortOptions:
         """sort=priority:desc — none/low priority first."""
         token, ids = self._setup_items(client)
         # priorities: none(ids[0]), low(ids[1]), urgent(ids[2]), high(ids[3]), medium(ids[4])
-        resp = client.get("/api/tasks/r6-task/items", params={"sort": "priority:desc"})
+        resp = client.get("/api/tasks/hive/r6-task/items", params={"sort": "priority:desc"})
         assert resp.status_code == 200
         returned = [item["id"] for item in resp.json()["items"]]
         # none should be first in desc (lowest priority value = 4 in the CASE expression)
@@ -365,7 +365,7 @@ class TestListSortOptions:
     def test_sort_bogus_falls_back_to_default(self, client):
         """sort=bogus — should fall back to default (recent desc), not error."""
         token, ids = self._setup_items(client)
-        resp = client.get("/api/tasks/r6-task/items", params={"sort": "bogus"})
+        resp = client.get("/api/tasks/hive/r6-task/items", params={"sort": "bogus"})
         assert resp.status_code == 200
         data = resp.json()
         assert "items" in data
@@ -392,7 +392,7 @@ class TestIdempotencyAndDoubleOps:
         time.sleep(0.05)
 
         patch1 = client.patch(
-            "/api/tasks/r6-task/items/R6-1",
+            "/api/tasks/hive/r6-task/items/R6-1",
             json={"status": "in_progress"},
             params={"token": token},
         )
@@ -402,7 +402,7 @@ class TestIdempotencyAndDoubleOps:
         time.sleep(0.05)
 
         patch2 = client.patch(
-            "/api/tasks/r6-task/items/R6-1",
+            "/api/tasks/hive/r6-task/items/R6-1",
             json={"status": "in_progress"},
             params={"token": token},
         )
@@ -426,7 +426,7 @@ class TestContentTypeEdgeCases:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/r6-task/items",
+            "/api/tasks/hive/r6-task/items",
             content='{"title": "plain text body"}',
             headers={"Content-Type": "text/plain"},
             params={"token": token},
@@ -441,7 +441,7 @@ class TestContentTypeEdgeCases:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/r6-task/items",
+            "/api/tasks/hive/r6-task/items",
             content='{"title": "no content type"}',
             params={"token": token},
         )
@@ -455,7 +455,7 @@ class TestContentTypeEdgeCases:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/r6-task/items",
+            "/api/tasks/hive/r6-task/items",
             data={"title": "form data"},
             params={"token": token},
         )

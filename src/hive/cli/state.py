@@ -31,5 +31,5 @@ def _json_callback(value: bool) -> bool:
     return value
 
 
-TaskOpt = Annotated[Optional[str], typer.Option("--task", help="Task ID", hidden=True)]
+TaskOpt = Annotated[Optional[str], typer.Option("--task", help="Task ref (owner/slug)", hidden=True)]
 JsonFlag = Annotated[bool, typer.Option("--json", help="Output as JSON", callback=_json_callback, is_eager=True)]

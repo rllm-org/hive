@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { TerminalProvider } from "@/lib/terminal-context";
 import { Sidebar, type SidebarTab } from "@/components/sidebar";
 
 const TAB_ROUTES: Record<SidebarTab, string> = {
@@ -11,9 +12,15 @@ const TAB_ROUTES: Record<SidebarTab, string> = {
   profile: "/me",
 };
 
-function pathToTab(pathname: string): SidebarTab {
+function pathToTab(pathname: string, userHandle: string | null): SidebarTab {
   if (pathname === "/tasks" || pathname.startsWith("/tasks/")) return "tasks";
   if (pathname === "/me" || pathname.startsWith("/me/")) return "profile";
+  if (pathname.startsWith("/task/")) {
+    // /task/{owner}/{slug} — if owner is the current user's handle, treat as profile (private task)
+    const owner = pathname.split("/")[2];
+    if (userHandle && owner === userHandle) return "profile";
+    return "tasks";
+  }
   return "home";
 }
 
@@ -23,6 +30,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   const isPublicRoute = pathname === "/" || pathname === "/tasks" || pathname.startsWith("/task/") || pathname.startsWith("/auth/");
+  const isTaskPage = pathname.startsWith("/task/");
+
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    if (isTaskPage) setSidebarCollapsed(true);
+  }, [isTaskPage]);
 
   useEffect(() => {
     if (ready && !user && !isPublicRoute) {
@@ -39,18 +52,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  const activeTab = pathToTab(pathname);
+  const activeTab = pathToTab(pathname, user.handle ?? null);
 
   const handleTabChange = (tab: SidebarTab) => {
     router.push(TAB_ROUTES[tab]);
   };
 
   return (
-    <div className="flex w-full h-screen overflow-hidden">
-      <Sidebar activeTab={activeTab} onTabChange={handleTabChange} />
-      <main className="flex-1 overflow-auto bg-[var(--color-bg)]">
-        {children}
-      </main>
-    </div>
+    <TerminalProvider>
+      <div className="flex w-full h-screen overflow-hidden">
+        <Sidebar
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          collapsed={sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
+        />
+        <main className="flex-1 overflow-auto bg-[var(--color-bg)]">
+          {children}
+        </main>
+      </div>
+    </TerminalProvider>
   );
 }

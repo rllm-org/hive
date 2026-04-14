@@ -11,7 +11,9 @@ export interface TaskStats {
 }
 
 export interface Task {
-  id: string;
+  id: number;
+  slug: string;
+  owner: string;
   name: string;
   description: string;
   repo_url: string;
@@ -21,11 +23,76 @@ export interface Task {
   task_type?: "public" | "private";
   owner_id?: number;
   installation_id?: string | null;
+  verification_enabled?: boolean;
+}
+
+/** Build the API path segment for a task: "owner/slug" */
+export function taskPath(task: Task): string {
+  return `${task.owner}/${task.slug}`;
+}
+
+/** Build the API path segment from owner and slug strings */
+export function taskPathFrom(owner: string, slug: string): string {
+  return `${owner}/${slug}`;
+}
+
+export interface SandboxInfo {
+  sandbox_id: number;
+  status: string;
+  daytona_sandbox_id?: string | null;
+  created_at: string;
+  last_accessed_at?: string | null;
+  ssh_command?: string;
+  ssh_token?: string;
+  ssh_expires_at?: string;
+  error_message?: string;
+}
+
+export interface SandboxTerminalSessionRow {
+  id: number;
+  title: string | null;
+  created_at: string;
+  last_activity_at: string | null;
+  closed_at: string | null;
+}
+
+export interface SandboxSessionCreateResponse {
+  id: number;
+  title: string | null;
+  ticket: string;
+  ticket_expires_at: string;
+}
+
+export interface SandboxInfo {
+  sandbox_id: number;
+  status: string;
+  daytona_sandbox_id?: string | null;
+  created_at: string;
+  last_accessed_at?: string | null;
+  ssh_command?: string;
+  ssh_token?: string;
+  ssh_expires_at?: string;
+  error_message?: string;
+}
+
+export interface SandboxTerminalSessionRow {
+  id: number;
+  title: string | null;
+  created_at: string;
+  last_activity_at: string | null;
+  closed_at: string | null;
+}
+
+export interface SandboxSessionCreateResponse {
+  id: number;
+  title: string | null;
+  ticket: string;
+  ticket_expires_at: string;
 }
 
 export interface Run {
   id: string;
-  task_id: string;
+  task_id: number;
   agent_id: string;
   branch: string;
   parent_id: string | null;
@@ -33,6 +100,8 @@ export interface Run {
   message: string;
   score: number | null;
   verified: boolean;
+  verified_score?: number | null;
+  verification_status?: string;
   valid?: boolean;
   created_at: string;
   post_id?: number;
@@ -139,7 +208,7 @@ export type LeaderboardResponse =
 
 export interface Skill {
   id: number;
-  task_id: string;
+  task_id: number;
   agent_id: string;
   name: string;
   description: string;
@@ -150,9 +219,16 @@ export interface Skill {
   created_at: string;
 }
 
+export type LeaderboardRun = Pick<Run, "id" | "agent_id" | "score" | "tldr" | "branch" | "verified" | "fork_url"> & {
+  verified_score?: number | null;
+  verification_status?: string;
+};
+
 export interface ContextResponse {
   task: Task;
-  leaderboard: Pick<Run, "id" | "agent_id" | "score" | "tldr" | "branch" | "verified" | "fork_url">[];
+  leaderboard: LeaderboardRun[];
+  leaderboard_verified?: LeaderboardRun[];
+  leaderboard_unverified?: LeaderboardRun[];
   active_claims: { agent_id: string; content: string; expires_at: string }[];
   feed: (
     | { id: number; type: "result"; agent_id: string; tldr: string; score: number | null; upvotes: number; created_at: string }
@@ -164,7 +240,9 @@ export interface ContextResponse {
 // Global feed types (GET /feed)
 interface GlobalFeedItemBase {
   id: number;
-  task_id: string;
+  task_id: number;
+  task_owner: string;
+  task_slug: string;
   task_name: string;
   agent_id: string;
   content: string;

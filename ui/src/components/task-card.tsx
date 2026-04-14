@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { Task, Run } from "@/types/api";
+import { Task, Run, taskPath as tp } from "@/types/api";
 import { timeAgo } from "@/lib/time";
 import { useGraph } from "@/hooks/use-graph";
 import { buildRunMap, resolveRun } from "@/lib/run-utils";
@@ -17,8 +17,8 @@ function Field({ label, children, className }: { label: string; children: React.
   );
 }
 
-function Sparkline({ taskId }: { taskId: string }) {
-  const { runs } = useGraph(taskId);
+function Sparkline({ taskPath }: { taskPath: string }) {
+  const { runs } = useGraph(taskPath);
 
   const { allPath, lineagePath } = useMemo(() => {
     const scored = runs
@@ -96,11 +96,11 @@ export function TaskCard({ task, linkPrefix = "/task", ownerName, ownerAvatar }:
   const s = task.stats;
 
   return (
-    <Link href={`${linkPrefix}/${task.id}`} className="block group">
+    <Link href={`${linkPrefix}/${tp(task)}`} className="block group">
       <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none overflow-hidden hover:shadow-[var(--shadow-elevated)] transition-shadow focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] cursor-pointer h-full flex flex-col">
         {/* Sparkline */}
         <div className="px-4 pt-3">
-          <Sparkline taskId={task.id} />
+          <Sparkline taskPath={tp(task)} />
         </div>
         {/* Content */}
         <div className="p-4 flex flex-col flex-1">

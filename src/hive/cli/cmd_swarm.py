@@ -13,7 +13,7 @@ import typer
 
 from hive.cli.console import get_console
 from hive.cli.formatting import ok, empty, relative_time
-from hive.cli.helpers import _api, _server_url, _save_agent, _config, _save_config
+from hive.cli.helpers import _api, _server_url, _save_agent, _config, _save_config, _split_task_ref
 from hive.cli.state import JsonFlag
 from hive.cli.swarm_state import (
     load_swarm, save_swarm, delete_swarm, list_swarms,
@@ -72,10 +72,11 @@ def _register_agents(count: int, prefix: str | None) -> list[dict]:
     return agents
 
 
-def _clone_one(task_id: str, agent: dict, base_dir: Path) -> dict:
+def _clone_one(task_ref: str, agent: dict, base_dir: Path) -> dict:
     token = agent["token"]
     agent_id = agent["id"]
-    resp = _api("POST", f"/tasks/{task_id}/clone", params={"token": token})
+    owner, slug = _split_task_ref(task_ref)
+    resp = _api("POST", f"/tasks/{owner}/{slug}/clone", params={"token": token})
     mode = resp.get("mode", "fork")
     ssh_url = resp["ssh_url"]
     private_key = resp.get("private_key", "")
@@ -106,7 +107,7 @@ def _clone_one(task_id: str, agent: dict, base_dir: Path) -> dict:
     # Write .hive metadata
     hive_dir = work_dir / ".hive"
     hive_dir.mkdir(exist_ok=True)
-    (hive_dir / "task").write_text(task_id)
+    (hive_dir / "task").write_text(task_ref)
     (hive_dir / "agent").write_text(agent_id)
 
     if mode == "branch":
@@ -135,7 +136,7 @@ def _clone_one(task_id: str, agent: dict, base_dir: Path) -> dict:
 
 
 def _start_agent_process(agent_id: str, work_dir: str, command: str | None,
-                          task_id: str, server_url: str,
+                          task_ref: str, server_url: str,
                           skip_permissions: bool = False) -> tuple[int, str]:
     hive_dir = Path(work_dir) / ".hive"
     hive_dir.mkdir(exist_ok=True)
@@ -159,7 +160,7 @@ def _start_agent_process(agent_id: str, work_dir: str, command: str | None,
         key_path = str(k)
         break
 
-    env = {**os.environ, "HIVE_SERVER": server_url, "HIVE_TASK": task_id}
+    env = {**os.environ, "HIVE_SERVER": server_url, "HIVE_TASK": task_ref}
     if key_path:
         env["GIT_SSH_COMMAND"] = f"ssh -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
 
@@ -175,7 +176,7 @@ def _start_agent_process(agent_id: str, work_dir: str, command: str | None,
 
 @swarm_app.command("up")
 def swarm_up(
-    task_id: Annotated[str, typer.Argument(help="Task to swarm on")],
+    task_ref: Annotated[str, typer.Argument(help="Task to swarm on (OWNER/SLUG)")],
     agents: Annotated[int, typer.Option("--agents", "-n", help="Number of agents")] = 3,
     command: Annotated[Optional[str], typer.Option("--command", "-c", help="Agent command (default: claude with built-in prompt)")] = None,
     base_dir: Annotated[Optional[str], typer.Option("--dir", help="Base directory for work dirs")] = None,
@@ -186,12 +187,16 @@ def swarm_up(
 ):
     """Spawn N agents to work on a task concurrently."""
     console = get_console()
-    base = Path(base_dir) if base_dir else Path.cwd() / "hive-swarm" / task_id
+    # Legacy compat: bare slug -> hive/{slug}
+    if "/" not in task_ref:
+        task_ref = f"hive/{task_ref}"
+    _owner, slug = _split_task_ref(task_ref)
+    base = Path(base_dir) if base_dir else Path.cwd() / "hive-swarm" / slug
     base.mkdir(parents=True, exist_ok=True)
     server = _server_url()
 
-    # Check existing swarm
-    state = load_swarm(task_id)
+    # Check existing swarm — state file keyed by slug
+    state = load_swarm(slug)
     if state:
         state = refresh_statuses(state)
         running = [a for a in state["agents"] if a["status"] == "running"]
@@ -205,7 +210,7 @@ def swarm_up(
         # Restart stopped agents
         for agent in stopped:
             pid, log_file = _start_agent_process(
-                agent["agent_id"], agent["work_dir"], command, task_id, server,
+                agent["agent_id"], agent["work_dir"], command, task_ref, server,
                 skip_permissions=dangerously_skip_permissions)
             agent["pid"] = pid
             agent["log_file"] = log_file
@@ -222,7 +227,7 @@ def swarm_up(
         agents = needed
         console.print(f"  Adding {needed} more agents...")
     else:
-        state = new_swarm_state(task_id, str(base), command or "claude (default prompt)")
+        state = new_swarm_state(slug, str(base), command or "claude (default prompt)")
 
     # Register agents
     with console.status("[bold]Registering agents...", spinner="dots"):
@@ -235,7 +240,7 @@ def swarm_up(
     clone_results = {}
     max_workers = min(3, len(new_agents))
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_clone_one, task_id, a, base): a for a in new_agents}
+        futures = {pool.submit(_clone_one, task_ref, a, base): a for a in new_agents}
         done_count = 0
         for future in as_completed(futures):
             done_count += 1
@@ -256,7 +261,7 @@ def swarm_up(
         if i > 0 and stagger > 0:
             time.sleep(stagger)
         pid, log_file = _start_agent_process(
-            agent["id"], cr["work_dir"], command, task_id, server,
+            agent["id"], cr["work_dir"], command, task_ref, server,
             skip_permissions=dangerously_skip_permissions)
         add_agent_to_state(state, agent["id"], agent["token"], pid, cr["work_dir"], log_file)
         console.print(f"  Started [cyan]{agent['id']}[/cyan] (PID {pid})")
@@ -266,23 +271,23 @@ def swarm_up(
     _print_agent_table(console, state)
 
     console.print()
-    console.print(f"  [dim]hive swarm status {task_id}[/dim]    — check progress")
+    console.print(f"  [dim]hive swarm status {slug}[/dim]    — check progress")
     console.print(f"  [dim]hive swarm logs <agent>[/dim]        — watch an agent")
-    console.print(f"  [dim]hive swarm stop {task_id}[/dim]      — stop all")
+    console.print(f"  [dim]hive swarm stop {slug}[/dim]      — stop all")
 
 
 @swarm_app.command("status")
 def swarm_status(
-    task_id: Annotated[Optional[str], typer.Argument(help="Task ID (omit for all)")] = None,
+    slug: Annotated[Optional[str], typer.Argument(help="Task slug (omit for all)")] = None,
     as_json: JsonFlag = False,
 ):
     """Show swarm status."""
     console = get_console()
 
-    if task_id:
-        state = load_swarm(task_id)
+    if slug:
+        state = load_swarm(slug)
         if not state:
-            raise click.ClickException(f"No swarm found for task '{task_id}'")
+            raise click.ClickException(f"No swarm found for task '{slug}'")
         state = refresh_statuses(state)
         save_swarm(state)
         if as_json:
@@ -336,14 +341,14 @@ def swarm_logs(
 
 @swarm_app.command("stop")
 def swarm_stop(
-    task_id: Annotated[Optional[str], typer.Argument(help="Task ID (omit to stop all)")] = None,
+    slug: Annotated[Optional[str], typer.Argument(help="Task slug (omit to stop all)")] = None,
     agent: Annotated[Optional[str], typer.Option("--agent", help="Stop a specific agent")] = None,
 ):
     """Stop running agents."""
     console = get_console()
 
-    if task_id:
-        targets = [task_id]
+    if slug:
+        targets = [slug]
     else:
         targets = [s["task_id"] for s in list_swarms()]
 
@@ -370,15 +375,15 @@ def swarm_stop(
 
 @swarm_app.command("down")
 def swarm_down(
-    task_id: Annotated[str, typer.Argument(help="Task ID")],
+    slug: Annotated[str, typer.Argument(help="Task slug")],
     clean: Annotated[bool, typer.Option("--clean", help="Also remove work directories")] = False,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation")] = False,
 ):
     """Stop all agents and remove swarm state."""
     console = get_console()
-    state = load_swarm(task_id)
+    state = load_swarm(slug)
     if not state:
-        raise click.ClickException(f"No swarm found for task '{task_id}'")
+        raise click.ClickException(f"No swarm found for task '{slug}'")
 
     # Stop all running agents
     state = refresh_statuses(state)
@@ -396,8 +401,8 @@ def swarm_down(
             shutil.rmtree(base)
             console.print(f"  Removed {base}")
 
-    delete_swarm(task_id)
-    ok(f"Swarm for '{task_id}' removed")
+    delete_swarm(slug)
+    ok(f"Swarm for '{slug}' removed")
 
 
 def _print_agent_table(console, state):

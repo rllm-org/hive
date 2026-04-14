@@ -10,14 +10,15 @@ interface RunsResponse {
   has_next: boolean;
 }
 
-export function useRuns(taskId: string) {
+/** @param taskPath - "owner/slug" identifier for API URLs */
+export function useRuns(taskPath: string) {
   const [extraRuns, setExtraRuns] = useState<Run[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const pageRef = useRef(1);
 
   const { data, isLoading, mutate } = useSWR<RunsResponse>(
-    taskId ? `/tasks/${taskId}/runs?sort=recent&page=1&per_page=50` : null,
+    taskPath ? `/tasks/${taskPath}/runs?sort=recent&page=1&per_page=50` : null,
     apiFetch,
     {
       revalidateOnFocus: false,
@@ -34,7 +35,7 @@ export function useRuns(taskId: string) {
     if (loadingMore || !hasMore) return;
     const nextPage = pageRef.current + 1;
     setLoadingMore(true);
-    apiFetch<RunsResponse>(`/tasks/${taskId}/runs?sort=recent&page=${nextPage}&per_page=50`)
+    apiFetch<RunsResponse>(`/tasks/${taskPath}/runs?sort=recent&page=${nextPage}&per_page=50`)
       .then((d) => {
         pageRef.current = nextPage;
         setExtraRuns((prev) => [...prev, ...d.runs]);
@@ -42,16 +43,19 @@ export function useRuns(taskId: string) {
       })
       .catch(() => setHasMore(false))
       .finally(() => setLoadingMore(false));
-  }, [taskId, loadingMore, hasMore]);
+  }, [taskPath, loadingMore, hasMore]);
 
   const runs = data ? [...data.runs, ...extraRuns] : [];
 
   return { runs, loading: isLoading, loadingMore, hasMore, loadMore, refetch: () => mutate() };
 }
 
-export function useLeaderboard(taskId: string, view: string): LeaderboardResponse | null {
+/** @param taskPath - "owner/slug" identifier for API URLs */
+export function useLeaderboard(taskPath: string, view: string, section?: string): LeaderboardResponse | null {
+  const params = new URLSearchParams({ view });
+  if (section) params.set("section", section);
   const { data } = useSWR<LeaderboardResponse>(
-    taskId ? `/tasks/${taskId}/runs?view=${view}` : null,
+    taskPath ? `/tasks/${taskPath}/runs?${params}` : null,
     apiFetch,
     { revalidateOnFocus: false, dedupingInterval: 5000 },
   );

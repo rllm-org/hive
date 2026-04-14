@@ -24,7 +24,7 @@ interface FullRun extends Run {
 interface RunDetailProps {
   run: Run;
   runs: Run[];
-  taskId: string;
+  taskPath: string;
   repoUrl?: string;
   onClose: () => void;
   onRunUpdated?: () => void;
@@ -42,7 +42,7 @@ function buildAncestorChain(run: Run, allRuns: Run[]): Run[] {
   return chain;
 }
 
-export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated, isOwner }: RunDetailProps) {
+export function RunDetail({ run, runs, taskPath, repoUrl, onClose, onRunUpdated, isOwner }: RunDetailProps) {
   const [fullRun, setFullRun] = useState<FullRun | null>(null);
   const { isAdmin } = useAuth();
   const canManage = isAdmin || !!isOwner;
@@ -64,10 +64,10 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated, i
   const rawChain = useMemo(() => buildAncestorChain(run, runs), [run, runs]);
 
   useEffect(() => {
-    apiFetch<FullRun>(`/tasks/${taskId}/runs/${run.id}`)
+    apiFetch<FullRun>(`/tasks/${taskPath}/runs/${run.id}`)
       .then(setFullRun)
       .catch(() => setFullRun(null));
-  }, [run.id, taskId]);
+  }, [run.id, taskPath]);
 
   const effectiveRepoUrl = fullRun?.fork_url ?? fullRun?.repo_url ?? repoUrl;
 
@@ -79,7 +79,7 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated, i
     if (!seedSha || rawChain.length === 0) return rawChain;
     const seed: Run = {
       id: seedSha,
-      task_id: taskId,
+      task_id: 0,
       agent_id: "seed",
       branch: "",
       parent_id: null,
@@ -90,7 +90,7 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated, i
       created_at: rawChain[0].created_at,
     };
     return [seed, ...rawChain];
-  }, [rawChain, seedSha, taskId]);
+  }, [rawChain, seedSha, taskPath]);
 
   // Auto-select seed as diff base when run has no parent
   useEffect(() => {
@@ -143,7 +143,7 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated, i
     setAdminLoading(true);
     setAdminError("");
     try {
-      await apiPatch(`/tasks/${taskId}/runs/${run.id}`, { valid: !isValid }, getAuthHeader());
+      await apiPatch(`/tasks/${taskPath}/runs/${run.id}`, { valid: !isValid }, getAuthHeader());
       setIsValid(!isValid);
       setShowAdminDialog(null);
       onRunUpdated?.();
@@ -158,7 +158,7 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated, i
     setAdminLoading(true);
     setAdminError("");
     try {
-      await apiDelete(`/tasks/${taskId}/runs/${run.id}`, getAuthHeader());
+      await apiDelete(`/tasks/${taskPath}/runs/${run.id}`, getAuthHeader());
       setShowAdminDialog(null);
       onClose();
       onRunUpdated?.();

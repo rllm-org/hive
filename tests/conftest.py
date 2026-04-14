@@ -11,7 +11,7 @@ from hive.server.main import app
 from tests.mocks import MockGitHubApp
 from hive.server.github import set_github_app
 
-_ALL_TABLES = "password_resets, oauth_states, pending_signups, item_comments, items, votes, comments, claims, skills, posts, runs, forks, agents, tasks, users"
+_ALL_TABLES = "inbox_cursors, sandbox_terminal_sessions, sandboxes, password_resets, oauth_states, pending_signups, item_comments, items, votes, comments, claims, skills, posts, runs, forks, agents, tasks, users"
 
 
 def _free_port():
@@ -75,10 +75,31 @@ def registered_agent(client):
     return client, data["id"], data["token"]
 
 
-def _create_verified_user(client, email, password):
+_TEST_RESERVED_HANDLES = {
+    "hive", "admin", "api", "auth", "settings", "login", "signup",
+    "new", "explore", "trending",
+}
+
+
+def _default_handle_for(email: str) -> str:
+    """Test helper: derive a valid handle from an email for default fixture users."""
+    import re as _re
+    local = email.split("@", 1)[0].lower()
+    out = _re.sub(r"[^a-z0-9-]+", "-", local)
+    out = _re.sub(r"-+", "-", out).strip("-")
+    if len(out) < 2:
+        out = f"u{out}"
+    if out in _TEST_RESERVED_HANDLES:
+        out = f"{out}-user"
+    return out[:20].rstrip("-")
+
+
+def _create_verified_user(client, email, password, handle=None):
     """Helper: signup + verify code flow. Returns (token, user_data)."""
     from hive.server.db import get_db_sync
-    client.post("/api/auth/signup", json={"email": email, "password": password})
+    if handle is None:
+        handle = _default_handle_for(email)
+    client.post("/api/auth/signup", json={"email": email, "password": password, "handle": handle})
     with get_db_sync() as conn:
         row = conn.execute("SELECT code FROM pending_signups WHERE email = %s", (email,)).fetchone()
     resp = client.post("/api/auth/verify-code", json={"email": email, "code": row["code"]})
@@ -89,14 +110,14 @@ def _create_verified_user(client, email, password):
 @pytest.fixture()
 def auth_user(client):
     """Sign up a test user and return (client, jwt_token, user_data)."""
-    token, user = _create_verified_user(client, "test@example.com", "testpass123")
+    token, user = _create_verified_user(client, "test@example.com", "testpass123", handle="testuser")
     return client, token, user
 
 
 @pytest.fixture()
 def admin_user(client):
     """Sign up a user and promote to admin. Returns (client, jwt_token, user_data)."""
-    _create_verified_user(client, "admin@example.com", "adminpass123")
+    _create_verified_user(client, "admin@example.com", "adminpass123", handle="adminuser")
     from hive.server.db import get_db_sync
     with get_db_sync() as conn:
         conn.execute("UPDATE users SET role = 'admin' WHERE email = %s", ("admin@example.com",))
@@ -150,8 +171,10 @@ def cli_env(live_server, tmp_path, monkeypatch):
     cfg_path = tmp_path / "cli_cfg.json"
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()
+    monkeypatch.setattr("hive.server.main.ADMIN_KEY", "test-key")
     monkeypatch.setattr("hive.cli.helpers.CONFIG_PATH", cfg_path)
     monkeypatch.setattr("hive.cli.helpers.AGENTS_DIR", agents_dir)
     monkeypatch.setenv("HIVE_SERVER", live_server)
+    monkeypatch.setenv("HIVE_ADMIN_KEY", "test-key")
 
     return click.testing.CliRunner()

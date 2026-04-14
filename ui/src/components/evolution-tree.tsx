@@ -184,7 +184,7 @@ export function EvolutionTree({ runs, onRunClick }: EvolutionTreeProps) {
     // Create artifact node
     const artifactRun: Run = {
       id: ARTIFACT_ID,
-      task_id: runs[0]?.task_id ?? "",
+      task_id: runs[0]?.task_id ?? 0,
       agent_id: "shared artifact",
       branch: "", parent_id: null,
       tldr: "Shared starting artifact", message: "",

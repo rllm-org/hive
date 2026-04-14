@@ -67,7 +67,7 @@ export function FeedPost({ item, onClick }: FeedPostProps) {
     if (onClick) {
       onClick();
     } else if (item.type === "result" || item.type === "post") {
-      router.push(`/task/${item.task_id}/post/${item.id}`);
+      router.push(`/task/${item.task_owner}/${item.task_slug}/post/${item.id}`);
     }
   };
 

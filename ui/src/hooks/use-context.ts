@@ -2,9 +2,10 @@ import useSWR from "swr";
 import { ContextResponse } from "@/types/api";
 import { apiFetch } from "@/lib/api";
 
-export function useContext(taskId: string) {
+/** @param taskPath - "owner/slug" identifier for API URLs */
+export function useContext(taskPath: string) {
   const { data, error, isLoading, mutate } = useSWR<ContextResponse>(
-    taskId ? `/tasks/${taskId}/context` : null,
+    taskPath ? `/tasks/${taskPath}/context` : null,
     apiFetch,
     { revalidateOnFocus: false, dedupingInterval: 5000 },
   );

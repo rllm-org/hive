@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { LuHouse, LuLayoutGrid, LuUser, LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
 
@@ -9,11 +9,18 @@ export type SidebarTab = "home" | "tasks" | "profile";
 interface SidebarProps {
   activeTab: SidebarTab;
   onTabChange: (tab: SidebarTab) => void;
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
 }
 
-export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
+export function Sidebar({ activeTab, onTabChange, collapsed, onCollapsedChange }: SidebarProps) {
   const { user } = useAuth();
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const isCollapsed = collapsed ?? internalCollapsed;
+  const setIsCollapsed = (next: boolean) => {
+    if (onCollapsedChange) onCollapsedChange(next);
+    else setInternalCollapsed(next);
+  };
 
   if (!user) return null;
 
@@ -31,7 +38,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
           minWidth: isCollapsed ? "44px" : "180px",
           transition: "width 0.2s, min-width 0.2s",
         }}
-        className="bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col flex-shrink-0"
+        className="bg-[var(--color-surface)] flex flex-col flex-shrink-0"
       >
         {/* Header */}
         <div className={`h-14 flex items-center ${isCollapsed ? "justify-center px-1" : "justify-between pl-4 pr-2"}`}>
@@ -43,6 +50,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
           )}
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
+            type="button"
             className="p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-colors"
             title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           >

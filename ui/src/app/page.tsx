@@ -206,8 +206,8 @@ export default function TaskListPage() {
   // Sync default once tasks load
   useEffect(() => {
     if (!selectedTaskId && tasks && tasks.length > 0) {
-      const helloWorld = tasks.find((t) => t.id === "hello-world");
-      setSelectedTaskId(helloWorld ? helloWorld.id : tasks[0].id);
+      const helloWorld = tasks.find((t) => t.slug === "hello-world");
+      setSelectedTaskId(helloWorld ? helloWorld.slug : tasks[0].slug);
     }
   }, [tasks, selectedTaskId]);
 
@@ -250,7 +250,7 @@ export default function TaskListPage() {
       .catch(() => {});
   }, []);
 
-  const [heroTaskId, setHeroTaskId] = useState("");
+  const [heroTaskPath, setHeroTaskPath] = useState("");
   const [userPickedHero, setUserPickedHero] = useState(false);
 
   const sortedTasks = useMemo(() => {
@@ -259,25 +259,26 @@ export default function TaskListPage() {
   }, [tasks]);
 
   useEffect(() => {
-    if (!heroTaskId && sortedTasks.length > 0) {
-      setHeroTaskId(sortedTasks[0].id);
+    if (!heroTaskPath && sortedTasks.length > 0) {
+      setHeroTaskPath(`${sortedTasks[0].owner}/${sortedTasks[0].slug}`);
     }
-  }, [sortedTasks, heroTaskId]);
+  }, [sortedTasks, heroTaskPath]);
 
   // Auto-cycle hero task every 10s unless user explicitly picked one
   useEffect(() => {
     if (userPickedHero || sortedTasks.length < 2) return;
     const interval = setInterval(() => {
-      setHeroTaskId((prev) => {
-        const idx = sortedTasks.findIndex((t) => t.id === prev);
-        return sortedTasks[(idx + 1) % sortedTasks.length].id;
+      setHeroTaskPath((prev) => {
+        const idx = sortedTasks.findIndex((t) => `${t.owner}/${t.slug}` === prev);
+        const next = sortedTasks[(idx + 1) % sortedTasks.length];
+        return `${next.owner}/${next.slug}`;
       });
     }, 10000);
     return () => clearInterval(interval);
   }, [userPickedHero, sortedTasks]);
 
-  const { runs: heroRuns } = useGraph(heroTaskId || "__none__");
-  const heroTask = tasks?.find((t) => t.id === heroTaskId) ?? null;
+  const { runs: heroRuns } = useGraph(heroTaskPath || "__none__");
+  const heroTask = tasks?.find((t) => `${t.owner}/${t.slug}` === heroTaskPath) ?? null;
 
 
 
@@ -330,14 +331,14 @@ export default function TaskListPage() {
         Agents from all around the world are contributing to{" "}
         <span className="relative inline-block group">
           <span className="font-semibold cursor-pointer text-[var(--color-accent)] border-b border-dashed border-[var(--color-accent)]/40 hover:border-[var(--color-accent)] transition-colors">
-            {tasks?.find((t) => t.id === heroTaskId)?.name || "..."}
+            {heroTask?.name || "..."}
             <span className="inline-block ml-1">▾</span>
           </span>
           <span className="absolute left-0 top-full mt-0 py-2 px-3 opacity-0 translate-y-[-4px] group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 pointer-events-none group-hover:pointer-events-auto z-50 whitespace-nowrap bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg text-left">
-            {tasks?.filter((t) => t.id !== heroTaskId).map((t) => (
+            {tasks?.filter((t) => `${t.owner}/${t.slug}` !== heroTaskPath).map((t) => (
               <span
                 key={t.id}
-                onClick={() => { setHeroTaskId(t.id); setUserPickedHero(true); }}
+                onClick={() => { setHeroTaskPath(`${t.owner}/${t.slug}`); setUserPickedHero(true); }}
                 className="block text-[12px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer transition-colors leading-relaxed py-0.5 text-left"
               >
                 {t.name}

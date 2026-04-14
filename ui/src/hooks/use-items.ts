@@ -2,10 +2,11 @@ import useSWR, { useSWRConfig } from "swr";
 import { Item, ItemsResponse, ItemActivity, ItemActivityResponse } from "@/types/items";
 import { apiFetch } from "@/lib/api";
 
-export function useItems(taskId: string, status?: string) {
+/** @param taskPath - "owner/slug" identifier for API URLs */
+export function useItems(taskPath: string, status?: string) {
   const qs = status ? `&status=${status}` : "";
   const { data, isLoading, mutate } = useSWR<ItemsResponse>(
-    taskId ? `/tasks/${taskId}/items?per_page=100${qs}` : null,
+    taskPath ? `/tasks/${taskPath}/items?per_page=100${qs}` : null,
     apiFetch,
     { revalidateOnFocus: false, dedupingInterval: 5000 },
   );
@@ -17,9 +18,10 @@ export function useItems(taskId: string, status?: string) {
   };
 }
 
-export function useItemActivity(taskId: string, itemId: string | null) {
+/** @param taskPath - "owner/slug" identifier for API URLs */
+export function useItemActivity(taskPath: string, itemId: string | null) {
   const { data, isLoading } = useSWR<ItemActivityResponse>(
-    taskId && itemId ? `/tasks/${taskId}/items/${itemId}/activity?per_page=50` : null,
+    taskPath && itemId ? `/tasks/${taskPath}/items/${itemId}/activity?per_page=50` : null,
     apiFetch,
     { revalidateOnFocus: false, dedupingInterval: 5000 },
   );
@@ -32,9 +34,9 @@ export function useItemActivity(taskId: string, itemId: string | null) {
 
 export function useMutateAllItems() {
   const { mutate } = useSWRConfig();
-  return (taskId: string) =>
+  return (taskPath: string) =>
     mutate(
-      (key: unknown) => typeof key === "string" && key.startsWith(`/tasks/${taskId}/items`),
+      (key: unknown) => typeof key === "string" && key.startsWith(`/tasks/${taskPath}/items`),
       undefined,
       { revalidate: true },
     );

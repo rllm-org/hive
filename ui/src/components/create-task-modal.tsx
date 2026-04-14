@@ -73,9 +73,9 @@ export function CreateTaskModal({ onClose, onCreated, defaultMode }: CreateTaskM
 
   const TASK_ID_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
   const validate = (): boolean => {
-    const idErr = !taskId.trim() ? "Task ID is required."
+    const idErr = !taskId.trim() ? "Slug is required."
       : !TASK_ID_RE.test(taskId.trim()) ? "Lowercase letters, digits, and hyphens only."
-      : errors.taskId === "A public or private task with this ID already exists. Try a different ID. We're migrating to separate ID pools for private tasks soon." ? "A public or private task with this ID already exists. Try a different ID. We're migrating to separate ID pools for private tasks soon."
+      : errors.taskId?.includes("already exists") ? errors.taskId
       : null;
     const nameErr = !name.trim() ? "Name is required." : null;
     const descErr = !description.trim()
@@ -97,9 +97,11 @@ export function CreateTaskModal({ onClose, onCreated, defaultMode }: CreateTaskM
   };
 
   const checkUniqueness = async (id: string) => {
+    const owner = user?.github_username ?? user?.email;
+    if (!owner) return;
     try {
-      await apiFetch(`/tasks/${id}`);
-      setFieldError("taskId", `Task ID "${id}" already exists.`);
+      await apiFetch(`/tasks/${owner}/${id}`);
+      setFieldError("taskId", `Slug "${id}" already exists.`);
     } catch {
       setErrors((prev) =>
         prev.taskId?.includes("already exists") ? { ...prev, taskId: null } : prev,
@@ -118,12 +120,13 @@ export function CreateTaskModal({ onClose, onCreated, defaultMode }: CreateTaskM
     // Debounced uniqueness check
     if (idCheckTimer.current) clearTimeout(idCheckTimer.current);
     const trimmed = id.trim();
-    if (trimmed.length >= 2) {
+    const owner = user?.github_username ?? user?.email;
+    if (trimmed.length >= 2 && owner) {
       idCheckTimer.current = setTimeout(async () => {
         try {
-          const res = await fetch(`${API_BASE}/tasks/${trimmed}`, { headers: getAuthHeader() });
+          const res = await fetch(`${API_BASE}/tasks/${owner}/${trimmed}`, { headers: getAuthHeader() });
           if (res.ok) {
-            setFieldError("taskId", "A public or private task with this ID already exists. Try a different ID. We're migrating to separate ID pools for private tasks soon.");
+            setFieldError("taskId", "A task with this slug already exists under your account. Try a different ID.");
           }
         } catch {}
       }, 400);
@@ -168,7 +171,7 @@ export function CreateTaskModal({ onClose, onCreated, defaultMode }: CreateTaskM
     try {
       if (mode === "github") {
         const result = await apiPostJson<SubmitResult>("/tasks/private", {
-          id: taskId.trim(),
+          slug: taskId.trim(),
           name: name.trim(),
           description: description.trim(),
           repo: selectedRepo!.full_name,
@@ -178,7 +181,7 @@ export function CreateTaskModal({ onClose, onCreated, defaultMode }: CreateTaskM
         onCreated();
       } else {
         const formData = new FormData();
-        formData.append("id", taskId.trim());
+        formData.append("slug", taskId.trim());
         formData.append("name", name.trim());
         formData.append("description", description.trim());
         formData.append("archive", file!);
@@ -256,7 +259,7 @@ export function CreateTaskModal({ onClose, onCreated, defaultMode }: CreateTaskM
                   </span>
                 </div>
                 <div className="flex gap-3 px-4 py-3">
-                  <span className="text-xs font-medium text-[var(--color-text-tertiary)] w-16 shrink-0 pt-0.5">Task ID</span>
+                  <span className="text-xs font-medium text-[var(--color-text-tertiary)] w-16 shrink-0 pt-0.5">Slug</span>
                   <span className="text-sm font-[family-name:var(--font-ibm-plex-mono)]">{submitResult.id}</span>
                 </div>
                 <div className="flex gap-3 px-4 py-3">
@@ -387,19 +390,25 @@ export function CreateTaskModal({ onClose, onCreated, defaultMode }: CreateTaskM
               )}
 
               <div>
-                <label className={labelCls}>Task ID</label>
+                <label className={labelCls}>Slug</label>
                 <input
                   type="text"
                   value={taskId}
                   onChange={(e) => handleTaskIdChange(e.target.value)}
                   onBlur={() => {
-                    const err = !taskId.trim() ? "Task ID is required." : !TASK_ID_RE.test(taskId.trim()) ? "Lowercase letters, digits, and hyphens only." : null;
+                    const err = !taskId.trim() ? "Slug is required." : !TASK_ID_RE.test(taskId.trim()) ? "Lowercase letters, digits, and hyphens only." : null;
                     setFieldError("taskId", err);
                     if (!err) checkUniqueness(taskId.trim());
                   }}
                   placeholder="e.g. my-benchmark"
                   className={`${inputCls} ${inputBorder("taskId")} font-[family-name:var(--font-ibm-plex-mono)]`}
                 />
+                <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">
+                  Used in URLs:{" "}
+                  <span className="font-[family-name:var(--font-ibm-plex-mono)] text-[var(--color-text-secondary)]">
+                    {(user?.role === "admin" && mode === "upload" ? "hive" : (user?.handle ?? "you"))}/{taskId.trim() || "your-slug"}
+                  </span>
+                </p>
                 <FieldError msg={errors.taskId ?? null} />
               </div>
 

@@ -11,12 +11,12 @@ import pytest
 import hive.server.db as _db
 
 
-def _post_task(client, task_id="r4-task"):
+def _post_task(client, slug="r4-task"):
     with psycopg.connect(_db.DATABASE_URL, autocommit=True) as conn:
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, created_at, item_seq)"
-            " VALUES (%s, %s, %s, %s, %s, 0)",
-            (task_id, task_id, "test", "https://github.com/test", _db.now()),
+            "INSERT INTO tasks (slug, owner, name, description, repo_url, created_at, item_seq)"
+            " VALUES (%s, 'hive', %s, %s, %s, %s, 0)",
+            (slug, slug, "test", "https://github.com/test", _db.now()),
         )
 
 
@@ -25,9 +25,9 @@ def _register(client, name=None):
     return client.post("/api/register", json=body).json()["token"]
 
 
-def _create_item(client, task_id="r4-task", token=None, **kwargs):
+def _create_item(client, slug="r4-task", token=None, **kwargs):
     body = {"title": "test item", **kwargs}
-    return client.post(f"/api/tasks/{task_id}/items", json=body, params={"token": token})
+    return client.post(f"/api/tasks/hive/{slug}/items", json=body, params={"token": token})
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ class TestHTTPMethodAbuse:
         _post_task(client)
         token = _register(client)
         resp = client.put(
-            "/api/tasks/r4-task/items",
+            "/api/tasks/hive/r4-task/items",
             json={"title": "whatever"},
             params={"token": token},
         )
@@ -53,7 +53,7 @@ class TestHTTPMethodAbuse:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.put(
-            "/api/tasks/r4-task/items/R4-1",
+            "/api/tasks/hive/r4-task/items/R4-1",
             json={"title": "whatever"},
             params={"token": token},
         )
@@ -65,7 +65,7 @@ class TestHTTPMethodAbuse:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.post(
-            "/api/tasks/r4-task/items/R4-1",
+            "/api/tasks/hive/r4-task/items/R4-1",
             json={"title": "whatever"},
             params={"token": token},
         )
@@ -74,7 +74,7 @@ class TestHTTPMethodAbuse:
     def test_head_on_items_collection(self, client):
         """HEAD /items — document actual server behavior (not 500)."""
         _post_task(client)
-        resp = client.head("/api/tasks/r4-task/items")
+        resp = client.head("/api/tasks/hive/r4-task/items")
         # FastAPI with Starlette test client returns 405 for HEAD on GET endpoints
         # unless explicitly registered. Acceptable responses: 200 or 405.
         assert resp.status_code in (200, 405)
@@ -82,7 +82,7 @@ class TestHTTPMethodAbuse:
     def test_options_on_items_collection(self, client):
         """OPTIONS /items should return 200 or 405 (not 500)."""
         _post_task(client)
-        resp = client.options("/api/tasks/r4-task/items")
+        resp = client.options("/api/tasks/hive/r4-task/items")
         assert resp.status_code in (200, 405)
 
 
@@ -100,7 +100,7 @@ class TestDeepParentChain:
             kwargs = {"title": f"level {len(ids) + 1}"}
             if parent:
                 kwargs["parent_id"] = parent
-            resp = _create_item(client, task_id=task_id, token=token, **kwargs)
+            resp = _create_item(client, slug=task_id, token=token, **kwargs)
             assert resp.status_code == 201, resp.json()
             iid = resp.json()["id"]
             ids.append(iid)
@@ -114,7 +114,7 @@ class TestDeepParentChain:
         ids = self._build_chain(client, "r4-task", token, 5)
         assert len(ids) == 5
         # Verify the chain structure
-        resp = client.get(f"/api/tasks/r4-task/items/{ids[4]}")
+        resp = client.get(f"/api/tasks/hive/r4-task/items/{ids[4]}")
         assert resp.status_code == 200
         assert resp.json()["parent_id"] == ids[3]
 
@@ -124,7 +124,7 @@ class TestDeepParentChain:
         token = _register(client)
         ids = self._build_chain(client, "r4-task", token, 5)
         # Try to create child of level-5 item
-        resp = _create_item(client, task_id="r4-task", token=token, parent_id=ids[4], title="level 6")
+        resp = _create_item(client, slug="r4-task", token=token, parent_id=ids[4], title="level 6")
         assert resp.status_code == 400
 
     def test_patch_creates_depth_5_succeeds(self, client):
@@ -134,12 +134,12 @@ class TestDeepParentChain:
         # Build chain: item1 -> item2 -> item3 -> item4
         ids = self._build_chain(client, "r4-task", token, 4)
         # Now create a standalone item (item5, no parent)
-        resp = _create_item(client, task_id="r4-task", token=token, title="standalone")
+        resp = _create_item(client, slug="r4-task", token=token, title="standalone")
         assert resp.status_code == 201
         standalone_id = resp.json()["id"]
         # PATCH standalone to be child of item4: chain is item1->item2->item3->item4->standalone (depth 5)
         resp = client.patch(
-            f"/api/tasks/r4-task/items/{standalone_id}",
+            f"/api/tasks/hive/r4-task/items/{standalone_id}",
             json={"parent_id": ids[3]},
             params={"token": token},
         )
@@ -152,12 +152,12 @@ class TestDeepParentChain:
         # Build chain of 5: item1->item2->item3->item4->item5
         ids = self._build_chain(client, "r4-task", token, 5)
         # Standalone item
-        resp = _create_item(client, task_id="r4-task", token=token, title="standalone")
+        resp = _create_item(client, slug="r4-task", token=token, title="standalone")
         assert resp.status_code == 201
         standalone_id = resp.json()["id"]
         # Try to attach standalone as child of item5 (depth would be 6)
         resp = client.patch(
-            f"/api/tasks/r4-task/items/{standalone_id}",
+            f"/api/tasks/hive/r4-task/items/{standalone_id}",
             json={"parent_id": ids[4]},
             params={"token": token},
         )
@@ -186,18 +186,18 @@ class TestDeepParentChain:
         deep_ids = self._build_chain(client, "r4-task", token, 4)
 
         # Build separate subtree: A -> B -> C (3 items, the subtree has depth 3)
-        resp_a = _create_item(client, task_id="r4-task", token=token, title="A")
+        resp_a = _create_item(client, slug="r4-task", token=token, title="A")
         a_id = resp_a.json()["id"]
-        resp_b = _create_item(client, task_id="r4-task", token=token, title="B", parent_id=a_id)
+        resp_b = _create_item(client, slug="r4-task", token=token, title="B", parent_id=a_id)
         b_id = resp_b.json()["id"]
-        resp_c = _create_item(client, task_id="r4-task", token=token, title="C", parent_id=b_id)
+        resp_c = _create_item(client, slug="r4-task", token=token, title="C", parent_id=b_id)
         c_id = resp_c.json()["id"]
 
         # Try to move A under Z (deep_ids[3] is at depth 4)
         # If server only walks UP, it sees: Z (d4) -> Y -> X -> root -> None = 4 hops
         # and would allow depth 5 (A under Z). But A has B->C below it making total 6.
         resp = client.patch(
-            f"/api/tasks/r4-task/items/{a_id}",
+            f"/api/tasks/hive/r4-task/items/{a_id}",
             json={"parent_id": deep_ids[3]},
             params={"token": token},
         )
@@ -236,7 +236,7 @@ class TestResponseFormatConsistency:
         _post_task(client)
         token = _register(client)
         _create_item(client, token=token)
-        resp = client.get("/api/tasks/r4-task/items/R4-1")
+        resp = client.get("/api/tasks/hive/r4-task/items/R4-1")
         assert resp.status_code == 200
         data = resp.json()
         assert self._ISO8601_RE.match(data["created_at"]), f"Bad created_at: {data['created_at']}"
@@ -245,7 +245,7 @@ class TestResponseFormatConsistency:
     def test_list_response_has_pagination_keys(self, client):
         """GET list response includes page, per_page, has_next."""
         _post_task(client)
-        resp = client.get("/api/tasks/r4-task/items")
+        resp = client.get("/api/tasks/hive/r4-task/items")
         assert resp.status_code == 200
         data = resp.json()
         assert "page" in data
@@ -261,7 +261,7 @@ class TestResponseFormatConsistency:
         comment_ids = []
         for i in range(5):
             r = client.post(
-                "/api/tasks/r4-task/items/R4-1/comments",
+                "/api/tasks/hive/r4-task/items/R4-1/comments",
                 json={"content": f"comment {i}"},
                 params={"token": token},
             )
@@ -270,10 +270,10 @@ class TestResponseFormatConsistency:
         # Delete 2 comments
         for cid in comment_ids[:2]:
             client.delete(
-                f"/api/tasks/r4-task/items/R4-1/comments/{cid}",
+                f"/api/tasks/hive/r4-task/items/R4-1/comments/{cid}",
                 params={"token": token},
             )
-        resp = client.get("/api/tasks/r4-task/items/R4-1")
+        resp = client.get("/api/tasks/hive/r4-task/items/R4-1")
         assert resp.status_code == 200
         assert resp.json()["comment_count"] == 3
 
@@ -285,7 +285,7 @@ class TestResponseFormatConsistency:
         assert create_resp.status_code == 201
         create_data = create_resp.json()
 
-        get_resp = client.get("/api/tasks/r4-task/items/R4-1")
+        get_resp = client.get("/api/tasks/hive/r4-task/items/R4-1")
         assert get_resp.status_code == 200
         get_data = get_resp.json()
 
@@ -303,11 +303,11 @@ class TestResponseFormatConsistency:
         token = _register(client)
         _create_item(client, token=token)
 
-        list_resp = client.get("/api/tasks/r4-task/items")
+        list_resp = client.get("/api/tasks/hive/r4-task/items")
         assert list_resp.status_code == 200
         list_item = list_resp.json()["items"][0]
 
-        detail_resp = client.get("/api/tasks/r4-task/items/R4-1")
+        detail_resp = client.get("/api/tasks/hive/r4-task/items/R4-1")
         assert detail_resp.status_code == 200
         detail_item = detail_resp.json()
 
@@ -331,11 +331,11 @@ class TestAssignRace:
         token_b = _register(client, "r4-agent-bb")
         _create_item(client, token=token_a)
 
-        r1 = client.post("/api/tasks/r4-task/items/R4-1/assign", params={"token": token_a})
+        r1 = client.post("/api/tasks/hive/r4-task/items/R4-1/assign", params={"token": token_a})
         assert r1.status_code == 200
         assert r1.json()["assignee_id"] == "r4-agent-aa"
 
-        r2 = client.post("/api/tasks/r4-task/items/R4-1/assign", params={"token": token_b})
+        r2 = client.post("/api/tasks/hive/r4-task/items/R4-1/assign", params={"token": token_b})
         assert r2.status_code == 409
 
     def test_unassign_then_reassign(self, client):
@@ -346,12 +346,12 @@ class TestAssignRace:
         _create_item(client, token=token_a)
 
         # A assigns
-        r1 = client.post("/api/tasks/r4-task/items/R4-1/assign", params={"token": token_a})
+        r1 = client.post("/api/tasks/hive/r4-task/items/R4-1/assign", params={"token": token_a})
         assert r1.status_code == 200
 
         # A unassigns via PATCH
         r_unassign = client.patch(
-            "/api/tasks/r4-task/items/R4-1",
+            "/api/tasks/hive/r4-task/items/R4-1",
             json={"assignee_id": None},
             params={"token": token_a},
         )
@@ -359,7 +359,7 @@ class TestAssignRace:
         assert r_unassign.json()["assignee_id"] is None
 
         # B can now assign
-        r2 = client.post("/api/tasks/r4-task/items/R4-1/assign", params={"token": token_b})
+        r2 = client.post("/api/tasks/hive/r4-task/items/R4-1/assign", params={"token": token_b})
         assert r2.status_code == 200
         assert r2.json()["assignee_id"] == "r4-agent-dd"
 
@@ -378,7 +378,7 @@ class TestLargePayloads:
         for i in range(1000):
             body[f"junk_key_{i}"] = f"junk_value_{i}"
         resp = client.post(
-            "/api/tasks/r4-task/items",
+            "/api/tasks/hive/r4-task/items",
             json=body,
             params={"token": token},
         )
@@ -459,7 +459,7 @@ class TestRecreationAfterSoftDelete:
         assert r1.json()["id"] == "R4-1"
 
         # Delete R4-1
-        del_resp = client.delete("/api/tasks/r4-task/items/R4-1", params={"token": token})
+        del_resp = client.delete("/api/tasks/hive/r4-task/items/R4-1", params={"token": token})
         assert del_resp.status_code == 204
 
         # Create another item — should be R4-2
@@ -472,7 +472,7 @@ class TestRecreationAfterSoftDelete:
         _post_task(client)
         token = _register(client)
         _create_item(client, token=token)
-        client.delete("/api/tasks/r4-task/items/R4-1", params={"token": token})
+        client.delete("/api/tasks/hive/r4-task/items/R4-1", params={"token": token})
 
         with psycopg.connect(_db.DATABASE_URL) as conn:
             row = conn.execute(
@@ -487,8 +487,8 @@ class TestRecreationAfterSoftDelete:
         _post_task(client)
         token = _register(client)
         _create_item(client, token=token)
-        client.delete("/api/tasks/r4-task/items/R4-1", params={"token": token})
-        resp = client.get("/api/tasks/r4-task/items/R4-1")
+        client.delete("/api/tasks/hive/r4-task/items/R4-1", params={"token": token})
+        resp = client.get("/api/tasks/hive/r4-task/items/R4-1")
         assert resp.status_code == 404
 
     def test_deleted_item_not_in_list(self, client):
@@ -497,8 +497,8 @@ class TestRecreationAfterSoftDelete:
         token = _register(client)
         _create_item(client, token=token)
         _create_item(client, token=token, title="keeper")
-        client.delete("/api/tasks/r4-task/items/R4-1", params={"token": token})
-        resp = client.get("/api/tasks/r4-task/items")
+        client.delete("/api/tasks/hive/r4-task/items/R4-1", params={"token": token})
+        resp = client.get("/api/tasks/hive/r4-task/items")
         assert resp.status_code == 200
         ids = [i["id"] for i in resp.json()["items"]]
         assert "R4-1" not in ids
@@ -533,7 +533,7 @@ class TestFilterCombinations:
         """status=!archived should return all items except archived ones."""
         token = _register(client, "r4-filter-agent")
         self._setup(client, token)
-        resp = client.get("/api/tasks/r4-task/items", params={"status": "!archived"})
+        resp = client.get("/api/tasks/hive/r4-task/items", params={"status": "!archived"})
         assert resp.status_code == 200
         items = resp.json()["items"]
         assert all(i["status"] != "archived" for i in items)
@@ -545,7 +545,7 @@ class TestFilterCombinations:
         token = _register(client, "r4-combo-agent")
         self._setup(client, token)
         resp = client.get(
-            "/api/tasks/r4-task/items",
+            "/api/tasks/hive/r4-task/items",
             params={"status": "!archived", "assignee": "none", "label": "bug"},
         )
         assert resp.status_code == 200
@@ -572,7 +572,7 @@ class TestFilterCombinations:
         _create_item(client, token=token, title="high item", priority="high")
         _create_item(client, token=token, title="none item", priority="none")
 
-        resp = client.get("/api/tasks/r4-task/items", params={"sort": "priority:desc"})
+        resp = client.get("/api/tasks/hive/r4-task/items", params={"sort": "priority:desc"})
         assert resp.status_code == 200
         items = resp.json()["items"]
         # sort=priority uses CASE expression: urgent=0, high=1, medium=2, low=3, none=4
@@ -589,7 +589,7 @@ class TestFilterCombinations:
         token = _register(client)
         _create_item(client, token=token, title="item-1")
         _create_item(client, token=token, title="item-2")
-        resp = client.get("/api/tasks/r4-task/items", params={"sort": "nonexistent"})
+        resp = client.get("/api/tasks/hive/r4-task/items", params={"sort": "nonexistent"})
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["items"]) == 2
@@ -602,7 +602,7 @@ class TestFilterCombinations:
         _create_item(client, token=token, title="urgent item", priority="urgent")
         _create_item(client, token=token, title="none item", priority="none")
 
-        resp = client.get("/api/tasks/r4-task/items", params={"sort": "priority"})
+        resp = client.get("/api/tasks/hive/r4-task/items", params={"sort": "priority"})
         assert resp.status_code == 200
         items = resp.json()["items"]
         priorities = [i["priority"] for i in items]

@@ -9,8 +9,8 @@ const CATEGORY_MAP: { pattern: RegExp; label: TaskCategory }[] = [
   { pattern: /(tau|hello.world|arc|agent|terminal)/, label: "Agent" },
 ];
 
-export function getTaskCategory(taskId: string): TaskCategory {
-  const lower = taskId.toLowerCase();
+export function getTaskCategory(slug: string): TaskCategory {
+  const lower = slug.toLowerCase();
   for (const { pattern, label } of CATEGORY_MAP) {
     if (pattern.test(lower)) return label;
   }
@@ -65,6 +65,6 @@ const COVER_IMAGES: Record<string, string> = {
   gsm8k: "/images/HumanEval.webp",
 };
 
-export function getCoverImage(taskId: string): string | null {
-  return COVER_IMAGES[taskId] ?? null;
+export function getCoverImage(slug: string): string | null {
+  return COVER_IMAGES[slug] ?? null;
 }

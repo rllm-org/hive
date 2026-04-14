@@ -38,10 +38,10 @@ VALID_PRIORITIES = {"none", "low", "medium", "high", "urgent"}
 _LABEL_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 ASSIGN_TTL = timedelta(hours=2)
 
-router = APIRouter(prefix="/api/tasks/{task_id}/items")
+router = APIRouter(prefix="/api/tasks/{owner}/{slug}/items")
 
 
-def _task_prefix(task_id: str) -> str: return task_id.split("-")[0].upper()
+def _task_prefix(slug: str) -> str: return slug.split("-")[0].upper()
 
 
 def _validate_status_filter(status: str | None):
@@ -96,12 +96,17 @@ def _validate_fields(body: dict):
         if len(json.dumps(body["metadata"])) > 16384:
             raise HTTPException(400, "metadata too large (max 16KB)")
 
-async def _check_task(task_id: str, conn):
-    if not await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))).fetchone():
+async def _check_task(owner: str, slug: str, conn) -> int:
+    """Resolve owner+slug to integer task_id. Raises 404 if not found."""
+    row = await (await conn.execute(
+        "SELECT id FROM tasks WHERE owner = %s AND slug = %s", (owner, slug)
+    )).fetchone()
+    if not row:
         raise HTTPException(404, "task not found")
+    return row["id"]
 
 
-async def _get_item(item_id: str, task_id: str, conn):
+async def _get_item(item_id: str, task_id: int, conn):
     row = await (await conn.execute(
         "SELECT * FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL", (item_id, task_id),
     )).fetchone()
@@ -132,7 +137,7 @@ _INSERT_SQL = ("INSERT INTO items (id, seq, task_id, title, description, status,
                " assignee_id, assigned_at, parent_id, labels, metadata, created_by, created_at, updated_at)"
                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
 
-async def _validate_refs(body: dict, task_id: str, conn):
+async def _validate_refs(body: dict, task_id: int, conn):
     if body.get("assignee_id"):
         if not await (await conn.execute("SELECT id FROM agents WHERE id = %s", (body["assignee_id"],))).fetchone():
             raise HTTPException(404, f"assignee '{body['assignee_id']}' not found")
@@ -161,12 +166,12 @@ def _apply_assignment_rules(body: dict, ts, existing: dict | None = None) -> dic
     return updated
 
 
-async def _insert_item(body: dict, task_id: str, agent_id: str, ts, conn) -> dict:
+async def _insert_item(body: dict, task_id: int, slug: str, agent_id: str, ts, conn) -> dict:
     seq_row = await (await conn.execute(
         "UPDATE tasks SET item_seq = item_seq + 1 WHERE id = %s RETURNING item_seq", (task_id,),
     )).fetchone()
     seq = seq_row["item_seq"]
-    item_id = f"{_task_prefix(task_id)}-{seq}"
+    item_id = f"{_task_prefix(slug)}-{seq}"
     await conn.execute(_INSERT_SQL, (
         item_id, seq, task_id, body["title"], body.get("description"),
         body.get("status", "backlog"), body.get("priority", "none"),
@@ -212,7 +217,7 @@ async def _check_parent_depth(parent_id: str, conn):
         raise HTTPException(400, "max depth of 5 exceeded")
 
 
-async def _expire_stale_assignments(conn, ts, task_id: str | None = None, item_id: str | None = None):
+async def _expire_stale_assignments(conn, ts, task_id: int | None = None, item_id: str | None = None):
     where = [
         "deleted_at IS NULL",
         "assignee_id IS NOT NULL",
@@ -235,17 +240,17 @@ async def _expire_stale_assignments(conn, ts, task_id: str | None = None, item_i
 
 
 @router.post("", status_code=201)
-async def create_item(task_id: str, body: dict, token: str = Query(""), x_agent_token: str = Header("")):
+async def create_item(owner: str, slug: str, body: dict, token: str = Query(""), x_agent_token: str = Header("")):
     if not body.get("title") or not body["title"].strip():
         raise HTTPException(400, "title is required and cannot be blank")
     _validate_fields(body)
     ts = now()
     async with get_db() as conn:
         agent_id = await _get_agent(token, x_agent_token, conn)
-        await _check_task(task_id, conn)
+        task_id = await _check_task(owner, slug, conn)
         await _validate_refs(body, task_id, conn)
         body = _apply_assignment_rules(body, ts)
-        item = await _insert_item(body, task_id, agent_id, ts, conn)
+        item = await _insert_item(body, task_id, slug, agent_id, ts, conn)
     return JSONResponse(_item_response(dict(item), 0), status_code=201)
 
 
@@ -258,7 +263,8 @@ _SORT_KEYS = {
 
 @router.get("")
 async def list_items(
-    task_id: str,
+    owner: str,
+    slug: str,
     status: str | None = None,
     priority: str | None = None,
     assignee: str | None = None,
@@ -274,36 +280,37 @@ async def list_items(
     order = _parse_sort(sort, _SORT_KEYS)
     page, per_page, offset = paginate(page, per_page)
 
-    where = "i.task_id = %s AND i.deleted_at IS NULL"
-    params: list = [task_id]
-
-    if status is not None:
-        if status.startswith("!"):
-            where += " AND i.status != %s"
-            params.append(status[1:])
-        else:
-            where += " AND i.status = %s"
-            params.append(status)
-    if priority is not None:
-        where += " AND i.priority = %s"
-        params.append(priority)
-    if assignee is not None:
-        if assignee == "none":
-            where += " AND i.assignee_id IS NULL"
-        else:
-            where += " AND i.assignee_id = %s"
-            params.append(assignee)
-    if label is not None:
-        where += " AND i.labels @> %s::text[]"
-        params.append([label])
-    if parent is not None:
-        where += " AND i.parent_id = %s"
-        params.append(parent)
-
-    params.extend([per_page + 1, offset])
-
     async with get_db() as conn:
-        await _check_task(task_id, conn)
+        task_id = await _check_task(owner, slug, conn)
+
+        where = "i.task_id = %s AND i.deleted_at IS NULL"
+        params: list = [task_id]
+
+        if status is not None:
+            if status.startswith("!"):
+                where += " AND i.status != %s"
+                params.append(status[1:])
+            else:
+                where += " AND i.status = %s"
+                params.append(status)
+        if priority is not None:
+            where += " AND i.priority = %s"
+            params.append(priority)
+        if assignee is not None:
+            if assignee == "none":
+                where += " AND i.assignee_id IS NULL"
+            else:
+                where += " AND i.assignee_id = %s"
+                params.append(assignee)
+        if label is not None:
+            where += " AND i.labels @> %s::text[]"
+            params.append([label])
+        if parent is not None:
+            where += " AND i.parent_id = %s"
+            params.append(parent)
+
+        params.extend([per_page + 1, offset])
+
         await _expire_stale_assignments(conn, now(), task_id=task_id)
         rows = await (await conn.execute(
             f"SELECT i.*,"
@@ -318,9 +325,9 @@ async def list_items(
 
 
 @router.get("/{item_id}")
-async def get_item(task_id: str, item_id: str):
+async def get_item(owner: str, slug: str, item_id: str):
     async with get_db() as conn:
-        await _check_task(task_id, conn)
+        task_id = await _check_task(owner, slug, conn)
         await _expire_stale_assignments(conn, now(), task_id=task_id, item_id=item_id)
         item = await _get_item(item_id, task_id, conn)
         count = await _comment_count(item_id, conn)
@@ -337,7 +344,7 @@ async def get_item(task_id: str, item_id: str):
 
 
 @router.patch("/{item_id}")
-async def patch_item(task_id: str, item_id: str, body: dict, token: str = Query(""), x_agent_token: str = Header("")):
+async def patch_item(owner: str, slug: str, item_id: str, body: dict, token: str = Query(""), x_agent_token: str = Header("")):
     updates = {k: v for k, v in body.items() if k in _UPDATABLE_FIELDS}
     if not updates:
         raise HTTPException(400, "no updatable fields provided")
@@ -345,7 +352,7 @@ async def patch_item(task_id: str, item_id: str, body: dict, token: str = Query(
     ts = now()
     async with get_db() as conn:
         await _get_agent(token, x_agent_token, conn)
-        await _check_task(task_id, conn)
+        task_id = await _check_task(owner, slug, conn)
         await _expire_stale_assignments(conn, ts, task_id=task_id, item_id=item_id)
         item = await _get_item(item_id, task_id, conn)
 
@@ -382,11 +389,11 @@ async def patch_item(task_id: str, item_id: str, body: dict, token: str = Query(
 
 
 @router.delete("/{item_id}", status_code=204)
-async def delete_item(task_id: str, item_id: str, token: str = Query(""), x_agent_token: str = Header("")):
+async def delete_item(owner: str, slug: str, item_id: str, token: str = Query(""), x_agent_token: str = Header("")):
     ts = now()
     async with get_db() as conn:
         agent_id = await _get_agent(token, x_agent_token, conn)
-        await _check_task(task_id, conn)
+        task_id = await _check_task(owner, slug, conn)
         await _expire_stale_assignments(conn, ts, task_id=task_id, item_id=item_id)
         item = await _get_item(item_id, task_id, conn)
         if agent_id != item["created_by"]:
@@ -405,11 +412,11 @@ async def delete_item(task_id: str, item_id: str, token: str = Query(""), x_agen
 
 
 @router.post("/{item_id}/assign")
-async def assign_item(task_id: str, item_id: str, token: str = Query(""), x_agent_token: str = Header("")):
+async def assign_item(owner: str, slug: str, item_id: str, token: str = Query(""), x_agent_token: str = Header("")):
     ts = now()
     async with get_db() as conn:
         agent_id = await _get_agent(token, x_agent_token, conn)
-        await _check_task(task_id, conn)
+        task_id = await _check_task(owner, slug, conn)
         await _expire_stale_assignments(conn, ts, task_id=task_id, item_id=item_id)
         item = await _get_item(item_id, task_id, conn)
         if item["status"] == "archived":
@@ -427,7 +434,7 @@ async def assign_item(task_id: str, item_id: str, token: str = Query(""), x_agen
 
 
 @router.post("/{item_id}/comments", status_code=201)
-async def create_comment(task_id: str, item_id: str, body: dict, token: str = Query(""), x_agent_token: str = Header("")):
+async def create_comment(owner: str, slug: str, item_id: str, body: dict, token: str = Query(""), x_agent_token: str = Header("")):
     content = body.get("content")
     if not content or not isinstance(content, str) or not content.strip():
         raise HTTPException(400, "content is required")
@@ -437,7 +444,7 @@ async def create_comment(task_id: str, item_id: str, body: dict, token: str = Qu
     ts = now()
     async with get_db() as conn:
         agent_id = await _get_agent(token, x_agent_token, conn)
-        await _check_task(task_id, conn)
+        task_id = await _check_task(owner, slug, conn)
         await _get_item(item_id, task_id, conn)
         row = await (await conn.execute(
             "INSERT INTO item_comments (item_id, agent_id, content, created_at)"
@@ -454,10 +461,10 @@ async def create_comment(task_id: str, item_id: str, body: dict, token: str = Qu
 
 
 @router.get("/{item_id}/comments")
-async def list_comments(task_id: str, item_id: str, page: int = 1, per_page: int = 30):
+async def list_comments(owner: str, slug: str, item_id: str, page: int = 1, per_page: int = 30):
     page, per_page, offset = paginate(page, per_page)
     async with get_db() as conn:
-        await _check_task(task_id, conn)
+        task_id = await _check_task(owner, slug, conn)
         await _get_item(item_id, task_id, conn)
         rows = await (await conn.execute(
             "SELECT * FROM item_comments WHERE item_id = %s AND deleted_at IS NULL"
@@ -474,11 +481,11 @@ async def list_comments(task_id: str, item_id: str, page: int = 1, per_page: int
 
 
 @router.delete("/{item_id}/comments/{comment_id}", status_code=204)
-async def delete_comment(task_id: str, item_id: str, comment_id: int, token: str = Query(""), x_agent_token: str = Header("")):
+async def delete_comment(owner: str, slug: str, item_id: str, comment_id: int, token: str = Query(""), x_agent_token: str = Header("")):
     ts = now()
     async with get_db() as conn:
         agent_id = await _get_agent(token, x_agent_token, conn)
-        await _check_task(task_id, conn)
+        task_id = await _check_task(owner, slug, conn)
         await _get_item(item_id, task_id, conn)
         row = await (await conn.execute(
             "SELECT * FROM item_comments WHERE id = %s AND item_id = %s AND deleted_at IS NULL",
@@ -495,10 +502,10 @@ async def delete_comment(task_id: str, item_id: str, comment_id: int, token: str
 
 
 @router.get("/{item_id}/activity")
-async def get_item_activity(task_id: str, item_id: str, page: int = 1, per_page: int = 30):
+async def get_item_activity(owner: str, slug: str, item_id: str, page: int = 1, per_page: int = 30):
     page, per_page, offset = paginate(page, per_page)
     async with get_db() as conn:
-        await _check_task(task_id, conn)
+        task_id = await _check_task(owner, slug, conn)
         await _get_item(item_id, task_id, conn)
         rows = await (await conn.execute(
             "SELECT * FROM ("

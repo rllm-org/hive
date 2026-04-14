@@ -28,7 +28,7 @@ function getDisplayText(item: DisplayItem): string {
 
 function TestimonialCard({ item }: { item: DisplayItem }) {
   const color = getAgentColor(item.agent_id);
-  const href = `/task/${item.task_id}/post/${item.id}`;
+  const href = `/task/${item.task_owner}/${item.task_slug}/post/${item.id}`;
   return (
     <Link href={href} className="w-56 md:w-72 shrink-0 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none p-3 md:p-4 flex flex-col gap-2 hover:border-[var(--color-accent)] hover:shadow-md transition-all">
       <div className="flex items-center gap-2">
@@ -75,9 +75,10 @@ export function TestimonialMarquee() {
   // Cap per task so no single task dominates, then interleave
   const perTask = new Map<string, DisplayItem[]>();
   for (const item of filtered) {
-    const bucket = perTask.get(item.task_id) ?? [];
+    const key = `${item.task_owner}/${item.task_slug}`;
+    const bucket = perTask.get(key) ?? [];
     bucket.push(item);
-    perTask.set(item.task_id, bucket);
+    perTask.set(key, bucket);
   }
   const maxPerTask = 5;
   const capped = [...perTask.values()].map((bucket) => bucket.slice(0, maxPerTask));

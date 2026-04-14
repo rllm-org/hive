@@ -12,12 +12,12 @@ import time
 import hive.server.db as _db
 
 
-def _post_task(client, task_id="r5-task"):
+def _post_task(client, slug="r5-task"):
     with psycopg.connect(_db.DATABASE_URL, autocommit=True) as conn:
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, created_at, item_seq)"
-            " VALUES (%s, %s, %s, %s, %s, 0)",
-            (task_id, task_id, "test", "https://github.com/test", _db.now()),
+            "INSERT INTO tasks (slug, owner, name, description, repo_url, created_at, item_seq)"
+            " VALUES (%s, 'hive', %s, %s, %s, %s, 0)",
+            (slug, slug, "test", "https://github.com/test", _db.now()),
         )
 
 
@@ -26,9 +26,9 @@ def _register(client, name=None):
     return client.post("/api/register", json=body).json()["token"]
 
 
-def _create_item(client, task_id="r5-task", token=None, **kwargs):
+def _create_item(client, slug="r5-task", token=None, **kwargs):
     body = {"title": "test item", **kwargs}
-    return client.post(f"/api/tasks/{task_id}/items", json=body, params={"token": token})
+    return client.post(f"/api/tasks/hive/{slug}/items", json=body, params={"token": token})
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ class TestPatchTypeConfusion:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.patch(
-            "/api/tasks/r5-task/items/R5-1",
+            "/api/tasks/hive/r5-task/items/R5-1",
             json={"labels": "bug"},
             params={"token": token},
         )
@@ -55,7 +55,7 @@ class TestPatchTypeConfusion:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.patch(
-            "/api/tasks/r5-task/items/R5-1",
+            "/api/tasks/hive/r5-task/items/R5-1",
             json={"labels": None},
             params={"token": token},
         )
@@ -67,7 +67,7 @@ class TestPatchTypeConfusion:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.patch(
-            "/api/tasks/r5-task/items/R5-1",
+            "/api/tasks/hive/r5-task/items/R5-1",
             json={"parent_id": 123},
             params={"token": token},
         )
@@ -79,7 +79,7 @@ class TestPatchTypeConfusion:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.patch(
-            "/api/tasks/r5-task/items/R5-1",
+            "/api/tasks/hive/r5-task/items/R5-1",
             json={"status": None},
             params={"token": token},
         )
@@ -91,7 +91,7 @@ class TestPatchTypeConfusion:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.patch(
-            "/api/tasks/r5-task/items/R5-1",
+            "/api/tasks/hive/r5-task/items/R5-1",
             json={"priority": []},
             params={"token": token},
         )
@@ -103,7 +103,7 @@ class TestPatchTypeConfusion:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.patch(
-            "/api/tasks/r5-task/items/R5-1",
+            "/api/tasks/hive/r5-task/items/R5-1",
             json={"title": 123},
             params={"token": token},
         )
@@ -115,7 +115,7 @@ class TestPatchTypeConfusion:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.patch(
-            "/api/tasks/r5-task/items/R5-1",
+            "/api/tasks/hive/r5-task/items/R5-1",
             json={"description": ["array"]},
             params={"token": token},
         )
@@ -134,7 +134,7 @@ class TestCommentEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.post(
-            "/api/tasks/r5-task/items/R5-1/comments",
+            "/api/tasks/hive/r5-task/items/R5-1/comments",
             json={"content": 123},
             params={"token": token},
         )
@@ -146,7 +146,7 @@ class TestCommentEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.post(
-            "/api/tasks/r5-task/items/R5-1/comments",
+            "/api/tasks/hive/r5-task/items/R5-1/comments",
             json={"content": None},
             params={"token": token},
         )
@@ -158,7 +158,7 @@ class TestCommentEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         resp = client.post(
-            "/api/tasks/r5-task/items/R5-1/comments",
+            "/api/tasks/hive/r5-task/items/R5-1/comments",
             json={"content": ["array"]},
             params={"token": token},
         )
@@ -173,7 +173,7 @@ class TestCommentEdgeCases:
 
         # Create comment on R5-1
         r = client.post(
-            "/api/tasks/r5-task/items/R5-1/comments",
+            "/api/tasks/hive/r5-task/items/R5-1/comments",
             json={"content": "hello from item 1"},
             params={"token": token},
         )
@@ -182,7 +182,7 @@ class TestCommentEdgeCases:
 
         # Try to delete via R5-2 URL — comment_id belongs to R5-1, not R5-2
         resp = client.delete(
-            f"/api/tasks/r5-task/items/R5-2/comments/{comment_id}",
+            f"/api/tasks/hive/r5-task/items/R5-2/comments/{comment_id}",
             params={"token": token},
         )
         assert resp.status_code == 404
@@ -193,12 +193,12 @@ class TestCommentEdgeCases:
         token = _register(client)
         _create_item(client, token=token)
         client.post(
-            "/api/tasks/r5-task/items/R5-1/comments",
+            "/api/tasks/hive/r5-task/items/R5-1/comments",
             json={"content": "a comment"},
             params={"token": token},
         )
         resp = client.get(
-            "/api/tasks/r5-task/items/R5-1/comments",
+            "/api/tasks/hive/r5-task/items/R5-1/comments",
             params={"page": 0},
         )
         assert resp.status_code == 200
@@ -212,12 +212,12 @@ class TestCommentEdgeCases:
         _create_item(client, token=token)
         for i in range(3):
             client.post(
-                "/api/tasks/r5-task/items/R5-1/comments",
+                "/api/tasks/hive/r5-task/items/R5-1/comments",
                 json={"content": f"comment {i}"},
                 params={"token": token},
             )
         resp = client.get(
-            "/api/tasks/r5-task/items/R5-1/comments",
+            "/api/tasks/hive/r5-task/items/R5-1/comments",
             params={"per_page": 0},
         )
         assert resp.status_code == 200
@@ -241,13 +241,13 @@ class TestAssignEdgeCases:
         _create_item(client, token=token_a)
 
         # Assign to agent-a
-        r = client.post("/api/tasks/r5-task/items/R5-1/assign", params={"token": token_a})
+        r = client.post("/api/tasks/hive/r5-task/items/R5-1/assign", params={"token": token_a})
         assert r.status_code == 200
         assert r.json()["assignee_id"] == "r5-agent-aa"
 
         # PATCH to unassign
         r_unassign = client.patch(
-            "/api/tasks/r5-task/items/R5-1",
+            "/api/tasks/hive/r5-task/items/R5-1",
             json={"assignee_id": None},
             params={"token": token_a},
         )
@@ -255,7 +255,7 @@ class TestAssignEdgeCases:
         assert r_unassign.json()["assignee_id"] is None
 
         # Now agent-b can assign
-        r2 = client.post("/api/tasks/r5-task/items/R5-1/assign", params={"token": token_b})
+        r2 = client.post("/api/tasks/hive/r5-task/items/R5-1/assign", params={"token": token_b})
         assert r2.status_code == 200
         assert r2.json()["assignee_id"] == "r5-agent-bb"
 
@@ -265,12 +265,12 @@ class TestAssignEdgeCases:
         token_a = _register(client, "r5-agent-cc")
         _create_item(client, token=token_a)
 
-        r1 = client.post("/api/tasks/r5-task/items/R5-1/assign", params={"token": token_a})
+        r1 = client.post("/api/tasks/hive/r5-task/items/R5-1/assign", params={"token": token_a})
         assert r1.status_code == 200
         assert r1.json()["assignee_id"] == "r5-agent-cc"
 
         # Second assign by same agent — should be 200, not 409
-        r2 = client.post("/api/tasks/r5-task/items/R5-1/assign", params={"token": token_a})
+        r2 = client.post("/api/tasks/hive/r5-task/items/R5-1/assign", params={"token": token_a})
         assert r2.status_code == 200
         assert r2.json()["assignee_id"] == "r5-agent-cc"
 
@@ -292,27 +292,28 @@ class TestTokenReuseAcrossTasks:
         token = _register(client, "r5-cross-task-agent")
 
         r1 = client.post(
-            "/api/tasks/alpha-task/items",
+            "/api/tasks/hive/alpha-task/items",
             json={"title": "item in alpha"},
             params={"token": token},
         )
         assert r1.status_code == 201
-        assert r1.json()["task_id"] == "alpha-task"
+        assert isinstance(r1.json()["task_id"], int)
 
         r2 = client.post(
-            "/api/tasks/bravo-task/items",
+            "/api/tasks/hive/bravo-task/items",
             json={"title": "item in bravo"},
             params={"token": token},
         )
         assert r2.status_code == 201
-        assert r2.json()["task_id"] == "bravo-task"
+        assert isinstance(r2.json()["task_id"], int)
+        assert r1.json()["task_id"] != r2.json()["task_id"]
 
     def test_unregistered_token_rejected(self, client):
         """Using a token that looks valid but was never registered — should 401."""
         _post_task(client)
         fake_token = "never-registered-agent"
         resp = client.post(
-            "/api/tasks/r5-task/items",
+            "/api/tasks/hive/r5-task/items",
             json={"title": "sneaky item"},
             params={"token": fake_token},
         )
@@ -333,7 +334,7 @@ class TestEmptyStringEdgeCases:
         _create_item(client, token=token, description="some description")
 
         resp = client.patch(
-            "/api/tasks/r5-task/items/R5-1",
+            "/api/tasks/hive/r5-task/items/R5-1",
             json={"description": ""},
             params={"token": token},
         )
@@ -350,7 +351,7 @@ class TestEmptyStringEdgeCases:
         _create_item(client, token=token)
 
         resp = client.patch(
-            "/api/tasks/r5-task/items/R5-1",
+            "/api/tasks/hive/r5-task/items/R5-1",
             json={"assignee_id": ""},
             params={"token": token},
         )
@@ -366,7 +367,7 @@ class TestEmptyStringEdgeCases:
         _create_item(client, token=token)
 
         resp = client.patch(
-            "/api/tasks/r5-task/items/R5-1",
+            "/api/tasks/hive/r5-task/items/R5-1",
             json={"parent_id": ""},
             params={"token": token},
         )
@@ -380,7 +381,7 @@ class TestEmptyStringEdgeCases:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/r5-task/items",
+            "/api/tasks/hive/r5-task/items",
             json={"title": "a"},
             params={"token": token},
         )
@@ -393,7 +394,7 @@ class TestEmptyStringEdgeCases:
         _post_task(client)
         token = _register(client)
         resp = client.post(
-            "/api/tasks/r5-task/items",
+            "/api/tasks/hive/r5-task/items",
             json={"title": "has empty desc", "description": ""},
             params={"token": token},
         )
@@ -411,7 +412,7 @@ class TestURLPathTraversal:
         _post_task(client)
         # Slashes in the path are interpreted by the router as path separators.
         # The route may match a different endpoint or return 404/405.
-        resp = client.get("/api/tasks/r5-task/items/R5-1/../../secrets")
+        resp = client.get("/api/tasks/hive/r5-task/items/R5-1/../../secrets")
         # Should be 404 or 405, definitely not 500 or 200 with wrong data
         assert resp.status_code in (404, 405, 422), f"Unexpected status {resp.status_code}"
 
@@ -419,14 +420,14 @@ class TestURLPathTraversal:
         """GET item with URL-encoded characters in ID — should 404, not 500."""
         _post_task(client)
         # %20 is a space, %27 is single quote
-        resp = client.get("/api/tasks/r5-task/items/R5-1%20OR%201%3D1")
+        resp = client.get("/api/tasks/hive/r5-task/items/R5-1%20OR%201%3D1")
         assert resp.status_code in (404, 400), f"Unexpected status {resp.status_code}"
 
     def test_get_item_extremely_long_id(self, client):
         """GET item with 1000-char ID — should 404, not 500."""
         _post_task(client)
         long_id = "X" * 1000
-        resp = client.get(f"/api/tasks/r5-task/items/{long_id}")
+        resp = client.get(f"/api/tasks/hive/r5-task/items/{long_id}")
         assert resp.status_code in (404, 400), f"Unexpected status {resp.status_code}"
 
 
@@ -460,7 +461,7 @@ class TestUpdatedAtBehavior:
         time.sleep(0.05)
 
         patch_resp = client.patch(
-            "/api/tasks/r5-task/items/R5-1",
+            "/api/tasks/hive/r5-task/items/R5-1",
             json={"status": "archived"},
             params={"token": token},
         )
@@ -482,10 +483,10 @@ class TestUpdatedAtBehavior:
         _create_item(client, token=token)
 
         # Record updated_at before delete
-        before = client.get("/api/tasks/r5-task/items/R5-1").json()
+        before = client.get("/api/tasks/hive/r5-task/items/R5-1").json()
         updated_at_before = before["updated_at"]
 
-        client.delete("/api/tasks/r5-task/items/R5-1", params={"token": token})
+        client.delete("/api/tasks/hive/r5-task/items/R5-1", params={"token": token})
 
         # Check DB directly: deleted_at is set, updated_at unchanged
         with psycopg.connect(_db.DATABASE_URL) as conn:
@@ -538,7 +539,7 @@ class TestMultiAgentAccessControl:
         token_a = _register(client, "r5-del-owner")
         _create_item(client, token=token_a, title="my item")
 
-        resp = client.delete("/api/tasks/r5-task/items/R5-1", params={"token": token_a})
+        resp = client.delete("/api/tasks/hive/r5-task/items/R5-1", params={"token": token_a})
         assert resp.status_code == 204
 
     def test_agent_cannot_delete_other_agents_item(self, client):
@@ -548,7 +549,7 @@ class TestMultiAgentAccessControl:
         token_b = _register(client, "r5-thief-agent")
         _create_item(client, token=token_a, title="agent a's item")
 
-        resp = client.delete("/api/tasks/r5-task/items/R5-1", params={"token": token_b})
+        resp = client.delete("/api/tasks/hive/r5-task/items/R5-1", params={"token": token_b})
         assert resp.status_code == 403
 
     def test_agent_can_comment_on_other_agents_item(self, client):
@@ -559,7 +560,7 @@ class TestMultiAgentAccessControl:
         _create_item(client, token=token_a, title="agent a's item")
 
         resp = client.post(
-            "/api/tasks/r5-task/items/R5-1/comments",
+            "/api/tasks/hive/r5-task/items/R5-1/comments",
             json={"content": "nice work agent a!"},
             params={"token": token_b},
         )
@@ -575,7 +576,7 @@ class TestMultiAgentAccessControl:
 
         # Agent B posts a comment
         r = client.post(
-            "/api/tasks/r5-task/items/R5-1/comments",
+            "/api/tasks/hive/r5-task/items/R5-1/comments",
             json={"content": "i am agent b, my comment"},
             params={"token": token_b},
         )
@@ -584,7 +585,7 @@ class TestMultiAgentAccessControl:
 
         # Agent A tries to delete agent B's comment
         resp = client.delete(
-            f"/api/tasks/r5-task/items/R5-1/comments/{comment_id}",
+            f"/api/tasks/hive/r5-task/items/R5-1/comments/{comment_id}",
             params={"token": token_a},
         )
         assert resp.status_code == 403

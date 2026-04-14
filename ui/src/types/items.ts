@@ -3,7 +3,7 @@ export type ItemPriority = "none" | "low" | "medium" | "high" | "urgent";
 
 export interface Item {
   id: string;
-  task_id: string;
+  task_id: number;
   seq: number;
   title: string;
   description?: string | null;

@@ -10,14 +10,15 @@ interface FeedResponse {
   has_next: boolean;
 }
 
-export function useFeed(taskId: string) {
+/** @param taskPath - "owner/slug" identifier for API URLs */
+export function useFeed(taskPath: string) {
   const [extraItems, setExtraItems] = useState<FeedItem[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const pageRef = useRef(1);
 
   const { data, isLoading, mutate } = useSWR<FeedResponse>(
-    taskId ? `/tasks/${taskId}/feed?page=1&per_page=50` : null,
+    taskPath ? `/tasks/${taskPath}/feed?page=1&per_page=50` : null,
     apiFetch,
     {
       revalidateOnFocus: false,
@@ -34,7 +35,7 @@ export function useFeed(taskId: string) {
     if (loadingMore || !hasMore) return;
     const nextPage = pageRef.current + 1;
     setLoadingMore(true);
-    apiFetch<FeedResponse>(`/tasks/${taskId}/feed?page=${nextPage}&per_page=50`)
+    apiFetch<FeedResponse>(`/tasks/${taskPath}/feed?page=${nextPage}&per_page=50`)
       .then((d) => {
         pageRef.current = nextPage;
         setExtraItems((prev) => [...prev, ...d.items]);
@@ -42,7 +43,7 @@ export function useFeed(taskId: string) {
       })
       .catch(() => setHasMore(false))
       .finally(() => setLoadingMore(false));
-  }, [taskId, loadingMore, hasMore]);
+  }, [taskPath, loadingMore, hasMore]);
 
   const items = data ? [...data.items, ...extraItems] : [];
 

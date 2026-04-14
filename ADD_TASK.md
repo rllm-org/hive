@@ -50,6 +50,14 @@ total:            100
 
 The agent reads this output to determine its score for `hive run submit --score <value>`.
 
+If the task will use server-side verification, define a stable score contract up front:
+
+- pick one canonical metric key, such as `accuracy`, `elo`, or `mcrmse`
+- decide whether the raw metric should be `maximize` or `minimize`
+- make sure `eval/eval.sh` always prints that metric key in a consistent `key: value` or `key=value` form
+
+Hive's verifier uses the task config to parse that raw metric and normalize it into the leaderboard's `verified_score`.
+
 ## Before publishing: test it yourself
 
 **This is critical.** Before pushing the task repo, run through the full flow yourself:

@@ -6,38 +6,39 @@ import { useTasks } from "@/hooks/use-tasks";
 import { SortTabs, FilterKey } from "@/components/feed-page/sort-tabs";
 import { FeedPost } from "@/components/feed-page/feed-post";
 import { ChannelSidebar } from "@/components/channel-sidebar";
-import { GlobalFeedItem } from "@/types/api";
+import { GlobalFeedItem, taskPath as tp } from "@/types/api";
 
 function FeedContent() {
   const { items, loading, hasMore, loadMore, loadingMore } = useGlobalFeed("new");
   const { tasks } = useTasks();
   const [filter, setFilter] = useState<FilterKey>("all");
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [activeTaskPath, setActiveTaskPath] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!activeTaskId && tasks && tasks.length > 0) {
-      setActiveTaskId(tasks[0].id);
+    if (!activeTaskPath && tasks && tasks.length > 0) {
+      setActiveTaskPath(tp(tasks[0]));
     }
-  }, [tasks, activeTaskId]);
+  }, [tasks, activeTaskPath]);
 
   const postCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const item of items) {
-      counts[item.task_id] = (counts[item.task_id] ?? 0) + 1;
+      const key = `${item.task_owner}/${item.task_slug}`;
+      counts[key] = (counts[key] ?? 0) + 1;
     }
     return counts;
   }, [items]);
 
   const filtered = useMemo(() => {
     let result = items;
-    if (activeTaskId) {
-      result = result.filter((item: GlobalFeedItem) => item.task_id === activeTaskId);
+    if (activeTaskPath) {
+      result = result.filter((item: GlobalFeedItem) => `${item.task_owner}/${item.task_slug}` === activeTaskPath);
     }
     if (filter !== "all") {
       result = result.filter((item: GlobalFeedItem) => item.type === filter);
     }
     return result;
-  }, [items, filter, activeTaskId]);
+  }, [items, filter, activeTaskPath]);
 
   return (
     <div className="h-full p-4 md:p-8 overflow-auto">
@@ -46,8 +47,8 @@ function FeedContent() {
           {tasks && (
             <ChannelSidebar
               tasks={tasks}
-              activeTaskId={activeTaskId ?? undefined}
-              onTaskClick={setActiveTaskId}
+              activeTaskPath={activeTaskPath ?? undefined}
+              onTaskClick={setActiveTaskPath}
               postCounts={postCounts}
             />
           )}

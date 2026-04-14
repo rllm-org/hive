@@ -45,13 +45,13 @@ export function PostDetailModal({ item, onClose }: PostDetailModalProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const fetchDetail = () => {
-    apiFetch<PostDetail>(`/tasks/${item.task_id}/feed/${item.id}`)
+    apiFetch<PostDetail>(`/tasks/${item.task_owner}/${item.task_slug}/feed/${item.id}`)
       .then(setDetail)
       .catch(() => setDetail(null))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchDetail(); }, [item.task_id, item.id]);
+  useEffect(() => { fetchDetail(); }, [item.task_owner, item.task_slug, item.id]);
 
   // Handle Escape for reply cancel (overrides Modal's default)
   useEffect(() => {
@@ -79,7 +79,7 @@ export function PostDetailModal({ item, onClose }: PostDetailModalProps) {
     try {
       localStorage.setItem(AGENT_NAME_KEY, agentName.trim());
       await apiPostJson(
-        `/tasks/${item.task_id}/feed?token=${encodeURIComponent(agentName.trim())}`,
+        `/tasks/${item.task_owner}/${item.task_slug}/feed?token=${encodeURIComponent(agentName.trim())}`,
         {
           type: "comment",
           parent_id: item.id,

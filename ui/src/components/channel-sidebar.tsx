@@ -1,24 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { Task } from "@/types/api";
+import { Task, taskPath as tp } from "@/types/api";
 
 interface ChannelSidebarProps {
   tasks: Task[];
-  activeTaskId?: string;
-  onTaskClick?: (taskId: string) => void;
+  activeTaskPath?: string;
+  onTaskClick?: (taskPath: string) => void;
   postCounts?: Record<string, number>;
 }
 
-export function ChannelSidebar({ tasks, activeTaskId, onTaskClick, postCounts }: ChannelSidebarProps) {
+export function ChannelSidebar({ tasks, activeTaskPath, onTaskClick, postCounts }: ChannelSidebarProps) {
   return (
     <>
       {/* Mobile: horizontal scrollable pills */}
       <div className="md:hidden w-full overflow-x-auto -mx-2 px-2 pb-2">
         <div className="flex gap-2 w-max">
           {tasks.map((task) => {
-            const isActive = activeTaskId === task.id;
-            const count = postCounts?.[task.id] ?? task.stats?.total_posts ?? 0;
+            const path = tp(task);
+            const isActive = activeTaskPath === path;
+            const count = postCounts?.[path] ?? task.stats?.total_posts ?? 0;
             const cls = `flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
               isActive
                 ? "bg-[var(--color-accent)] text-white"
@@ -27,8 +28,8 @@ export function ChannelSidebar({ tasks, activeTaskId, onTaskClick, postCounts }:
 
             if (onTaskClick) {
               return (
-                <button key={task.id} onClick={() => onTaskClick(task.id)} className={cls}>
-                  {task.name || task.id}
+                <button key={path} onClick={() => onTaskClick(path)} className={cls}>
+                  {task.name || task.slug}
                   {count > 0 && (
                     <span className={`tabular-nums ${isActive ? "text-white/70" : "text-[var(--color-text-tertiary)]"}`}>
                       {count}
@@ -39,8 +40,8 @@ export function ChannelSidebar({ tasks, activeTaskId, onTaskClick, postCounts }:
             }
 
             return (
-              <Link key={task.id} href={`/h/${task.id}`} className={cls}>
-                {task.name || task.id}
+              <Link key={path} href={`/h/${path}`} className={cls}>
+                {task.name || task.slug}
                 {count > 0 && (
                   <span className="text-[var(--color-text-tertiary)]">{count}</span>
                 )}
@@ -54,8 +55,9 @@ export function ChannelSidebar({ tasks, activeTaskId, onTaskClick, postCounts }:
       <aside className="hidden md:block w-60 shrink-0 overflow-y-auto border-r border-[var(--color-border)] pr-3">
         <div className="space-y-0.5">
           {tasks.map((task) => {
-            const isActive = activeTaskId === task.id;
-            const count = postCounts?.[task.id] ?? task.stats?.total_posts ?? 0;
+            const path = tp(task);
+            const isActive = activeTaskPath === path;
+            const count = postCounts?.[path] ?? task.stats?.total_posts ?? 0;
             const cls = `flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${
               isActive
                 ? "bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
@@ -65,7 +67,7 @@ export function ChannelSidebar({ tasks, activeTaskId, onTaskClick, postCounts }:
             const content = (
               <>
                 <span className={`truncate ${isActive ? "" : "text-[var(--color-text)]"}`}>
-                  {task.name || task.id}
+                  {task.name || task.slug}
                 </span>
                 {count > 0 && (
                   <span className="shrink-0 tabular-nums text-xs text-[var(--color-text-tertiary)]">
@@ -78,8 +80,8 @@ export function ChannelSidebar({ tasks, activeTaskId, onTaskClick, postCounts }:
             if (onTaskClick) {
               return (
                 <button
-                  key={task.id}
-                  onClick={() => onTaskClick(task.id)}
+                  key={path}
+                  onClick={() => onTaskClick(path)}
                   className={`${cls} w-full text-left`}
                 >
                   {content}
@@ -89,8 +91,8 @@ export function ChannelSidebar({ tasks, activeTaskId, onTaskClick, postCounts }:
 
             return (
               <Link
-                key={task.id}
-                href={`/h/${task.id}`}
+                key={path}
+                href={`/h/${path}`}
                 className={cls}
               >
                 {content}

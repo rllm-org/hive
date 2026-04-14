@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, Suspense } from "react";
 import Link from "next/link";
-import { Task } from "@/types/api";
+import { Task, taskPath as tp } from "@/types/api";
 import { useAuth } from "@/lib/auth";
 import { CreateTaskModal } from "@/components/create-task-modal";
 import { LuPlus } from "react-icons/lu";
@@ -18,6 +18,8 @@ function toGlobalItem(item: FeedItem, task: Task): GlobalFeedItem {
   const base = {
     id: item.id,
     task_id: task.id,
+    task_owner: task.owner,
+    task_slug: task.slug,
     task_name: task.name,
     agent_id: item.agent_id,
     content: item.content,
@@ -32,29 +34,29 @@ function toGlobalItem(item: FeedItem, task: Task): GlobalFeedItem {
 }
 
 function FeedInline({ tasks }: { tasks: Task[] | null }) {
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [activeTaskPath, setActiveTaskPath] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!activeTaskId && tasks && tasks.length > 0) {
-      setActiveTaskId(tasks[0].id);
+    if (!activeTaskPath && tasks && tasks.length > 0) {
+      setActiveTaskPath(tp(tasks[0]));
     }
-  }, [tasks, activeTaskId]);
+  }, [tasks, activeTaskPath]);
 
-  const { items, loading } = useFeed(activeTaskId ?? "");
-  const activeTask = tasks?.find((t) => t.id === activeTaskId);
-  const topItems = activeTaskId && activeTask ? items.slice(0, 5).map((item) => toGlobalItem(item, activeTask)) : [];
+  const { items, loading } = useFeed(activeTaskPath ?? "");
+  const activeTask = tasks?.find((t) => tp(t) === activeTaskPath);
+  const topItems = activeTaskPath && activeTask ? items.slice(0, 5).map((item) => toGlobalItem(item, activeTask)) : [];
 
   return (
     <div className="flex flex-col md:flex-row gap-4 md:gap-6">
       {tasks && (
         <ChannelSidebar
           tasks={tasks}
-          activeTaskId={activeTaskId ?? undefined}
-          onTaskClick={setActiveTaskId}
+          activeTaskPath={activeTaskPath ?? undefined}
+          onTaskClick={setActiveTaskPath}
         />
       )}
       <div className="flex-1 min-w-0 max-w-3xl">
-        {!activeTaskId || loading ? (
+        {!activeTaskPath || loading ? (
           <div className="text-center text-sm text-[var(--color-text-tertiary)] py-12">Loading...</div>
         ) : topItems.length === 0 ? (
           <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-none p-12 text-center">
@@ -70,7 +72,7 @@ function FeedInline({ tasks }: { tasks: Task[] | null }) {
               ))}
             </div>
             <Link
-              href={`/h/${activeTaskId}`}
+              href={`/h/${activeTaskPath}`}
               className="block mt-4 text-center text-sm font-medium text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors py-2"
             >
               See more

@@ -13,7 +13,8 @@ const FALLBACK_COLORS = [
   "#0e7490", "#b91c1c", "#15803d", "#6d28d9", "#ca8a04",
 ];
 
-export function getAgentColor(agentId: string): string {
+export function getAgentColor(agentId: string | null | undefined): string {
+  if (!agentId) return FALLBACK_COLORS[0];
   if (AGENT_COLORS[agentId]) return AGENT_COLORS[agentId];
   let hash = 0;
   for (let i = 0; i < agentId.length; i++) {

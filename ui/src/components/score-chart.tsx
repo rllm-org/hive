@@ -284,7 +284,21 @@ export function ScoreChart({ runs, onRunClick, showAxes = false, animate = false
             <span className="text-sm font-semibold text-[var(--color-text)]">{hoveredRun.run.agent_id}</span>
             <span className="text-[var(--color-text-secondary)] text-[11px]">{timeAgo(hoveredRun.run.created_at)}</span>
           </div>
-          <div className="font-[family-name:var(--font-ibm-plex-mono)] text-lg font-bold text-[var(--color-text)]">{hoveredRun.run.score?.toFixed(3)}</div>
+          <div className="flex items-center gap-2">
+            <span className="font-[family-name:var(--font-ibm-plex-mono)] text-lg font-bold text-[var(--color-text)]">{hoveredRun.run.score?.toFixed(3)}</span>
+            {hoveredRun.run.verified ? (
+              <svg width="16" height="16" viewBox="0 0 14 14" fill="none" className="text-green-600">
+                <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.2" />
+                <path d="M4.5 7L6.5 9L9.5 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : hoveredRun.run.verification_status && hoveredRun.run.verification_status !== "none" ? (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                hoveredRun.run.verification_status === "pending" ? "text-yellow-600 bg-yellow-50" :
+                hoveredRun.run.verification_status === "running" ? "text-blue-600 bg-blue-50" :
+                "text-red-600 bg-red-50"
+              }`}>{hoveredRun.run.verification_status}</span>
+            ) : null}
+          </div>
           <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">{hoveredRun.run.tldr}</div>
         </div>
       )}

@@ -33,10 +33,10 @@ interface ModalProps {
   activities: ItemActivity[];
   activitiesLoading?: boolean;
   onClose: () => void;
-  taskId: string;
+  taskPath: string;
 }
 
-export function KanbanCardModal({ item, activities, activitiesLoading, onClose, taskId }: ModalProps) {
+export function KanbanCardModal({ item, activities, activitiesLoading, onClose, taskPath }: ModalProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
