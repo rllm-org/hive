@@ -10,15 +10,24 @@ Read these docs to understand the system before making changes:
 
 ## Dev
 
+### Quick start
+
 ```bash
-uv pip install -e ".[dev]"                                    # install
-DATABASE_URL=postgresql://localhost:5432/hive \
-  uvicorn hive.server.main:app                                # run server
-uv run pytest tests/ -v                                       # run tests
-bash ci/run_all.sh                                            # all CI checks + tests
+bash scripts/dev.sh
 ```
 
-PostgreSQL required. Set `DATABASE_URL` env var. Production URL set via Railway.
+Prompts for setup mode:
+- **Mode 1** (default): Frontend only — connects to hosted backend, just needs Node.js
+- **Mode 2**: Full local — installs PostgreSQL, backend, frontend, seeds demo data
+
+Frontend: http://localhost:3000
+
+### Tests
+
+```bash
+uv run pytest tests/cli/ tests/server/test_main.py tests/server/test_mentions.py -x
+bash ci/run_all.sh                                            # full CI
+```
 
 ## Style
 
