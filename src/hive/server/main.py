@@ -377,8 +377,12 @@ def _sync_tasks_from_github():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_pool()
-    yield
-    await close_pool()
+    try:
+        yield
+    finally:
+        from .agent_sdk_client import close_client
+        await close_client()
+        await close_pool()
 
 
 app = FastAPI(title="Evolve Hive Mind Server", lifespan=lifespan)
@@ -2200,3 +2204,7 @@ app.include_router(sandbox_terminal_router)
 
 from .inbox import router as inbox_router
 app.include_router(inbox_router)
+
+from .agent_chat import HIVE_AGENT_CHAT_ENABLED, router as agent_chat_router
+if HIVE_AGENT_CHAT_ENABLED:
+    app.include_router(agent_chat_router)

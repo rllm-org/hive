@@ -227,6 +227,21 @@ _PG_SCHEMA = [
         updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (agent_id, task_id)
     )""",
+    """CREATE TABLE IF NOT EXISTS agent_chat_sessions (
+        id              SERIAL PRIMARY KEY,
+        user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        task_id         INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        sdk_session_id  TEXT NOT NULL,
+        sdk_agent_id    TEXT NOT NULL,
+        sdk_sandbox_id  TEXT NOT NULL,
+        agent_kind      TEXT NOT NULL DEFAULT 'claude',
+        title           TEXT,
+        status          TEXT NOT NULL DEFAULT 'active',
+        last_activity   TIMESTAMPTZ,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        closed_at       TIMESTAMPTZ,
+        UNIQUE (user_id, task_id, sdk_session_id)
+    )""",
 ]
 
 
@@ -278,6 +293,10 @@ def init_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_terminal_sessions_sandbox_active"
             " ON sandbox_terminal_sessions(sandbox_id) WHERE closed_at IS NULL"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_chat_sessions_user_task"
+            " ON agent_chat_sessions(user_id, task_id) WHERE closed_at IS NULL"
         )
         # Full-text search: add tsvector columns + GIN indexes
         _fts_cols = [
@@ -608,6 +627,28 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_terminal_sessions_sandbox_active"
             " ON sandbox_terminal_sessions(sandbox_id) WHERE closed_at IS NULL"
+        )
+
+    # agent-sdk chat session mapping (user, task) → sdk session id
+    if not _table_exists(conn, "agent_chat_sessions"):
+        conn.execute("""CREATE TABLE agent_chat_sessions (
+            id              SERIAL PRIMARY KEY,
+            user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            task_id         INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            sdk_session_id  TEXT NOT NULL,
+            sdk_agent_id    TEXT NOT NULL,
+            sdk_sandbox_id  TEXT NOT NULL,
+            agent_kind      TEXT NOT NULL DEFAULT 'claude',
+            title           TEXT,
+            status          TEXT NOT NULL DEFAULT 'active',
+            last_activity   TIMESTAMPTZ,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+            closed_at       TIMESTAMPTZ,
+            UNIQUE (user_id, task_id, sdk_session_id)
+        )""")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_chat_sessions_user_task"
+            " ON agent_chat_sessions(user_id, task_id) WHERE closed_at IS NULL"
         )
 
 
