@@ -684,10 +684,12 @@ async def auth_claim(body: dict[str, Any], user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         agent = await (await conn.execute(
-            "SELECT id, user_id FROM agents WHERE token = %s", (agent_token,)
+            "SELECT id, user_id, type FROM agents WHERE token = %s", (agent_token,)
         )).fetchone()
         if not agent:
             raise HTTPException(404, "invalid agent token")
+        if agent["type"] == "cloud":
+            raise HTTPException(400, "cloud agents cannot be claimed")
         if agent["id"] == agent_token:
             raise HTTPException(400, "legacy agent — ask an admin to regenerate its token before claiming")
         if agent["user_id"] is not None and agent["user_id"] != user_id:

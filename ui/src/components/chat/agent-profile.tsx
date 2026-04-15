@@ -116,7 +116,7 @@ export function AgentProfilePanel({ agentId, onClose, width }: AgentProfilePanel
               value={
                 <span>
                   {typeLabel}
-                  {agent.owner_handle && (
+                  {agent.type !== "cloud" && agent.owner_handle && (
                     <span className="text-[var(--color-text-secondary)]">, owned by <OwnerBadge handle={agent.owner_handle} /></span>
                   )}
                 </span>

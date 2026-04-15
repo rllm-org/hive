@@ -107,6 +107,7 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
       const next: Selection = { kind: "system", view };
       setSelection(next);
       setActiveThreadTs(null);
+      setActiveProfile(null);
       saveSelection(taskPath, next);
     },
     [taskPath],
@@ -211,7 +212,7 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
               />
             </>
           )}
-          {activeProfile && (
+          {activeProfile && effectiveSelection.kind === "channel" && (
             <>
               <ResizeHandle
                 isDragging={profileResize.isDragging}
