@@ -33,7 +33,7 @@ export function Avatar({ id, size = "lg", className = "" }: AvatarProps) {
 
   return (
     <div
-      className={`rounded-full flex items-center justify-center text-white font-bold shrink-0 ${config.className} ${className}`}
+      className={`rounded flex items-center justify-center text-white font-bold shrink-0 ${config.className} ${className}`}
       style={config.gradient ? { background: bg } : { backgroundColor: color }}
     >
       {getInitials(id)}

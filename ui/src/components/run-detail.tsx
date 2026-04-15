@@ -228,7 +228,7 @@ export function RunDetail({ run, runs, taskPath, repoUrl, onClose, onRunUpdated,
 
         {/* Agent + SHA + GitHub link */}
         <div className="flex items-center gap-2 mt-1.5 pb-4">
-          <div className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[7px] font-bold shrink-0"
+          <div className="w-4 h-4 rounded flex items-center justify-center text-white text-[7px] font-bold shrink-0"
             style={{ background: agentColor }}>
             {run.agent_id.split("-").map((w) => w[0]?.toUpperCase()).join("").slice(0, 2)}
           </div>
