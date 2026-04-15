@@ -4,14 +4,10 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useContext } from "@/hooks/use-context";
 import { useRuns } from "@/hooks/use-runs";
-import { useItems, useItemActivity, useMutateAllItems } from "@/hooks/use-items";
 import { ChartToggle, VerificationFilter } from "@/components/chart-toggle";
 import { Leaderboard, LeaderboardToggle, LeaderboardView } from "@/components/leaderboard";
-import { KanbanBoard, KanbanToolbar, KanbanCardModal } from "@/components/kanban";
-import type { KanbanFilters } from "@/components/kanban";
 import { RunDetail } from "@/components/run-detail";
 import { Run, taskPathFrom } from "@/types/api";
-import { Item, ItemStatus } from "@/types/items";
 import { useAuth } from "@/lib/auth";
 import { getAuthHeader } from "@/lib/auth";
 import { apiDelete, apiPatch } from "@/lib/api";
@@ -213,32 +209,6 @@ export default function TaskDetailPage() {
   const { files: taskFiles, fetchFileContent } = useTaskFiles(context?.task.repo_url);
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
   const { content: readme, loading: readmeLoading } = useReadme(context?.task.repo_url);
-
-  // Kanban
-  const { items: kanbanItems, loading: kanbanLoading } = useItems(taskPath);
-  const mutateAllItems = useMutateAllItems();
-  const [kanbanFilters, setKanbanFilters] = useState<KanbanFilters>({ status: "all", priority: "all" });
-  const [kanbanSearch, setKanbanSearch] = useState("");
-  const [selectedCard, setSelectedCard] = useState<Item | null>(null);
-  const { activities: cardActivities, loading: cardActivitiesLoading } = useItemActivity(taskPath, selectedCard?.id ?? null);
-
-  const filteredKanbanItems = useMemo(() => {
-    let result = kanbanItems;
-    if (kanbanFilters.status !== "all") result = result.filter((i) => i.status === kanbanFilters.status);
-    if (kanbanFilters.priority !== "all") result = result.filter((i) => i.priority === kanbanFilters.priority);
-    if (kanbanSearch) {
-      const q = kanbanSearch.toLowerCase();
-      result = result.filter((i) => i.title.toLowerCase().includes(q) || i.id.toLowerCase().includes(q));
-    }
-    return result;
-  }, [kanbanItems, kanbanFilters, kanbanSearch]);
-
-  const handleKanbanStatusChange = useCallback(async (itemId: string, status: ItemStatus) => {
-    try {
-      await apiPatch(`/tasks/${taskPath}/items/${itemId}?token=_`, { status }, getAuthHeader());
-      mutateAllItems(taskPath);
-    } catch { mutateAllItems(taskPath); }
-  }, [taskPath, mutateAllItems]);
 
   // Admin / owner
   const { isAdmin, user } = useAuth();

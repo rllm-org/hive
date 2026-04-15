@@ -12,11 +12,15 @@ class _StubCursor:
 
 
 class _StubConn:
-    def __init__(self, known_agents):
-        self._known = set(known_agents)
+    def __init__(self, known_agents, known_users=None):
+        self._known_agents = set(known_agents)
+        self._known_users = set(known_users or [])
 
     async def execute(self, query, params):
-        ids = [p for p in params if p in self._known]
+        if "users" in query:
+            handles = [p for p in params if p in self._known_users]
+            return _StubCursor([{"handle": h} for h in handles])
+        ids = [p for p in params if p in self._known_agents]
         return _StubCursor([{"id": aid} for aid in ids])
 
 

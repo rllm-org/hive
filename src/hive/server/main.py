@@ -1258,7 +1258,7 @@ async def list_my_tasks(user: dict = Depends(require_user)):
         rows = await (await conn.execute(
             "SELECT t.*, COUNT(r.id) AS total_runs, MAX(r.score) AS best_score_calc,"
             " COUNT(DISTINCT r.agent_id) AS agents_contributing,"
-            " GREATEST(MAX(r.created_at), (SELECT MAX(p.created_at) FROM posts p WHERE p.task_id = t.id)) AS last_activity"
+            " MAX(r.created_at) AS last_activity"
             " FROM tasks t LEFT JOIN runs r ON r.task_id = t.id"
             " WHERE t.owner_id = %s GROUP BY t.id ORDER BY t.created_at DESC",
             (user_id,),
@@ -1427,7 +1427,7 @@ async def list_tasks(q: str | None = Query(None), page: int = Query(1), per_page
         rows = await (await conn.execute(
             f"SELECT t.*, COUNT(r.id) AS total_runs,"
             f" COUNT(DISTINCT r.agent_id) AS agents_contributing,"
-            f" GREATEST(MAX(r.created_at), (SELECT MAX(p.created_at) FROM posts p WHERE p.task_id = t.id)) AS last_activity"
+            f" MAX(r.created_at) AS last_activity"
             f" FROM tasks t LEFT JOIN runs r ON r.task_id = t.id"
             f" WHERE {where} GROUP BY t.id ORDER BY t.created_at DESC"
             f" LIMIT %s OFFSET %s", params
@@ -1462,19 +1462,14 @@ async def get_task(owner: str, slug: str, authorization: str = Header("")):
         total_runs = (await (await conn.execute("SELECT COUNT(*) AS cnt FROM runs WHERE task_id = %s", (task_id,))).fetchone())["cnt"]
         agents_contributing = (await (await conn.execute("SELECT COUNT(DISTINCT agent_id) AS cnt FROM runs WHERE task_id = %s", (task_id,))).fetchone())["cnt"]
         last_activity = (await (await conn.execute(
-            "SELECT GREATEST((SELECT MAX(created_at) FROM runs WHERE task_id = %s),"
-            " (SELECT MAX(created_at) FROM posts WHERE task_id = %s)) AS val", (task_id, task_id)
+            "SELECT MAX(created_at) AS val FROM runs WHERE task_id = %s", (task_id,)
         )).fetchone())["val"]
-        total_posts = (await (await conn.execute("SELECT COUNT(*) AS cnt FROM posts WHERE task_id = %s", (task_id,))).fetchone())["cnt"]
-        total_skills = (await (await conn.execute("SELECT COUNT(*) AS cnt FROM skills WHERE task_id = %s", (task_id,))).fetchone())["cnt"]
         t["stats"] = {
             "total_runs": total_runs,
             "improvements": t.get("improvements", 0),
             "agents_contributing": agents_contributing,
             "best_score": t.get("best_score"),
             "last_activity": last_activity,
-            "total_posts": total_posts,
-            "total_skills": total_skills,
         }
     return t
 
@@ -1725,18 +1720,13 @@ async def submit_run(owner: str, slug: str, body: dict[str, Any], token: str = Q
         if not verification.enabled:
             await recompute_task_stats(conn, task_id, verification)
 
-        post_id = (await (await conn.execute(
-            "INSERT INTO posts (task_id, agent_id, content, run_id, upvotes, downvotes, created_at)"
-            " VALUES (%s, %s, %s, %s, 0, 0, %s) RETURNING id",
-            (task_id, agent_id, body.get("message", ""), sha, ts),
-        )).fetchone())["id"]
     run = {"id": sha, "task_id": task_id, "agent_id": agent_id, "branch": body.get("branch", ""),
            "parent_id": parent_id, "tldr": body.get("tldr", ""), "message": body.get("message", ""),
            "score": score, "verified": False, "verified_score": None, "verification_status": verification_status,
            "created_at": ts, "fork_id": fork_id, "task_repo_sha": task_repo_sha}
     if verification.enabled:
         run["verification_mode"] = verification.verification_mode
-    return JSONResponse({"run": run, "post_id": post_id}, status_code=201)
+    return JSONResponse({"run": run}, status_code=201)
 
 
 @router.get("/tasks/{owner}/{slug}/runs")
@@ -1841,8 +1831,8 @@ async def get_run(owner: str, slug: str, sha: str, authorization: str = Header("
         "SELECT r.id, r.task_id, r.agent_id, r.branch, r.parent_id, r.tldr, r.message,"
         " r.score, r.verified, r.verified_score, r.verified_metric_key, r.verified_metric_value,"
         " r.verification_status, r.verified_at, r.valid, r.created_at,"
-        " p.id AS post_id, f.fork_url, f.ssh_url AS fork_ssh_url, f.base_sha"
-        " FROM runs r LEFT JOIN posts p ON p.run_id = r.id LEFT JOIN forks f ON f.id = r.fork_id"
+        " f.fork_url, f.ssh_url AS fork_ssh_url, f.base_sha"
+        " FROM runs r LEFT JOIN forks f ON f.id = r.fork_id"
     )
     async with get_db() as conn:
         task, _ = await _load_task_or_404(conn, owner, slug)
@@ -2002,7 +1992,7 @@ async def verify_old_runs(owner: str, slug: str, body: dict[str, Any] = {},
 
 @router.delete("/tasks/{owner}/{slug}/runs/{sha}")
 async def delete_run(owner: str, slug: str, sha: str, x_admin_key: str = Header(""), authorization: str = Header("")):
-    """Delete a single run and its associated post, comments, and votes."""
+    """Delete a single run."""
     await require_admin_or_task_owner(owner, slug, x_admin_key, authorization)
     async with get_db() as conn:
         task, verification = await _load_task_or_404(conn, owner, slug)
@@ -2012,28 +2002,7 @@ async def delete_run(owner: str, slug: str, sha: str, x_admin_key: str = Header(
         )).fetchone()
         if not row:
             raise HTTPException(404, "run not found")
-        # Find associated post
-        post = await (await conn.execute(
-            "SELECT id FROM posts WHERE run_id = %s AND task_id = %s", (sha, task_id)
-        )).fetchone()
-        if post:
-            pid = post["id"]
-            # Delete votes on comments of this post
-            await conn.execute(
-                "DELETE FROM votes WHERE target_type = 'comment' AND target_id IN"
-                " (SELECT id FROM comments WHERE post_id = %s)", (pid,))
-            # Delete comments
-            await conn.execute("DELETE FROM comments WHERE post_id = %s", (pid,))
-            # Delete votes on the post
-            await conn.execute(
-                "DELETE FROM votes WHERE target_type = 'post' AND target_id = %s", (pid,))
-            # Delete the post
-            await conn.execute("DELETE FROM posts WHERE id = %s", (pid,))
-        # Clear parent references pointing to this run
         await conn.execute("UPDATE runs SET parent_id = NULL WHERE parent_id = %s", (sha,))
-        # Delete skills sourced from this run
-        await conn.execute("UPDATE skills SET source_run_id = NULL WHERE source_run_id = %s", (sha,))
-        # Delete the run
         await conn.execute("DELETE FROM runs WHERE id = %s", (sha,))
         await recompute_task_stats(conn, task_id, verification)
     return {"deleted": sha}
@@ -2046,35 +2015,13 @@ async def delete_all_runs(owner: str, slug: str, x_admin_key: str = Header(""), 
     async with get_db() as conn:
         task, _ = await _load_task_or_404(conn, owner, slug)
         task_id = task["id"]
-        # Delete votes on comments on posts in this task
-        await conn.execute(
-            "DELETE FROM votes WHERE target_type = 'comment' AND target_id IN"
-            " (SELECT c.id FROM comments c JOIN posts p ON p.id = c.post_id WHERE p.task_id = %s)",
-            (task_id,))
-        # Delete comments on posts in this task
-        await conn.execute(
-            "DELETE FROM comments WHERE post_id IN (SELECT id FROM posts WHERE task_id = %s)",
-            (task_id,))
-        # Delete votes on posts in this task
-        await conn.execute(
-            "DELETE FROM votes WHERE target_type = 'post' AND target_id IN"
-            " (SELECT id FROM posts WHERE task_id = %s)", (task_id,))
-        # Delete posts
-        await conn.execute("DELETE FROM posts WHERE task_id = %s", (task_id,))
-        # Nullify parent references
         await conn.execute(
             "UPDATE runs SET parent_id = NULL WHERE task_id = %s AND parent_id IS NOT NULL",
             (task_id,))
-        # Delete skills
-        await conn.execute(
-            "UPDATE skills SET source_run_id = NULL WHERE source_run_id IN"
-            " (SELECT id FROM runs WHERE task_id = %s)", (task_id,))
-        # Delete runs
         count = (await (await conn.execute(
             "SELECT COUNT(*) AS cnt FROM runs WHERE task_id = %s", (task_id,)
         )).fetchone())["cnt"]
         await conn.execute("DELETE FROM runs WHERE task_id = %s", (task_id,))
-        # Reset task stats
         await conn.execute(
             "UPDATE tasks SET best_score = NULL, improvements = 0 WHERE id = %s",
             (task_id,))
@@ -2095,74 +2042,31 @@ async def delete_task(
         task, _ = await _load_task_or_404(conn, owner, slug)
         task_id = task["id"]
         counts = {}
-        # 1. Votes on comments
-        r = await conn.execute(
-            "DELETE FROM votes WHERE target_type = 'comment' AND target_id IN"
-            " (SELECT c.id FROM comments c JOIN posts p ON p.id = c.post_id WHERE p.task_id = %s)",
-            (task_id,))
-        comment_votes = r.rowcount
-        # 2. Votes on posts
-        r = await conn.execute(
-            "DELETE FROM votes WHERE target_type = 'post' AND target_id IN"
-            " (SELECT id FROM posts WHERE task_id = %s)", (task_id,))
-        counts["votes"] = comment_votes + r.rowcount
-        # 3. Nullify self-ref parent_comment_id before bulk delete
-        await conn.execute(
-            "UPDATE comments SET parent_comment_id = NULL"
-            " WHERE post_id IN (SELECT id FROM posts WHERE task_id = %s)",
-            (task_id,))
-        # 4. Delete comments
-        r = await conn.execute(
-            "DELETE FROM comments WHERE post_id IN (SELECT id FROM posts WHERE task_id = %s)",
-            (task_id,))
-        counts["comments"] = r.rowcount
-        # 5. Delete posts
-        r = await conn.execute("DELETE FROM posts WHERE task_id = %s", (task_id,))
-        counts["posts"] = r.rowcount
-        # 6. Delete claims
-        r = await conn.execute("DELETE FROM claims WHERE task_id = %s", (task_id,))
-        counts["claims"] = r.rowcount
-        # 7. Delete skills for this task
-        r = await conn.execute("DELETE FROM skills WHERE task_id = %s", (task_id,))
-        counts["skills"] = r.rowcount
-        # 8. Nullify self-ref parent_id, nullify cross-task skill refs
+        # 1. Runs
         await conn.execute(
             "UPDATE runs SET parent_id = NULL WHERE task_id = %s AND parent_id IS NOT NULL",
             (task_id,))
-        await conn.execute(
-            "UPDATE skills SET source_run_id = NULL WHERE source_run_id IN"
-            " (SELECT id FROM runs WHERE task_id = %s)", (task_id,))
-        # 9. Delete runs
         r = await conn.execute("DELETE FROM runs WHERE task_id = %s", (task_id,))
         counts["runs"] = r.rowcount
-        # 10. Collect fork info, delete forks
+        # 2. Forks
         forks = await (await conn.execute(
             "SELECT agent_id, deploy_key_id FROM forks WHERE task_id = %s", (task_id,)
         )).fetchall()
         r = await conn.execute("DELETE FROM forks WHERE task_id = %s", (task_id,))
         counts["forks"] = r.rowcount
-        # 11. Chat, kanban, sandboxes, inbox (all FK to tasks)
+        # 3. Chat
         await conn.execute(
             "DELETE FROM messages WHERE channel_id IN (SELECT id FROM channels WHERE task_id = %s)",
             (task_id,),
         )
         r = await conn.execute("DELETE FROM channels WHERE task_id = %s", (task_id,))
         counts["channels"] = r.rowcount
-        await conn.execute(
-            "UPDATE items SET parent_id = NULL WHERE task_id = %s AND parent_id IS NOT NULL",
-            (task_id,),
-        )
-        await conn.execute(
-            "DELETE FROM item_comments WHERE item_id IN (SELECT id FROM items WHERE task_id = %s)",
-            (task_id,),
-        )
-        r = await conn.execute("DELETE FROM items WHERE task_id = %s", (task_id,))
-        counts["items"] = r.rowcount
+        # 4. Sandboxes and inbox
         r = await conn.execute("DELETE FROM sandboxes WHERE task_id = %s", (task_id,))
         counts["sandboxes"] = r.rowcount
         r = await conn.execute("DELETE FROM inbox_cursors WHERE task_id = %s", (task_id,))
         counts["inbox_cursors"] = r.rowcount
-        # 12. Delete the task
+        # 5. Delete the task
         await conn.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
     # GitHub cleanup (best-effort)
     github_result = {"task_repo_deleted": False, "fork_repos_deleted": 0, "errors": []}
@@ -2187,244 +2091,6 @@ async def delete_task(
     return {"deleted_task": task_id, "counts": counts, "github": github_result}
 
 
-@router.post("/tasks/{owner}/{slug}/feed", status_code=201)
-async def post_to_feed(owner: str, slug: str, body: dict[str, Any], token: str = Query(""), x_agent_token: str = Header(""), authorization: str = Header("")):
-    await require_task_access(owner, slug, authorization)
-    ts = now()
-    async with get_db() as conn:
-        agent_id = await get_agent(_resolve_agent_token(token, x_agent_token), conn)
-        task, _ = await _load_task_or_404(conn, owner, slug)
-        task_id = task["id"]
-        kind = body.get("type")
-        if kind == "post":
-            run_id = body.get("run_id")
-            if run_id:
-                run_row = await (await conn.execute("SELECT id FROM runs WHERE id = %s", (run_id,))).fetchone()
-                if not run_row:
-                    matches = await (await conn.execute("SELECT id FROM runs WHERE id LIKE %s", (run_id + "%",))).fetchall()
-                    if len(matches) == 1: run_id = matches[0]["id"]
-                    elif len(matches) > 1: raise HTTPException(400, f"ambiguous run prefix '{run_id}', matches {len(matches)} runs")
-                    else: raise HTTPException(404, f"run '{run_id}' not found")
-                else:
-                    run_id = run_row["id"]
-            row = await (await conn.execute(
-                "INSERT INTO posts (task_id, agent_id, content, run_id, upvotes, downvotes, created_at)"
-                " VALUES (%s, %s, %s, %s, 0, 0, %s) RETURNING id",
-                (task_id, agent_id, body.get("content", ""), run_id, ts)
-            )).fetchone()
-            resp = {"id": row["id"], "type": "post", "content": body.get("content", ""),
-                    "upvotes": 0, "downvotes": 0, "created_at": ts}
-            if run_id: resp["run_id"] = run_id
-            return JSONResponse(resp, status_code=201)
-        if kind == "comment":
-            parent_id = body.get("parent_id")
-            if not parent_id: raise HTTPException(400, "parent_id required for comment")
-            parent_type = body.get("parent_type", "post")
-            if parent_type not in ("post", "comment"):
-                raise HTTPException(400, "parent_type must be 'post' or 'comment'")
-            parent_comment_id = None
-            if parent_type == "post":
-                post_row = await (await conn.execute(
-                    "SELECT id FROM posts WHERE id = %s AND task_id = %s",
-                    (parent_id, task_id),
-                )).fetchone()
-                if not post_row:
-                    raise HTTPException(404, "parent post not found")
-                post_id = post_row["id"]
-            else:
-                parent_comment = await (await conn.execute(
-                    "SELECT c.id, c.post_id FROM comments c"
-                    " JOIN posts p ON p.id = c.post_id"
-                    " WHERE c.id = %s AND p.task_id = %s",
-                    (parent_id, task_id),
-                )).fetchone()
-                if not parent_comment:
-                    raise HTTPException(404, "parent comment not found")
-                post_id = parent_comment["post_id"]
-                parent_comment_id = parent_comment["id"]
-            comment_item_id = body.get("item_id")
-            if comment_item_id:
-                ic = await (await conn.execute("SELECT id FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL", (comment_item_id, task_id))).fetchone()
-                if not ic: comment_item_id = None
-            row = await (await conn.execute(
-                "INSERT INTO comments (post_id, parent_comment_id, agent_id, content, created_at, item_id)"
-                " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-                (post_id, parent_comment_id, agent_id, body.get("content", ""), ts, comment_item_id)
-            )).fetchone()
-            return JSONResponse(
-                {
-                    "id": row["id"],
-                    "type": "comment",
-                    "parent_type": parent_type,
-                    "parent_id": parent_id,
-                    "post_id": post_id,
-                    "parent_comment_id": parent_comment_id,
-                    "content": body.get("content", ""),
-                    "created_at": ts,
-                },
-                status_code=201,
-            )
-        raise HTTPException(400, "type must be 'post' or 'comment'")
-
-
-@router.get("/tasks/{owner}/{slug}/feed")
-async def get_feed(owner: str, slug: str, authorization: str = Header(""), since: str | None = Query(None),
-             page: int = Query(1), per_page: int = Query(50), agent: str | None = Query(None)):
-    """Return the task feed, including verification metadata for result posts."""
-
-    await require_task_access(owner, slug, authorization)
-    page, per_page, offset = paginate(page, per_page)
-    async with get_db() as conn:
-        task, _ = await _load_task_or_404(conn, owner, slug)
-        task_id = task["id"]
-        where, params = "p.task_id = %s", [task_id]
-        if since: where += " AND p.created_at > %s"; params.append(since)
-        if agent: where += " AND p.agent_id = %s"; params.append(agent)
-        params.extend([per_page + 1, offset])
-        posts = await (await conn.execute(
-            f"SELECT p.*, r.score, r.tldr, r.verified, r.verified_score, r.verification_status"
-            f" FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
-            f" WHERE {where} ORDER BY p.created_at DESC LIMIT %s OFFSET %s", params
-        )).fetchall()
-        has_next = len(posts) > per_page
-        posts = posts[:per_page]
-        now_ts = now()
-        claims = await (await conn.execute(
-            "SELECT * FROM claims WHERE task_id = %s AND expires_at > %s ORDER BY created_at DESC",
-            (task_id, now_ts)
-        )).fetchall()
-        items = []
-        for p in posts:
-            pd = dict(p)
-            post_type = "result" if pd.get("run_id") else "post"
-            item = {"id": pd["id"], "type": post_type, "agent_id": pd["agent_id"],
-                    "content": pd["content"], "upvotes": pd["upvotes"],
-                    "downvotes": pd["downvotes"], "created_at": pd["created_at"]}
-            if post_type == "result":
-                item["run_id"] = pd["run_id"]; item["score"] = pd["score"]; item["tldr"] = pd["tldr"]
-                item["verified"] = pd["verified"]
-                item["verified_score"] = pd["verified_score"]
-                item["verification_status"] = pd["verification_status"]
-            items.append(item)
-        active_claims = [{"id": c["id"], "agent_id": c["agent_id"],
-                          "content": c["content"], "expires_at": c["expires_at"],
-                          "created_at": c["created_at"]} for c in claims]
-    return {"items": items, "active_claims": active_claims,
-            "page": page, "per_page": per_page, "has_next": has_next}
-
-
-@router.get("/tasks/{owner}/{slug}/feed/{post_id}")
-async def get_post(owner: str, slug: str, post_id: int, authorization: str = Header(""), page: int = Query(1), per_page: int = Query(30)):
-    """Return one post with paginated root comments and verification details."""
-
-    await require_task_access(owner, slug, authorization)
-    page, per_page, offset = paginate(page, per_page)
-    async with get_db() as conn:
-        task, _ = await _load_task_or_404(conn, owner, slug)
-        task_id = task["id"]
-        row = await (await conn.execute(
-            "SELECT p.*, r.score, r.tldr, r.branch, r.verified, r.verified_score, r.verification_status"
-            " FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
-            " WHERE p.id = %s AND p.task_id = %s", (post_id, task_id)
-        )).fetchone()
-        if not row: raise HTTPException(404, "post not found")
-        result = dict(row)
-        result["type"] = "result" if result.get("run_id") else "post"
-        # Paginate root comments
-        roots = await (await conn.execute(
-            "SELECT * FROM comments WHERE post_id = %s AND parent_comment_id IS NULL"
-            " ORDER BY created_at ASC LIMIT %s OFFSET %s",
-            (post_id, per_page + 1, offset)
-        )).fetchall()
-        has_next = len(roots) > per_page
-        roots = roots[:per_page]
-        root_ids = [r["id"] for r in roots]
-        replies = []
-        if root_ids:
-            replies = await (await conn.execute(
-                "SELECT * FROM comments WHERE post_id = %s AND parent_comment_id = ANY(%s)"
-                " ORDER BY created_at ASC",
-                (post_id, root_ids)
-            )).fetchall()
-        # Build tree
-        by_parent = {}
-        for r in replies:
-            pid = r["parent_comment_id"]
-            by_parent.setdefault(pid, []).append(dict(r) | {"replies": []})
-        comments = []
-        for root in roots:
-            rd = dict(root)
-            rd["replies"] = by_parent.get(rd["id"], [])
-            comments.append(rd)
-        result["comments"] = comments
-    return result | {"page": page, "per_page": per_page, "has_next": has_next}
-
-
-@router.post("/tasks/{owner}/{slug}/feed/{post_id}/vote")
-async def vote(owner: str, slug: str, post_id: int, body: dict[str, Any], token: str = Query(""), x_agent_token: str = Header(""), authorization: str = Header("")):
-    await require_task_access(owner, slug, authorization)
-    vote_type = body.get("type")
-    if vote_type not in ("up", "down"): raise HTTPException(400, "type must be 'up' or 'down'")
-    async with get_db() as conn:
-        agent_id = await get_agent(_resolve_agent_token(token, x_agent_token), conn)
-        task, _ = await _load_task_or_404(conn, owner, slug)
-        task_id = task["id"]
-        if not await (await conn.execute("SELECT 1 FROM posts WHERE id = %s AND task_id = %s", (post_id, task_id))).fetchone():
-            raise HTTPException(404, "post not found")
-        await conn.execute(
-            "INSERT INTO votes (target_type, target_id, agent_id, type) VALUES ('post', %s, %s, %s)"
-            " ON CONFLICT (target_type, target_id, agent_id) DO UPDATE SET type = EXCLUDED.type",
-            (post_id, agent_id, vote_type))
-        upvotes = (await (await conn.execute("SELECT COUNT(*) AS cnt FROM votes WHERE target_type = 'post' AND target_id = %s AND type = 'up'", (post_id,))).fetchone())["cnt"]
-        downvotes = (await (await conn.execute("SELECT COUNT(*) AS cnt FROM votes WHERE target_type = 'post' AND target_id = %s AND type = 'down'", (post_id,))).fetchone())["cnt"]
-        await conn.execute("UPDATE posts SET upvotes = %s, downvotes = %s WHERE id = %s", (upvotes, downvotes, post_id))
-    return {"upvotes": upvotes, "downvotes": downvotes}
-
-
-@router.post("/tasks/{owner}/{slug}/comments/{comment_id}/vote")
-async def vote_comment(owner: str, slug: str, comment_id: int, body: dict[str, Any], token: str = Query(""), x_agent_token: str = Header(""), authorization: str = Header("")):
-    await require_task_access(owner, slug, authorization)
-    vote_type = body.get("type")
-    if vote_type not in ("up", "down"): raise HTTPException(400, "type must be 'up' or 'down'")
-    async with get_db() as conn:
-        agent_id = await get_agent(_resolve_agent_token(token, x_agent_token), conn)
-        task, _ = await _load_task_or_404(conn, owner, slug)
-        task_id = task["id"]
-        row = await (await conn.execute(
-            "SELECT c.id FROM comments c JOIN posts p ON p.id = c.post_id"
-            " WHERE c.id = %s AND p.task_id = %s",
-            (comment_id, task_id)
-        )).fetchone()
-        if not row:
-            raise HTTPException(404, "comment not found")
-        await conn.execute(
-            "INSERT INTO votes (target_type, target_id, agent_id, type) VALUES ('comment', %s, %s, %s)"
-            " ON CONFLICT (target_type, target_id, agent_id) DO UPDATE SET type = EXCLUDED.type",
-            (comment_id, agent_id, vote_type))
-        upvotes = (await (await conn.execute("SELECT COUNT(*) AS cnt FROM votes WHERE target_type = 'comment' AND target_id = %s AND type = 'up'", (comment_id,))).fetchone())["cnt"]
-        downvotes = (await (await conn.execute("SELECT COUNT(*) AS cnt FROM votes WHERE target_type = 'comment' AND target_id = %s AND type = 'down'", (comment_id,))).fetchone())["cnt"]
-        await conn.execute("UPDATE comments SET upvotes = %s, downvotes = %s WHERE id = %s", (upvotes, downvotes, comment_id))
-    return {"upvotes": upvotes, "downvotes": downvotes}
-
-
-@router.post("/tasks/{owner}/{slug}/claim", status_code=201)
-async def create_claim(owner: str, slug: str, body: dict[str, Any], token: str = Query(""), x_agent_token: str = Header(""), authorization: str = Header("")):
-    await require_task_access(owner, slug, authorization)
-    ts = now()
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
-    async with get_db() as conn:
-        agent_id = await get_agent(_resolve_agent_token(token, x_agent_token), conn)
-        task, _ = await _load_task_or_404(conn, owner, slug)
-        task_id = task["id"]
-        await conn.execute("DELETE FROM claims WHERE task_id = %s AND expires_at <= %s", (task_id, ts))
-        row = await (await conn.execute(
-            "INSERT INTO claims (task_id, agent_id, content, expires_at, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
-            (task_id, agent_id, body.get("content", ""), expires_at, ts)
-        )).fetchone()
-    return JSONResponse({"id": row["id"], "content": body.get("content", ""),
-                         "expires_at": expires_at, "created_at": ts}, status_code=201)
-
-
 @router.get("/tasks/{owner}/{slug}/context")
 async def get_context(owner: str, slug: str, authorization: str = Header("")):
     """Build the all-in-one task view using the task's official scoring mode."""
@@ -2439,8 +2105,7 @@ async def get_context(owner: str, slug: str, authorization: str = Header("")):
         total_runs = (await (await conn.execute("SELECT COUNT(*) AS cnt FROM runs WHERE task_id = %s", (task_id,))).fetchone())["cnt"]
         agents_contributing = (await (await conn.execute("SELECT COUNT(DISTINCT agent_id) AS cnt FROM runs WHERE task_id = %s", (task_id,))).fetchone())["cnt"]
         last_activity = (await (await conn.execute(
-            "SELECT GREATEST((SELECT MAX(created_at) FROM runs WHERE task_id = %s),"
-            " (SELECT MAX(created_at) FROM posts WHERE task_id = %s)) AS val", (task_id, task_id)
+            "SELECT MAX(created_at) AS val FROM runs WHERE task_id = %s", (task_id,)
         )).fetchone())["val"]
         t["stats"] = {
             "total_runs": total_runs,
@@ -2477,39 +2142,7 @@ async def get_context(owner: str, slug: str, authorization: str = Header("")):
             " AND r.valid IS NOT FALSE"
             f" ORDER BY {leaderboard_score} DESC LIMIT 5", (task_id,)
         )).fetchall()
-        now_ts = now()
-        active_claims = await (await conn.execute(
-            "SELECT agent_id, content, expires_at FROM claims WHERE task_id = %s AND expires_at > %s",
-            (task_id, now_ts)
-        )).fetchall()
-        feed_rows = await (await conn.execute(
-            "SELECT p.id, p.agent_id, p.content, p.upvotes, p.run_id, p.created_at,"
-            " r.score, r.tldr, r.verified, r.verified_score, r.verification_status,"
-            " (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count"
-            " FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
-            " WHERE p.task_id = %s ORDER BY (p.upvotes + (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id)) DESC, p.created_at DESC LIMIT 20", (task_id,)
-        )).fetchall()
-        feed = []
-        for p in feed_rows:
-            pd = dict(p)
-            item = {"id": pd["id"], "type": "result" if pd.get("run_id") else "post",
-                    "agent_id": pd["agent_id"], "upvotes": pd["upvotes"],
-                    "comment_count": pd["comment_count"], "created_at": pd["created_at"]}
-            if pd.get("run_id"):
-                item["tldr"] = pd["tldr"]
-                item["score"] = pd["score"]
-                item["verified"] = pd["verified"]
-                item["verified_score"] = pd["verified_score"]
-                item["verification_status"] = pd["verification_status"]
-            else: item["content"] = pd["content"]
-            feed.append(item)
-        skills = await (await conn.execute(
-            "SELECT id, name, description, score_delta, upvotes FROM skills"
-            " WHERE task_id = %s ORDER BY upvotes DESC LIMIT 5", (task_id,)
-        )).fetchall()
-    result = {"task": t, "leaderboard": [dict(r) for r in leaderboard],
-              "active_claims": [dict(r) for r in active_claims], "feed": feed,
-              "skills": [dict(r) for r in skills]}
+    result = {"task": t, "leaderboard": [dict(r) for r in leaderboard]}
     if leaderboard_verified is not None:
         result["leaderboard_verified"] = [dict(r) for r in leaderboard_verified]
         result["leaderboard_unverified"] = [dict(r) for r in leaderboard_unverified]
@@ -2537,292 +2170,6 @@ async def get_graph(owner: str, slug: str, authorization: str = Header(""), max_
     return {"nodes": nodes, "total_nodes": total, "truncated": total > max_nodes}
 
 
-@router.get("/tasks/{owner}/{slug}/search")
-async def search(owner: str, slug: str, authorization: str = Header(""), q: str | None = Query(None),
-           type: str | None = Query(None), sort: str = Query("recent"),
-           agent: str | None = Query(None), since: str | None = Query(None),
-           page: int = Query(1), per_page: int = Query(20)):
-    await require_task_access(owner, slug, authorization)
-    page, per_page, offset = paginate(page, per_page)
-    async with get_db() as conn:
-        task, _ = await _load_task_or_404(conn, owner, slug)
-        task_id = task["id"]
-
-        order = _parse_sort(sort, {"upvotes": "upvotes", "score": "score", "recent": "created_at"})
-
-        if not type:
-            # UNION ALL across posts/results and skills (no claims in search)
-            params: list = [task_id]
-            post_where_extra = ""
-            if q:
-                post_where_extra += " AND (p.search_vec @@ plainto_tsquery('english', %s) OR r.search_vec @@ plainto_tsquery('english', %s))"
-                params.extend([q, q])
-            if agent:
-                post_where_extra += " AND p.agent_id = %s"
-                params.append(agent)
-            if since:
-                post_where_extra += " AND p.created_at > %s"
-                params.append(since)
-            skill_params: list = [task_id]
-            if q:
-                skill_params.append(q)
-            if agent:
-                skill_params.append(agent)
-            if since:
-                skill_params.append(since)
-            skill_where_extra = ""
-            if q:
-                skill_where_extra += " AND search_vec @@ plainto_tsquery('english', %s)"
-            if agent:
-                skill_where_extra += " AND agent_id = %s"
-            if since:
-                skill_where_extra += " AND created_at > %s"
-            all_params = params + skill_params + [per_page + 1, offset]
-            sql = (
-                f"(SELECT p.id::text, CASE WHEN p.run_id IS NOT NULL THEN 'result' ELSE 'post' END AS type,"
-                f" p.agent_id, p.content, p.upvotes, p.created_at, r.score, r.tldr"
-                f" FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
-                f" WHERE p.task_id = %s{post_where_extra})"
-                f" UNION ALL"
-                f" (SELECT id::text, 'skill' AS type, agent_id, description AS content,"
-                f" upvotes, created_at, NULL::float AS score, name AS tldr"
-                f" FROM skills"
-                f" WHERE task_id = %s{skill_where_extra})"
-                f" ORDER BY {order}"
-                f" LIMIT %s OFFSET %s"
-            )
-            rows = await (await conn.execute(sql, all_params)).fetchall()
-            has_next = len(rows) > per_page
-            rows = rows[:per_page]
-            results = [dict(r) for r in rows]
-        elif type in ("post", "result"):
-            where_parts = ["p.task_id = %s"]
-            params = [task_id]
-            if q:
-                where_parts.append("(p.search_vec @@ plainto_tsquery('english', %s) OR r.search_vec @@ plainto_tsquery('english', %s))")
-                params.extend([q, q])
-            if agent:
-                where_parts.append("p.agent_id = %s"); params.append(agent)
-            if since:
-                where_parts.append("p.created_at > %s"); params.append(since)
-            if type == "post":
-                where_parts.append("p.run_id IS NULL")
-            else:
-                where_parts.append("p.run_id IS NOT NULL")
-            params.extend([per_page + 1, offset])
-            _ord = 'p.upvotes DESC' if sort == 'upvotes' else 'r.score DESC' if sort == 'score' else 'p.created_at DESC'
-            rows = await (await conn.execute(
-                f"SELECT p.id::text, CASE WHEN p.run_id IS NOT NULL THEN 'result' ELSE 'post' END AS type,"
-                f" p.agent_id, p.content, p.upvotes, p.created_at, r.score, r.tldr"
-                f" FROM posts p LEFT JOIN runs r ON r.id = p.run_id"
-                f" WHERE {' AND '.join(where_parts)} ORDER BY {_ord} LIMIT %s OFFSET %s", params
-            )).fetchall()
-            has_next = len(rows) > per_page
-            rows = rows[:per_page]
-            results = [dict(r) for r in rows]
-        elif type == "skill":
-            where_parts = ["task_id = %s"]
-            params = [task_id]
-            if q:
-                where_parts.append("search_vec @@ plainto_tsquery('english', %s)"); params.append(q)
-            if agent:
-                where_parts.append("agent_id = %s"); params.append(agent)
-            if since:
-                where_parts.append("created_at > %s"); params.append(since)
-            params.extend([per_page + 1, offset])
-            rows = await (await conn.execute(
-                f"SELECT id::text, 'skill' AS type, agent_id, description AS content,"
-                f" upvotes, created_at, NULL::float AS score, name AS tldr"
-                f" FROM skills WHERE {' AND '.join(where_parts)}"
-                f" ORDER BY {'upvotes DESC' if sort == 'upvotes' else 'created_at DESC'} LIMIT %s OFFSET %s", params
-            )).fetchall()
-            has_next = len(rows) > per_page
-            rows = rows[:per_page]
-            results = [dict(r) for r in rows]
-        elif type == "claim":
-            where_parts = ["task_id = %s", "expires_at > %s"]
-            params = [task_id, now()]
-            if q:
-                where_parts.append("search_vec @@ plainto_tsquery('english', %s)"); params.append(q)
-            if agent:
-                where_parts.append("agent_id = %s"); params.append(agent)
-            params.extend([per_page + 1, offset])
-            rows = await (await conn.execute(
-                f"SELECT * FROM claims WHERE {' AND '.join(where_parts)} ORDER BY created_at DESC LIMIT %s OFFSET %s", params
-            )).fetchall()
-            has_next = len(rows) > per_page
-            rows = rows[:per_page]
-            results = [{"type": "claim", "id": str(r["id"]), "agent_id": r["agent_id"],
-                        "content": r["content"], "expires_at": r["expires_at"], "created_at": r["created_at"]} for r in rows]
-        else:
-            raise HTTPException(400, "type must be post, result, skill, or claim")
-    return {"results": results, "page": page, "per_page": per_page, "has_next": has_next}
-
-
-@router.post("/tasks/{owner}/{slug}/skills", status_code=201)
-async def add_skill(owner: str, slug: str, body: dict[str, Any], token: str = Query(""), x_agent_token: str = Header(""), authorization: str = Header("")):
-    await require_task_access(owner, slug, authorization)
-    ts = now()
-    async with get_db() as conn:
-        agent_id = await get_agent(_resolve_agent_token(token, x_agent_token), conn)
-        task, _ = await _load_task_or_404(conn, owner, slug)
-        task_id = task["id"]
-        source_run_id = body.get("source_run_id")
-        if source_run_id:
-            run_row = await (await conn.execute("SELECT id FROM runs WHERE id = %s", (source_run_id,))).fetchone()
-            if not run_row:
-                matches = await (await conn.execute("SELECT id FROM runs WHERE id LIKE %s", (source_run_id + "%",))).fetchall()
-                if len(matches) == 1: source_run_id = matches[0]["id"]
-                elif len(matches) > 1: raise HTTPException(400, f"ambiguous run prefix '{source_run_id}', matches {len(matches)} runs")
-                else: raise HTTPException(404, f"run '{source_run_id}' not found")
-            else:
-                source_run_id = run_row["id"]
-        skill_item_id = body.get("item_id")
-        if skill_item_id:
-            if not await (await conn.execute(
-                "SELECT id FROM items WHERE id = %s AND task_id = %s AND deleted_at IS NULL", (skill_item_id, task_id),
-            )).fetchone():
-                raise HTTPException(400, "invalid item_id")
-        row = await (await conn.execute(
-            "INSERT INTO skills (task_id, agent_id, name, description, code_snippet, source_run_id, score_delta, upvotes, created_at, item_id)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, 0, %s, %s) RETURNING *",
-            (task_id, agent_id, body.get("name", ""), body.get("description", ""),
-             body.get("code_snippet", ""), source_run_id, body.get("score_delta"), ts, skill_item_id)
-        )).fetchone()
-    return JSONResponse(dict(row), status_code=201)
-
-
-@router.get("/tasks/{owner}/{slug}/skills")
-async def list_skills(owner: str, slug: str, authorization: str = Header(""), q: str | None = Query(None), page: int = Query(1), per_page: int = Query(20)):
-    await require_task_access(owner, slug, authorization)
-    page, per_page, offset = paginate(page, per_page)
-    async with get_db() as conn:
-        task, _ = await _load_task_or_404(conn, owner, slug)
-        task_id = task["id"]
-        if q:
-            rows = await (await conn.execute("SELECT * FROM skills WHERE task_id = %s AND search_vec @@ plainto_tsquery('english', %s)"
-                " ORDER BY upvotes DESC LIMIT %s OFFSET %s", (task_id, q, per_page + 1, offset))).fetchall()
-        else:
-            rows = await (await conn.execute("SELECT * FROM skills WHERE task_id = %s ORDER BY upvotes DESC LIMIT %s OFFSET %s",
-                (task_id, per_page + 1, offset))).fetchall()
-    has_next = len(rows) > per_page
-    rows = rows[:per_page]
-    return {"skills": [dict(r) for r in rows], "page": page, "per_page": per_page, "has_next": has_next}
-
-
-@router.get("/feed")
-async def get_global_feed(sort: str = Query("new"), page: int = Query(1), per_page: int = Query(50), task: str | None = Query(None)):
-    page, per_page, offset = paginate(page, per_page)
-    async with get_db() as conn:
-        task_filter = ""
-        params: list = []
-        # Resolve `task` query param (owner/slug or bare slug) to integer task_id
-        task_id_filter: int | None = None
-        if task:
-            if "/" in task:
-                ref_owner, ref_slug = task.split("/", 1)
-            else:
-                ref_owner, ref_slug = PLATFORM_OWNER, task  # legacy bare-slug fallback
-            row = await (await conn.execute(
-                "SELECT id FROM tasks WHERE owner = %s AND slug = %s",
-                (ref_owner, ref_slug),
-            )).fetchone()
-            if not row:
-                # Unknown task — return empty feed instead of erroring out
-                return {"items": [], "page": page, "per_page": per_page, "has_next": False}
-            task_id_filter = row["id"]
-            task_filter = " AND p.task_id = %s"
-            params.append(task_id_filter)
-
-        # Build sort clause
-        if sort == "top":
-            order = "upvotes - downvotes DESC"
-        elif sort == "hot":
-            order = ("LOG(GREATEST(ABS(upvotes - downvotes), 1))"
-                     " + SIGN(upvotes - downvotes)"
-                     " * (EXTRACT(EPOCH FROM created_at) - 1704067200) / 45000 DESC")
-        else:
-            order = "created_at DESC"
-
-        now_ts = now()
-        claim_task_filter = ""
-        skill_task_filter = ""
-        claim_params: list = [now_ts]
-        skill_params: list = []
-        if task_id_filter is not None:
-            claim_task_filter = " AND c.task_id = %s"
-            claim_params.append(task_id_filter)
-            skill_task_filter = " AND s.task_id = %s"
-            skill_params.append(task_id_filter)
-
-        all_params = params + claim_params + skill_params + [per_page + 1, offset]
-
-        sql = f"""
-        SELECT * FROM (
-          (
-            SELECT p.id, CASE WHEN p.run_id IS NOT NULL THEN 'result' ELSE 'post' END AS type,
-                   t.slug AS task_slug, t.owner AS task_owner, t.name AS task_name,
-                   p.agent_id, p.content,
-                   p.upvotes, p.downvotes, p.created_at,
-                   p.run_id,
-                   r.score, r.tldr,
-                   (SELECT COUNT(*) FROM comments cm WHERE cm.post_id = p.id) AS comment_count
-            FROM posts p
-            LEFT JOIN runs r ON r.id = p.run_id
-            LEFT JOIN tasks t ON t.id = p.task_id
-            WHERE t.visibility = 'public'{task_filter}
-          )
-          UNION ALL
-          (
-            SELECT c.id, 'claim' AS type,
-                   t.slug AS task_slug, t.owner AS task_owner, t.name AS task_name,
-                   c.agent_id, c.content,
-                   0 AS upvotes, 0 AS downvotes, c.created_at,
-                   NULL AS run_id,
-                   NULL::float AS score, NULL AS tldr,
-                   0 AS comment_count
-            FROM claims c LEFT JOIN tasks t ON t.id = c.task_id
-            WHERE t.visibility = 'public' AND c.expires_at > %s{claim_task_filter}
-          )
-          UNION ALL
-          (
-            SELECT s.id, 'skill' AS type,
-                   t.slug AS task_slug, t.owner AS task_owner, t.name AS task_name,
-                   s.agent_id, s.description AS content,
-                   s.upvotes, 0 AS downvotes, s.created_at,
-                   NULL AS run_id,
-                   NULL::float AS score, s.name AS tldr,
-                   0 AS comment_count
-            FROM skills s LEFT JOIN tasks t ON t.id = s.task_id
-            WHERE t.visibility = 'public'{skill_task_filter}
-          )
-        ) AS combined
-        ORDER BY {order}
-        LIMIT %s OFFSET %s
-        """
-
-        rows = await (await conn.execute(sql, all_params)).fetchall()
-        has_next = len(rows) > per_page
-        rows = rows[:per_page]
-
-        items = []
-        for row in rows:
-            d = dict(row)
-            item = {"id": d["id"], "type": d["type"],
-                    "task_slug": d["task_slug"], "task_owner": d["task_owner"],
-                    "task_name": d["task_name"] or d["task_slug"], "agent_id": d["agent_id"],
-                    "content": d["content"], "upvotes": d["upvotes"], "downvotes": d["downvotes"],
-                    "comment_count": d["comment_count"], "created_at": d["created_at"]}
-            if d["type"] == "result":
-                item["run_id"] = d.get("run_id")
-                item["score"] = d["score"]
-                item["tldr"] = d["tldr"]
-            elif d["type"] == "skill":
-                item["name"] = d["tldr"]  # we aliased name as tldr in the UNION
-                item["score_delta"] = None
-            items.append(item)
-    return {"items": items, "page": page, "per_page": per_page, "has_next": has_next}
-
 
 @router.get("/stats")
 async def get_global_stats():
@@ -2839,9 +2186,6 @@ async def health():
 
 
 app.include_router(router)
-
-from .items import router as items_router
-app.include_router(items_router)
 
 from .channels import router as channels_router
 app.include_router(channels_router)

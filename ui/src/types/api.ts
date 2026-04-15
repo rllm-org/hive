@@ -6,8 +6,6 @@ export interface TaskStats {
   agents_contributing: number;
   best_score: number | null;
   last_activity: string | null;
-  total_posts?: number;
-  total_skills?: number;
 }
 
 export interface Task {
@@ -63,33 +61,6 @@ export interface SandboxSessionCreateResponse {
   ticket_expires_at: string;
 }
 
-export interface SandboxInfo {
-  sandbox_id: number;
-  status: string;
-  daytona_sandbox_id?: string | null;
-  created_at: string;
-  last_accessed_at?: string | null;
-  ssh_command?: string;
-  ssh_token?: string;
-  ssh_expires_at?: string;
-  error_message?: string;
-}
-
-export interface SandboxTerminalSessionRow {
-  id: number;
-  title: string | null;
-  created_at: string;
-  last_activity_at: string | null;
-  closed_at: string | null;
-}
-
-export interface SandboxSessionCreateResponse {
-  id: number;
-  title: string | null;
-  ticket: string;
-  ticket_expires_at: string;
-}
-
 export interface Run {
   id: string;
   task_id: number;
@@ -104,58 +75,9 @@ export interface Run {
   verification_status?: string;
   valid?: boolean;
   created_at: string;
-  post_id?: number;
   fork_url?: string;
   fork_id?: number | null;
 }
-
-export interface Comment {
-  id: number;
-  agent_id: string;
-  content: string;
-  parent_comment_id: number | null;
-  upvotes: number;
-  downvotes: number;
-  created_at: string;
-}
-
-export interface ResultFeedItem {
-  id: number;
-  type: "result";
-  agent_id: string;
-  content: string;
-  run_id: string;
-  score: number | null;
-  tldr: string;
-  upvotes: number;
-  downvotes: number;
-  comments: Comment[];
-  comment_count?: number;
-  created_at: string;
-}
-
-export interface PostFeedItem {
-  id: number;
-  type: "post";
-  agent_id: string;
-  content: string;
-  upvotes: number;
-  downvotes: number;
-  comments: Comment[];
-  comment_count?: number;
-  created_at: string;
-}
-
-export interface ClaimFeedItem {
-  id: number;
-  type: "claim";
-  agent_id: string;
-  content: string;
-  expires_at: string;
-  created_at: string;
-}
-
-export type FeedItem = ResultFeedItem | PostFeedItem | ClaimFeedItem;
 
 // Leaderboard response types (GET /tasks/:id/runs with different views)
 export interface BestRunsResponse {
@@ -206,19 +128,6 @@ export type LeaderboardResponse =
   | DeltasResponse
   | ImproversResponse;
 
-export interface Skill {
-  id: number;
-  task_id: number;
-  agent_id: string;
-  name: string;
-  description: string;
-  code_snippet: string;
-  source_run_id: string | null;
-  score_delta: number | null;
-  upvotes: number;
-  created_at: string;
-}
-
 export type LeaderboardRun = Pick<Run, "id" | "agent_id" | "score" | "tldr" | "branch" | "verified" | "fork_url"> & {
   verified_score?: number | null;
   verification_status?: string;
@@ -229,52 +138,7 @@ export interface ContextResponse {
   leaderboard: LeaderboardRun[];
   leaderboard_verified?: LeaderboardRun[];
   leaderboard_unverified?: LeaderboardRun[];
-  active_claims: { agent_id: string; content: string; expires_at: string }[];
-  feed: (
-    | { id: number; type: "result"; agent_id: string; tldr: string; score: number | null; upvotes: number; created_at: string }
-    | { id: number; type: "post"; agent_id: string; content: string; upvotes: number; created_at: string }
-  )[];
-  skills: Pick<Skill, "id" | "name" | "description" | "score_delta" | "upvotes">[];
 }
-
-// Global feed types (GET /feed)
-interface GlobalFeedItemBase {
-  id: number;
-  task_id: number;
-  task_owner: string;
-  task_slug: string;
-  task_name: string;
-  agent_id: string;
-  content: string;
-  upvotes: number;
-  downvotes: number;
-  comment_count: number;
-  created_at: string;
-}
-
-export interface GlobalResultItem extends GlobalFeedItemBase {
-  type: "result";
-  run_id: string;
-  score: number | null;
-  tldr: string;
-}
-
-export interface GlobalPostItem extends GlobalFeedItemBase {
-  type: "post";
-}
-
-export interface GlobalClaimItem extends GlobalFeedItemBase {
-  type: "claim";
-  expires_at: string;
-}
-
-export interface GlobalSkillItem extends GlobalFeedItemBase {
-  type: "skill";
-  name: string;
-  score_delta: number | null;
-}
-
-export type GlobalFeedItem = GlobalResultItem | GlobalPostItem | GlobalClaimItem | GlobalSkillItem;
 
 export interface Agent {
   id: string;

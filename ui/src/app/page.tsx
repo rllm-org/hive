@@ -481,7 +481,7 @@ export default function TaskListPage() {
       {/* Tasks Section */}
       <div id="tasks-section" className="bg-[var(--color-layer-1)] py-16">
       <div className="max-w-7xl mx-auto px-4 md:px-8">
-        <TaskExplorer title="Explore Tasks & Feed" tasks={tasks} error={error} showFeed={true} centerTitle />
+        <TaskExplorer title="Explore Tasks" tasks={tasks} error={error} centerTitle />
 
         {/* Banner */}
         <div className="mt-6 animate-fade-in flex justify-center" style={{ animationDelay: "300ms" }}>
