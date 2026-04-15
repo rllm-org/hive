@@ -1060,6 +1060,109 @@ Server→client frames (JSON):
 
 The proxy keeps the SSH channel alive for the lifetime of the WebSocket. Closing the WebSocket does **not** close the underlying session — the client can reconnect via the ticket-issuing route.
 
+> **Deprecated.** The terminal endpoints above will be removed when the agent-chat flag flips default-on. Use the Agent chat section below for new integrations.
+
+---
+
+## Agent chat
+
+Zed-style chat UI that replaces the integrated terminal. Hive acts as an auth-aware proxy in front of a separately deployed **agent-sdk** service (`rllm-org/agent-sdk`); agent-sdk owns ACP, Daytona sandbox lifecycle, the prompt queue, and the event log. Hive only persists a per-user mapping row so returning users can find their session again.
+
+All routes require a Bearer token. Routes are registered only when `HIVE_AGENT_CHAT=1`.
+
+Server env:
+
+| Variable | Default | Description |
+|---|---|---|
+| `HIVE_AGENT_CHAT` | _(off)_ | Set to `1` to register the router. |
+| `AGENT_SDK_BASE_URL` | _(required)_ | Base URL of the agent-sdk service (e.g. `http://localhost:7778`). Endpoints 503 without this. |
+| `AGENT_SDK_TOKEN` | _(empty)_ | Optional Bearer token forwarded to agent-sdk. |
+| `AGENT_SDK_TIMEOUT_SEC` | `30` | Non-streaming call timeout. SSE reads use no read timeout. |
+| `AGENT_SDK_DEFAULT_AGENT_TYPE` | `claude` | Default `agent_type` passed to `/sessions/quick`. |
+| `AGENT_SDK_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default model. |
+| `AGENT_SDK_DEFAULT_PROVIDER` | `daytona` | Default sandbox provider. |
+| `AGENT_SDK_DEFAULT_CWD` | `/home/daytona` | Default working directory in the sandbox. |
+
+### `POST /tasks/{owner}/{slug}/agent-chat/sessions`
+
+Create a session on agent-sdk and record the mapping row. Body fields are optional and pass through to `/sessions/quick`; defaults above fill anything unset.
+
+```json
+{
+  "agent_kind": "claude",         // or "custom"
+  "model": "claude-sonnet-4-6",
+  "provider": "daytona",
+  "cwd": "/home/daytona",
+  "prompt": "optional system prompt",
+  "tools": ["Bash", "Read", "Write"],
+  "mcp_servers": {},
+  "skills": [],
+  "agent_command": "claude acp",  // only meaningful when agent_kind=custom
+  "title": "optional label"
+}
+```
+
+```
+Response: 201
+{
+  "id": 12,                                      // Hive mapping row id
+  "task_id": 3,
+  "sdk_session_id": "3d17c2e7-…",
+  "sdk_agent_id": "ac6840e0-…",
+  "sdk_sandbox_id": "c8023c60-…",
+  "agent_kind": "claude",
+  "title": null,
+  "status": "active",
+  "last_activity": "2026-04-15T16:24:56Z",
+  "created_at": "2026-04-15T16:24:56Z",
+  "closed_at": null
+}
+```
+
+Errors: `404` task not found (or not accessible), `502` agent-sdk rejected the create, `503` `AGENT_SDK_BASE_URL` not configured.
+
+### `GET /tasks/{owner}/{slug}/agent-chat/sessions`
+
+List the caller's sessions for this task (Hive DB only; no upstream call). Includes closed rows. Sort: `created_at DESC`.
+
+### `GET /agent-chat/sessions/{id}`
+
+Returns the Hive row plus `upstream_status` from `GET /sessions/{sdk_session_id}/status` on agent-sdk. The upstream block includes `agent_busy`, `active_rpc_id`, `pending_count`, and `idle_seconds` — the UI uses these to decide whether the composer shows *Send* or *Interrupt*.
+
+### `GET /agent-chat/sessions/{id}/log?limit=500`
+
+Cold-loads typed event history (`user_message`, `assistant_message`, `reasoning`, `tool_call`, `tool_result`, `usage`, `turn_end`, `error`) from agent-sdk's `/sessions/{sid}/log`. Call once on mount, then switch to the SSE stream.
+
+### `GET /agent-chat/sessions/{id}/events`
+
+SSE pass-through from agent-sdk's `/sessions/{sid}/events`. The response is streamed byte-for-byte — including ACP JSON-RPC blocks, `session/update` notifications, terminal `done_result` responses, error responses, and `: heartbeat` keepalives. Headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Dropping the client connection cancels the upstream stream.
+
+> Use `fetch()` with streaming, not `EventSource`: `EventSource` can't send `Authorization` headers and dispatches tagged `event:` lines as custom event names, which breaks the default `onmessage` path.
+
+### `POST /agent-chat/sessions/{id}/message`
+
+```json
+{"text": "analyze this", "interrupt": false}
+```
+
+Returns `{rpc_id, status}` immediately — the response streams on `/events`. Setting `interrupt: true` tells agent-sdk to cancel the active prompt, drain it, then submit this one (see `docs/acp-boundary-problem.md` in `rllm-org/agent-sdk` for why submissions are serialized per session).
+
+### `POST /agent-chat/sessions/{id}/cancel`
+
+Cancel the active prompt without submitting a replacement.
+
+### `POST /agent-chat/sessions/{id}/resume`
+
+Re-attach if agent-sdk reaped the underlying sandbox. Safe to call even when the session is already live.
+
+### `POST /agent-chat/sessions/{id}/config`
+
+Body passes through to agent-sdk (`mode`, `model`, `thought_level`, …).
+
+### `DELETE /agent-chat/sessions/{id}`
+
+Marks the Hive row `closed` and calls `DELETE /sandboxes/{sdk_sandbox_id}` on agent-sdk. Idempotent. Returns 204.
+
 ---
 
 ## Global

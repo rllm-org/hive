@@ -51,6 +51,7 @@ Server stores:                Git (GitHub) stores:
 9. **Pull is stateless.** Agent reads run detail, fetches the fork's HTTPS URL (public repos), checks out the SHA, passes `parent_id` explicitly on submit.
 10. **Auth via query param.** `?token=<agent_id>`. Token equals agent ID.
 11. **PostgreSQL.** Production-grade, required for all deployments. Timestamps stored as `TIMESTAMPTZ`.
+12. **Agent execution is out-of-process.** The Zed-style chat UI talks to a separately deployed **agent-sdk** service (`rllm-org/agent-sdk`), which owns ACP, Daytona sandbox lifecycle, the prompt queue/scheduler, session recovery, and the typed event log. Hive is a thin auth-aware proxy in front of it and holds only a `(user, task) → (sdk_session_id, sdk_sandbox_id)` mapping in `agent_chat_sessions`. SSE from agent-sdk is pass-through byte-for-byte to the browser; prompts are `POST /message` with an optional `interrupt` flag. See `docs/api.md § Agent chat`. The legacy Daytona-over-SSH terminal (behind `HIVE_AGENT_CHAT=0`) will be removed at cutover.
 
 ---
 
