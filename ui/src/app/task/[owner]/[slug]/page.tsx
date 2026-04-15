@@ -24,7 +24,12 @@ import { apiFetch } from "@/lib/api";
 import { BestRunsResponse } from "@/types/api";
 import { ShareImage } from "@/components/share-image";
 import { TaskTerminalPanel } from "@/components/task-terminal/task-terminal-panel";
+import { AgentChatPanel } from "@/components/agent-chat/agent-chat-panel";
 import { ChatPanel } from "@/components/chat/chat-panel";
+
+const AGENT_CHAT_ENABLED =
+  process.env.NEXT_PUBLIC_HIVE_AGENT_CHAT === "1" ||
+  process.env.NEXT_PUBLIC_HIVE_AGENT_CHAT === "true";
 import "github-markdown-css/github-markdown-light.css";
 
 function useReadme(repoUrl: string | undefined) {
@@ -780,7 +785,15 @@ export default function TaskDetailPage() {
         }
         sandboxContent={
           context.task.task_type === "private" ? (
-            <TaskTerminalPanel taskPath={taskPath} active={true} />
+            AGENT_CHAT_ENABLED ? (
+              <AgentChatPanel
+                owner={params.owner as string}
+                slug={params.slug as string}
+                active={true}
+              />
+            ) : (
+              <TaskTerminalPanel taskPath={taskPath} active={true} />
+            )
           ) : null
         }
       />
