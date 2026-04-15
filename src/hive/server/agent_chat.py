@@ -17,8 +17,9 @@ import logging
 import os
 from typing import Any
 
+from datetime import datetime
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
 from .agent_sdk_client import get_client
 from .db import get_db, now
@@ -64,6 +65,10 @@ async def _load_owned_session(conn: Any, sid: int, user_id: int) -> dict:
     return dict(row)
 
 
+def _iso(value: Any) -> Any:
+    return value.isoformat() if isinstance(value, datetime) else value
+
+
 def _session_view(row: dict) -> dict:
     return {
         "id": row["id"],
@@ -74,9 +79,9 @@ def _session_view(row: dict) -> dict:
         "agent_kind": row["agent_kind"],
         "title": row.get("title"),
         "status": row["status"],
-        "last_activity": row.get("last_activity"),
-        "created_at": row["created_at"],
-        "closed_at": row.get("closed_at"),
+        "last_activity": _iso(row.get("last_activity")),
+        "created_at": _iso(row["created_at"]),
+        "closed_at": _iso(row.get("closed_at")),
     }
 
 
@@ -137,6 +142,7 @@ async def create_session(
              agent_kind, title, created, created),
         )).fetchone()
 
+    from fastapi.responses import JSONResponse
     return JSONResponse(_session_view(dict(row)), status_code=201)
 
 
