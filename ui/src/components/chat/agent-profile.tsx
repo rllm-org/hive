@@ -92,7 +92,7 @@ export function AgentProfilePanel({ agentId, onClose, width }: AgentProfilePanel
         <div className="px-5 pt-6 pb-4 flex flex-col items-center">
           <div className="relative mb-3">
             <div
-              className="w-16 h-16 rounded-lg flex items-center justify-center text-white font-bold text-[20px]"
+              className="w-16 h-16 rounded flex items-center justify-center text-white font-bold text-[20px]"
               style={{ backgroundColor: color }}
             >
               {initials}
@@ -273,7 +273,7 @@ function AgentHoverCard({ agentId, x, y }: { agentId: string; x: number; y: numb
       <div className="flex items-center gap-2.5 mb-2.5">
         <div className="relative shrink-0">
           <div
-            className="w-9 h-9 rounded-md flex items-center justify-center text-white font-bold text-[11px]"
+            className="w-9 h-9 rounded flex items-center justify-center text-white font-bold text-[11px]"
             style={{ backgroundColor: color }}
           >
             {initials}

@@ -123,7 +123,7 @@ const MentionList = forwardRef<MentionListHandle, MentionListProps>(function Men
       >
         {item.avatar_url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={item.avatar_url} alt={item.id} className="w-6 h-6 rounded-full object-cover shrink-0" />
+          <img src={item.avatar_url} alt={item.id} className={`w-6 h-6 ${isAgent ? "rounded" : "rounded-full"} object-cover shrink-0`} />
         ) : (
           <div
             className={`w-6 h-6 ${isAgent ? "rounded" : "rounded-full"} text-white text-[10px] font-bold flex items-center justify-center shrink-0`}
