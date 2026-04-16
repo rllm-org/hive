@@ -221,8 +221,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const data = await res.json().catch(() => null);
     if (data?.status === "needs_password") {
-      window.location.href = "/settings?set_password=1";
-      return;
+      alert("You need to set a password before disconnecting GitHub.");
+      window.location.replace("/settings?set_password=1");
+      throw new Error("__redirect__");
     }
     setState((prev) => {
       if (!prev.user) return prev;
