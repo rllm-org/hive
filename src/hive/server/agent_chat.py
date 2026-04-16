@@ -68,12 +68,14 @@ def _iso(value: Any) -> Any:
 
 
 def _session_view(row: dict) -> dict:
+    from .agent_sdk_client import AGENT_SDK_BASE_URL
     return {
         "id": row["id"],
         "task_id": row["task_id"],
         "sdk_session_id": row["sdk_session_id"],
         "sdk_agent_id": row["sdk_agent_id"],
         "sdk_sandbox_id": row["sdk_sandbox_id"],
+        "sdk_base_url": AGENT_SDK_BASE_URL,
         "agent_kind": row["agent_kind"],
         "title": row.get("title"),
         "status": row["status"],

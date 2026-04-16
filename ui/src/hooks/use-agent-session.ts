@@ -41,6 +41,7 @@ export interface Turn {
 interface AgentSessionMeta {
   id: number;
   sdk_session_id: string;
+  sdk_base_url: string;
   status: string;
   upstream_status?: { agent_busy?: boolean; active_rpc_id?: string | null };
 }
@@ -226,6 +227,7 @@ export function useAgentSession(sessionId: number | null) {
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const loadedRef = useRef<number | null>(null);
+  const sdkRef = useRef<{ baseUrl: string; sessionId: string } | null>(null);
 
   useEffect(() => {
     if (sessionId == null) return;
@@ -236,33 +238,46 @@ export function useAgentSession(sessionId: number | null) {
     setTurns([]);
     setError(null);
 
-    (async () => {
-      try {
-        const [session, logResp] = await Promise.all([
-          apiFetch<AgentSessionMeta>(`/agent-chat/sessions/${sessionId}`),
-          apiFetch<{ events: LogEvent[] }>(`/agent-chat/sessions/${sessionId}/log?limit=500`),
-        ]);
-        if (cancelled) return;
-        setMeta(session);
-        setBusy(Boolean(session.upstream_status?.agent_busy));
-        let next: Turn[] = [];
-        for (const ev of logResp.events ?? []) {
-          next = applyLogEvent(next, ev);
-        }
-        setTurns(next);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-
-    // Live SSE
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
     (async () => {
       try {
-        const resp = await fetch(`${API_BASE}/agent-chat/sessions/${sessionId}/events`, {
-          headers: { ...getAuthHeader(), Accept: "text/event-stream" },
+        // Fetch session metadata (via Hive proxy — auth-gated)
+        const session = await apiFetch<AgentSessionMeta>(`/agent-chat/sessions/${sessionId}`);
+        if (cancelled) return;
+        setMeta(session);
+        setBusy(Boolean(session.upstream_status?.agent_busy));
+
+        const sdkBase = session.sdk_base_url?.replace(/\/+$/, "");
+        const sdkSid = session.sdk_session_id;
+        if (!sdkBase || !sdkSid) {
+          setError("agent-sdk URL not available");
+          return;
+        }
+        sdkRef.current = { baseUrl: sdkBase, sessionId: sdkSid };
+
+        // Cold-load history directly from agent-sdk
+        try {
+          const logResp = await fetch(`${sdkBase}/sessions/${sdkSid}/log?limit=500`, {
+            signal: ctrl.signal,
+          });
+          if (logResp.ok) {
+            const logData = await logResp.json();
+            const events: LogEvent[] = logData.events ?? logData ?? [];
+            let next: Turn[] = [];
+            for (const ev of events) {
+              next = applyLogEvent(next, ev);
+            }
+            if (!cancelled) setTurns(next);
+          }
+        } catch {
+          // Log load failure is non-fatal — SSE will catch up
+        }
+
+        // Live SSE — connect directly to agent-sdk (no proxy hop)
+        const resp = await fetch(`${sdkBase}/sessions/${sdkSid}/events`, {
+          headers: { Accept: "text/event-stream" },
           signal: ctrl.signal,
         });
         if (!resp.ok) throw new Error(`events HTTP ${resp.status}`);
@@ -293,7 +308,7 @@ export function useAgentSession(sessionId: number | null) {
       } catch (e) {
         if (!ctrl.signal.aborted) {
           const msg = e instanceof Error ? e.message : String(e);
-          setError(msg);
+          if (msg) setError(msg);
         }
       }
     })();
@@ -306,27 +321,47 @@ export function useAgentSession(sessionId: number | null) {
 
   const sendPrompt = useCallback(async (text: string, opts?: { interrupt?: boolean }) => {
     if (sessionId == null || !text.trim()) return;
-    // Optimistic user turn
     setTurns((prev) => {
       const t = emptyTurn("user", null, false);
       t.text = text;
       return [...prev, t];
     });
     setBusy(true);
-    await apiPostJson(`/agent-chat/sessions/${sessionId}/message`, {
-      text,
-      interrupt: Boolean(opts?.interrupt),
-    });
+    const sdk = sdkRef.current;
+    if (sdk) {
+      // Send directly to agent-sdk
+      await fetch(`${sdk.baseUrl}/sessions/${sdk.sessionId}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, interrupt: Boolean(opts?.interrupt) }),
+      });
+    } else {
+      // Fallback to Hive proxy
+      await apiPostJson(`/agent-chat/sessions/${sessionId}/message`, {
+        text,
+        interrupt: Boolean(opts?.interrupt),
+      });
+    }
   }, [sessionId]);
 
   const cancel = useCallback(async () => {
     if (sessionId == null) return;
-    await apiPostJson(`/agent-chat/sessions/${sessionId}/cancel`, {});
+    const sdk = sdkRef.current;
+    if (sdk) {
+      await fetch(`${sdk.baseUrl}/sessions/${sdk.sessionId}/cancel`, { method: "POST" });
+    } else {
+      await apiPostJson(`/agent-chat/sessions/${sessionId}/cancel`, {});
+    }
   }, [sessionId]);
 
   const resume = useCallback(async () => {
     if (sessionId == null) return;
-    await apiPostJson(`/agent-chat/sessions/${sessionId}/resume`, {});
+    const sdk = sdkRef.current;
+    if (sdk) {
+      await fetch(`${sdk.baseUrl}/sessions/${sdk.sessionId}/resume`, { method: "POST" });
+    } else {
+      await apiPostJson(`/agent-chat/sessions/${sessionId}/resume`, {});
+    }
   }, [sessionId]);
 
   return { turns, meta, busy, error, sendPrompt, cancel, resume };
