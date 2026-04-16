@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { getAuthHeader } from "@/lib/auth";
 import { LuLogOut } from "react-icons/lu";
@@ -11,8 +10,6 @@ const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
 
 export function SettingsPanel() {
   const { user, logout } = useAuth();
-  const searchParams = useSearchParams();
-  const showPasswordPrompt = searchParams.get("set_password") === "1";
 
   if (!user) return null;
 
@@ -36,9 +33,6 @@ export function SettingsPanel() {
             </div>
           </div>
         </div>
-
-        {/* Set Password (for GitHub-only accounts) */}
-        {showPasswordPrompt && <SetPasswordCard />}
 
         {/* Account */}
         <div className="bg-[var(--color-surface)] border border-[var(--color-border)] overflow-hidden">
@@ -68,32 +62,75 @@ export function SettingsPanel() {
   );
 }
 
-function SetPasswordCard() {
-  const { disconnectGithub } = useAuth();
+interface PasswordSectionProps {
+  hasPassword: boolean;
+  onPasswordSet?: () => void;
+}
+
+export function PasswordSection({ hasPassword, onPasswordSet }: PasswordSectionProps) {
+  const [open, setOpen] = useState(false);
+  const [savedAt, setSavedAt] = useState(0);
+
+  const showSaved = savedAt > 0 && Date.now() - savedAt < 3000;
+  const buttonLabel = hasPassword ? "Change password" : "Set password";
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => setOpen(true)}
+        className="shrink-0 px-3 py-1.5 text-xs font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+      >
+        {buttonLabel}
+      </button>
+      {showSaved && <span className="text-xs text-emerald-500">Saved</span>}
+      {open && (
+        <PasswordModal
+          hasPassword={hasPassword}
+          onClose={() => setOpen(false)}
+          onSaved={() => {
+            setSavedAt(Date.now());
+            onPasswordSet?.();
+            setOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PasswordModal({ hasPassword, onClose, onSaved }: { hasPassword: boolean; onClose: () => void; onSaved: () => void }) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const [currentPw, setCurrentPw] = useState("");
   const [pw, setPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [passwordSet, setPasswordSet] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [disconnected, setDisconnected] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
 
-  const submitPassword = async () => {
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [onClose]);
+
+  const submit = async () => {
+    if (hasPassword && !currentPw) { setError("Enter your current password."); return; }
     if (pw.length < 8) { setError("Password must be at least 8 characters."); return; }
     if (pw !== confirmPw) { setError("Passwords do not match."); return; }
     setError(null);
     setSubmitting(true);
     try {
+      const body: Record<string, string> = { password: pw };
+      if (hasPassword) body.current_password = currentPw;
       const res = await fetch(`${API_BASE}/auth/set-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeader() },
-        body: JSON.stringify({ password: pw }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => null);
-        throw new Error(d?.detail ?? "Failed to set password");
+        throw new Error(d?.detail ?? "Failed to save password");
       }
-      setPasswordSet(true);
+      onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -101,59 +138,90 @@ function SetPasswordCard() {
     }
   };
 
-  const doDisconnect = async () => {
-    setDisconnecting(true);
-    setError(null);
-    try {
-      await disconnectGithub();
-      setDisconnected(true);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "";
-      if (msg !== "__redirect__") setError(msg || "Disconnect failed");
-    } finally {
-      setDisconnecting(false);
-    }
-  };
-
-  const inputCls = "w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] outline-none";
+  const inputCls = "w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]";
 
   return (
-    <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 overflow-hidden">
-      <div className="px-5 py-4 border-b border-amber-200 dark:border-amber-800">
-        <h3 className="text-base font-semibold text-[var(--color-text)]">
-          {disconnected ? "GitHub disconnected" : passwordSet ? "Disconnect GitHub" : "Set a password"}
-        </h3>
-        <p className="text-xs text-[var(--color-text-secondary)] mt-1">
-          {disconnected
-            ? "You can now reconnect GitHub to get a fresh token."
-            : passwordSet
-              ? "Password saved. You can now disconnect GitHub."
-              : "Your account was created via GitHub. Set a password first so you can disconnect and reconnect."}
-        </p>
-      </div>
-      <div className="px-5 py-4 space-y-3">
-        {disconnected ? (
-          <p className="text-sm text-green-600 dark:text-green-400">
-            Done — go to your profile to reconnect GitHub.
-          </p>
-        ) : passwordSet ? (
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30"
+      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+    >
+      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[420px] flex flex-col animate-fade-in">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+          <h2 className="text-base font-semibold text-[var(--color-text)]">
+            {hasPassword ? "Change Password" : "Set Password"}
+          </h2>
           <button
-            disabled={disconnecting}
-            onClick={doDisconnect}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 transition-colors"
+            onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
           >
-            {disconnecting ? "Disconnecting…" : "Disconnect GitHub"}
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M3 3l8 8M11 3l-8 8" />
+            </svg>
           </button>
-        ) : (
-          <>
-            <input type="password" placeholder="New password (min 8 chars)" value={pw} onChange={(e) => setPw(e.target.value)} className={inputCls} />
-            <input type="password" placeholder="Confirm password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} className={inputCls} />
-            <button disabled={submitting} onClick={submitPassword} className="px-4 py-2 text-sm font-medium text-white bg-[var(--color-accent)] disabled:opacity-50">
-              {submitting ? "Setting…" : "Set password"}
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-3">
+          {hasPassword && (
+            <div>
+              <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Current password</label>
+              <input
+                type="password"
+                value={currentPw}
+                onChange={(e) => setCurrentPw(e.target.value)}
+                className={inputCls}
+                style={{ outline: "none", boxShadow: "none" }}
+                autoComplete="current-password"
+                autoFocus
+              />
+            </div>
+          )}
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">New password</label>
+            <input
+              type="password"
+              placeholder="At least 8 characters"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              className={inputCls}
+              style={{ outline: "none", boxShadow: "none" }}
+              autoComplete="new-password"
+              autoFocus={!hasPassword}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Confirm new password</label>
+            <input
+              type="password"
+              value={confirmPw}
+              onChange={(e) => setConfirmPw(e.target.value)}
+              className={inputCls}
+              style={{ outline: "none", boxShadow: "none" }}
+              autoComplete="new-password"
+            />
+          </div>
+
+          {error && <p className="text-xs text-red-500">{error}</p>}
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              onClick={onClose}
+              disabled={submitting}
+              className="px-4 py-2 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] disabled:opacity-50 transition-colors"
+            >
+              Cancel
             </button>
-          </>
-        )}
-        {error && <p className="text-xs text-red-500">{error}</p>}
+            <button
+              onClick={submit}
+              disabled={submitting}
+              className="px-4 py-2 text-sm font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+            >
+              {submitting ? "Saving…" : hasPassword ? "Change password" : "Set password"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

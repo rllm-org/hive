@@ -127,10 +127,8 @@ function AccountPanel({ onClose }: { onClose: () => void }) {
                 </span>
                 <button
                   onClick={async () => {
-                    try {
-                      await disconnectGithub();
-                      fetchProfile();
-                    } catch {}
+                    const result = await disconnectGithub();
+                    if (result.ok) fetchProfile();
                   }}
                   className="text-[11px] text-[var(--color-text-tertiary)] hover:text-red-500 transition-colors"
                 >

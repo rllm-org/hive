@@ -26,7 +26,7 @@ interface AuthContextType extends AuthState {
   resetPassword: (email: string, code: string, password: string) => Promise<void>;
   loginWithGithub: (code: string, state?: string) => Promise<void>;
   connectGithub: (code: string, state?: string) => Promise<void>;
-  disconnectGithub: () => Promise<void>;
+  disconnectGithub: () => Promise<{ ok: true } | { ok: false; reason: "needs_password" } | { ok: false; reason: "error"; message: string }>;
   checkHandleAvailable: (handle: string) => Promise<{ available: boolean; reason?: string }>;
   updateHandle: (handle: string) => Promise<void>;
   logout: () => void;
@@ -210,20 +210,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const disconnectGithub = useCallback(async () => {
+  const disconnectGithub = useCallback(async (): Promise<
+    { ok: true } | { ok: false; reason: "needs_password" } | { ok: false; reason: "error"; message: string }
+  > => {
     const res = await fetch(`${API_BASE}/auth/github`, {
       method: "DELETE",
       headers: getAuthHeader(),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => null);
-      throw new Error(data?.detail ?? "GitHub disconnect failed");
+      return { ok: false, reason: "error", message: data?.detail ?? "GitHub disconnect failed" };
     }
     const data = await res.json().catch(() => null);
     if (data?.status === "needs_password") {
-      alert("You need to set a password before disconnecting GitHub.");
-      window.location.replace("/settings?set_password=1");
-      throw new Error("__redirect__");
+      return { ok: false, reason: "needs_password" };
     }
     setState((prev) => {
       if (!prev.user) return prev;
@@ -231,6 +231,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem("hive-auth", JSON.stringify(next));
       return next;
     });
+    return { ok: true };
   }, []);
 
   const logout = useCallback(() => {

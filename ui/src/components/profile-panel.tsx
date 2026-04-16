@@ -5,9 +5,10 @@ import { useAuth, getGithubOAuthUrl, getAuthHeader, fetchAuthConfig } from "@/li
 import { ClaimAgentModal } from "@/components/claim-agent-modal";
 import { Avatar } from "@/components/shared";
 import { useRouter } from "next/navigation";
-import { LuBot, LuActivity, LuPlus, LuGithub, LuLogOut, LuRefreshCw, LuMonitor, LuLaptop, LuCloud } from "react-icons/lu";
+import { LuBot, LuActivity, LuPlus, LuGithub, LuLogOut, LuRefreshCw, LuMonitor, LuLaptop, LuCloud, LuMail, LuKeyRound } from "react-icons/lu";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { PasswordSection } from "@/components/settings-panel";
 
 const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
 
@@ -25,6 +26,7 @@ interface ProfileData {
   github_username: string | null;
   avatar_url: string | null;
   created_at: string;
+  has_password: boolean;
   agents: AgentInfo[];
 }
 
@@ -370,6 +372,7 @@ export function ProfilePanel() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [installUrl, setInstallUrl] = useState<string | null>(null);
+  const [disconnectError, setDisconnectError] = useState<string | null>(null);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -574,59 +577,104 @@ export function ProfilePanel() {
             {/* Profile */}
             <div>
               <h3 className="text-base font-medium text-[var(--color-text)] mb-4">Profile</h3>
+              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] px-5 py-4">
+                <div className="text-sm text-[var(--color-text)] mb-2">Handle</div>
+                <div className="max-w-sm">
+                  <HandleSection />
+                </div>
+              </div>
+            </div>
+
+            {/* Sign-in Methods */}
+            <div>
+              <h3 className="text-base font-medium text-[var(--color-text)] mb-4">Sign-in Methods</h3>
               <div className="bg-[var(--color-surface)] border border-[var(--color-border)] divide-y divide-[var(--color-border)]">
-                <div className="px-5 py-4">
-                  <div className="text-sm text-[var(--color-text)] mb-2">Handle</div>
-                  <div className="max-w-sm">
-                    <HandleSection />
+                {/* Email */}
+                <div className="px-5 py-3 flex items-start gap-3">
+                  <LuMail size={16} className="shrink-0 text-[var(--color-text-secondary)] mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-[var(--color-text)]">Email</div>
+                    <div className="text-xs text-[var(--color-text-tertiary)] truncate">{user.email}</div>
                   </div>
                 </div>
-                <div className="px-5 py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-[var(--color-text)]">Email</div>
-                    <div className="text-sm text-[var(--color-text-tertiary)]">{user.email}</div>
-                  </div>
-                </div>
-                <div className="px-5 py-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm text-[var(--color-text)]">GitHub</div>
-                      {profile?.github_username && (
-                        <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5 flex items-center gap-1.5">
-                          <LuGithub size={12} />
-                          {profile.github_username}
+
+                {/* Password */}
+                <div className="px-5 py-3 flex items-start gap-3">
+                  <LuKeyRound size={16} className="shrink-0 text-[var(--color-text-secondary)] mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-[var(--color-text)]">Password</div>
+                        <div className="text-xs text-[var(--color-text-tertiary)]">
+                          {profile?.has_password ? "Configured" : "Not configured"}
                         </div>
+                      </div>
+                      <PasswordSection
+                        hasPassword={profile?.has_password ?? false}
+                        onPasswordSet={fetchProfile}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* GitHub */}
+                <div className="px-5 py-3 flex items-start gap-3">
+                  <LuGithub size={16} className="shrink-0 text-[var(--color-text-secondary)] mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-[var(--color-text)]">GitHub</div>
+                        <div className="text-xs text-[var(--color-text-tertiary)] truncate">
+                          {profile?.github_username ? `Connected as ${profile.github_username}` : "Not connected"}
+                        </div>
+                      </div>
+                      {profile?.github_username ? (
+                        <button
+                          onClick={async () => {
+                            setDisconnectError(null);
+                            const result = await disconnectGithub();
+                            if (result.ok) {
+                              fetchProfile();
+                            } else if (result.reason === "needs_password") {
+                              setDisconnectError("Set a password above before disconnecting GitHub.");
+                            } else {
+                              setDisconnectError(result.message);
+                            }
+                          }}
+                          className="shrink-0 px-3 py-1.5 text-xs font-medium text-red-500 border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                        >
+                          Disconnect
+                        </button>
+                      ) : (
+                        <button
+                          onClick={async () => {
+                            if (installUrl) {
+                              window.location.href = installUrl;
+                            } else {
+                              window.location.href = await getGithubOAuthUrl("connect");
+                            }
+                          }}
+                          className="shrink-0 px-3 py-1.5 text-xs font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+                        >
+                          Connect
+                        </button>
                       )}
                     </div>
-                    {profile?.github_username ? (
-                      <button
-                        onClick={async () => {
-                          try {
-                            await disconnectGithub();
-                            fetchProfile();
-                          } catch {}
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-500 border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
-                      >
-                        <LuGithub size={14} />
-                        Disconnect from GitHub
-                      </button>
-                    ) : (
-                      <button
-                        onClick={async () => {
-                          if (installUrl) {
-                            window.location.href = installUrl;
-                          } else {
-                            window.location.href = await getGithubOAuthUrl("connect");
-                          }
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-[#24292f] text-white hover:bg-[#32383f] dark:bg-white dark:text-black dark:hover:bg-[#e0e0e0] transition-colors"
-                      >
-                        <LuGithub size={14} />
-                        Connect GitHub
-                      </button>
+                    {disconnectError && (
+                      <p className="text-xs text-red-500 mt-2">{disconnectError}</p>
                     )}
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Developer */}
+            <div>
+              <h3 className="text-base font-medium text-[var(--color-text)] mb-4">Developer</h3>
+              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] px-5 py-4">
+                <h4 className="text-sm text-[var(--color-text)] mb-3">User API Key</h4>
+                <div className="max-w-md">
+                  <ApiKeySection />
                 </div>
               </div>
             </div>
@@ -645,28 +693,17 @@ export function ProfilePanel() {
               </div>
             </div>
 
-            {/* Credentials */}
+            {/* Account */}
             <div>
-              <h3 className="text-base font-medium text-[var(--color-text)] mb-4">Credentials</h3>
-              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] px-5 py-4">
-                <h4 className="text-sm text-[var(--color-text)] mb-3">User API Key</h4>
-                <div className="max-w-md">
-                  <ApiKeySection />
-                </div>
-              </div>
-            </div>
-
-            {/* General */}
-            <div>
-              <h3 className="text-base font-medium text-[var(--color-text)] mb-4">General</h3>
+              <h3 className="text-base font-medium text-[var(--color-text)] mb-4">Account</h3>
               <div className="bg-[var(--color-surface)] border border-[var(--color-border)] px-5 py-4">
                 <div className="flex items-center justify-between">
                   <div className="text-sm text-[var(--color-text)]">Log out</div>
                   <button
                     onClick={logout}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-500 border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-500 border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
                   >
-                    <LuLogOut size={14} />
+                    <LuLogOut size={12} />
                     Log out
                   </button>
                 </div>
