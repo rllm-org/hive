@@ -22,19 +22,28 @@ export interface ChatMessage {
   streaming?: boolean;
 }
 
-export function useWorkspaceAgent(workspaceId: string | number | null) {
+export function useWorkspaceAgent(workspaceId: string | number | null, agentId: string | null) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sdkRef = useRef<{ baseUrl: string; sessionId: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const connectedRef = useRef<string | number | null>(null);
+  const connectedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (workspaceId == null) return;
-    if (connectedRef.current === workspaceId) return;
-    connectedRef.current = workspaceId;
+    // Require both workspace and an active agent to connect
+    if (workspaceId == null || !agentId) {
+      connectedKeyRef.current = null;
+      setMessages([]);
+      sdkRef.current = null;
+      return;
+    }
+    const key = `${workspaceId}:${agentId}`;
+    if (connectedKeyRef.current === key) return;
+    connectedKeyRef.current = key;
+    setMessages([]);
+    sdkRef.current = null;
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -44,7 +53,7 @@ export function useWorkspaceAgent(workspaceId: string | number | null) {
       setError(null);
       try {
         const resp = await apiPostJson<{ sdk_session_id: string; sdk_base_url: string }>(
-          `/workspaces/${workspaceId}/connect`,
+          `/workspaces/${workspaceId}/agents/${agentId}/connect`,
           {}
         );
         if (ctrl.signal.aborted) return;
@@ -145,7 +154,7 @@ export function useWorkspaceAgent(workspaceId: string | number | null) {
     })();
 
     return () => { ctrl.abort(); };
-  }, [workspaceId]);
+  }, [workspaceId, agentId]);
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim()) return;

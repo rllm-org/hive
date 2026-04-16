@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { LuArrowLeft, LuPlus } from "react-icons/lu";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { apiFetch, apiPostJson } from "@/lib/api";
+import { apiFetch, apiPostJson, apiDelete } from "@/lib/api";
 import BoringAvatar from "boring-avatars";
 
 const AVATAR_COLORS = ["#92A1C6", "#146A7C", "#F0AB3D", "#C271B4", "#C20D90"];
@@ -23,15 +23,18 @@ function AgentTabs({
   activeAgentId,
   onSelect,
   onCreate,
+  onDelete,
   adding,
 }: {
   agents: WorkspaceAgent[];
   activeAgentId: string | null;
   onSelect: (id: string) => void;
   onCreate: (name?: string) => Promise<{ id: string } | undefined>;
+  onDelete: (id: string) => Promise<void>;
   adding: boolean;
 }) {
-  const [showModal, setShowModal] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   return (
     <>
@@ -39,10 +42,10 @@ function AgentTabs({
         {agents.map((a) => {
           const active = a.id === activeAgentId;
           return (
-            <button
+            <div
               key={a.id}
               onClick={() => onSelect(a.id)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
+              className={`group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 text-[12px] font-medium cursor-pointer transition-colors ${
                 active
                   ? "bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)] border-b-[var(--color-surface)] -mb-px"
                   : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] border border-transparent"
@@ -51,11 +54,23 @@ function AgentTabs({
             >
               <AgentAvatar seed={a.avatar_seed} id={a.id} size={16} />
               <span className="truncate max-w-[120px]">{a.id}</span>
-            </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setPendingDelete(a.id); }}
+                className={`w-4 h-4 ml-0.5 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all ${
+                  active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                }`}
+                style={{ borderRadius: 3 }}
+                aria-label={`Close ${a.id}`}
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M2 2l6 6M8 2l-6 6" />
+                </svg>
+              </button>
+            </div>
           );
         })}
         <button
-          onClick={() => setShowModal(true)}
+          onClick={() => setShowCreate(true)}
           className="ml-1 flex items-center gap-1 px-2 py-1.5 text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
           style={{ borderRadius: 4 }}
         >
@@ -63,15 +78,96 @@ function AgentTabs({
           Agent
         </button>
       </div>
-      {showModal && (
+      {showCreate && (
         <CreateAgentModal
           existingNames={agents.map((a) => a.id)}
-          onClose={() => setShowModal(false)}
+          onClose={() => setShowCreate(false)}
           onCreate={onCreate}
           submitting={adding}
         />
       )}
+      {pendingDelete && (
+        <DeleteAgentModal
+          agentId={pendingDelete}
+          onClose={() => setPendingDelete(null)}
+          onConfirm={async () => {
+            const id = pendingDelete;
+            setPendingDelete(null);
+            await onDelete(id);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function DeleteAgentModal({
+  agentId,
+  onClose,
+  onConfirm,
+}: {
+  agentId: string;
+  onClose: () => void;
+  onConfirm: () => void | Promise<void>;
+}) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [onClose]);
+
+  const submit = async () => {
+    setSubmitting(true);
+    try { await onConfirm(); } finally { setSubmitting(false); }
+  };
+
+  return (
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30"
+      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+    >
+      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[420px] flex flex-col animate-fade-in" style={{ borderRadius: 6 }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+          <h2 className="text-base font-semibold text-[var(--color-text)]">Delete Agent</h2>
+          <button
+            onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M3 3l8 8M11 3l-8 8" />
+            </svg>
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-3">
+          <p className="text-sm text-[var(--color-text-secondary)]">
+            Delete agent <span className="font-semibold text-[var(--color-text)] font-[family-name:var(--font-ibm-plex-mono)]">{agentId}</span>?
+          </p>
+          <p className="text-xs text-[var(--color-text-tertiary)]">
+            This will tear down the agent&apos;s sandbox and remove its chat history. If the agent has public runs, its profile will be kept but unlinked.
+          </p>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              onClick={onClose}
+              disabled={submitting}
+              className="px-4 py-2 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] disabled:opacity-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={submit}
+              disabled={submitting}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 transition-colors"
+            >
+              {submitting ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -304,6 +400,15 @@ export default function WorkspacePage() {
     }
   }, [workspaceId, refetchWorkspace]);
 
+  const handleDeleteAgent = useCallback(async (agentId: string) => {
+    await apiDelete(`/workspaces/${workspaceId}/agents/${agentId}`);
+    // If the deleted agent was active, pick another or clear
+    if (activeAgentId === agentId) {
+      setActiveAgentId(null);
+    }
+    await refetchWorkspace();
+  }, [workspaceId, activeAgentId, refetchWorkspace]);
+
   const workspaceName = workspace?.name ?? "";
   const agents = workspace?.agents ?? [];
   const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : (agents[0] ?? null);
@@ -342,7 +447,10 @@ export default function WorkspacePage() {
   }, []);
 
   // Chat state — wired to agent-sdk via workspace connect
-  const { messages, isLoading, connecting, error: agentError, sendMessage, cancel, sdkBaseUrl, sdkSessionId } = useWorkspaceAgent(workspace ? workspaceId : null);
+  const { messages, isLoading, connecting, error: agentError, sendMessage, cancel, sdkBaseUrl, sdkSessionId } = useWorkspaceAgent(
+    workspace ? workspaceId : null,
+    activeAgent?.id ?? null,
+  );
 
   // Live sandbox filesystem
   const { tree: fsTree, loading: fsLoading, error: fsError, readFile } = useWorkspaceFiles(sdkBaseUrl, sdkSessionId);
@@ -588,6 +696,7 @@ export default function WorkspacePage() {
             activeAgentId={activeAgent?.id ?? null}
             onSelect={setActiveAgentId}
             onCreate={handleAddAgent}
+            onDelete={handleDeleteAgent}
             adding={addingAgent}
           />
 

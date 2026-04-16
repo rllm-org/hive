@@ -85,6 +85,12 @@ class AgentSdkClient:
         except Exception as e:
             log.warning("destroy_sandbox %s failed: %s", sandbox_id, e)
 
+    async def delete_session(self, sid: str) -> None:
+        try:
+            await self._client.delete(f"/sessions/{sid}")
+        except Exception as e:
+            log.warning("delete_session %s failed: %s", sid, e)
+
     async def stream_events(self, sid: str) -> AsyncIterator[bytes]:
         """Yield raw SSE bytes from GET /sessions/{sid}/events.
 

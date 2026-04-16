@@ -225,10 +225,7 @@ _PG_SCHEMA = [
         id              SERIAL PRIMARY KEY,
         user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name            TEXT NOT NULL,
-        agent_name      TEXT NOT NULL,
         type            TEXT NOT NULL DEFAULT 'local',
-        sdk_session_id  TEXT,
-        sdk_base_url    TEXT,
         created_at      TIMESTAMPTZ NOT NULL,
         UNIQUE(user_id, name)
     )""",
@@ -627,11 +624,21 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
         conn.execute("ALTER TABLE agents ADD COLUMN sdk_session_id TEXT")
         conn.execute("ALTER TABLE agents ADD COLUMN sdk_base_url TEXT")
         # Backfill: if a workspace.agent_name matches an agent id, link it
-        conn.execute(
-            "UPDATE agents a SET workspace_id = w.id,"
-            " sdk_session_id = w.sdk_session_id, sdk_base_url = w.sdk_base_url"
-            " FROM workspaces w WHERE a.id = w.agent_name"
-        )
+        if _column_exists(conn, "workspaces", "agent_name"):
+            conn.execute(
+                "UPDATE agents a SET workspace_id = w.id,"
+                " sdk_session_id = w.sdk_session_id, sdk_base_url = w.sdk_base_url"
+                " FROM workspaces w WHERE a.id = w.agent_name"
+            )
+
+    # Drop deprecated workspace-level session columns (moved to agents)
+    if _table_exists(conn, "workspaces"):
+        if _column_exists(conn, "workspaces", "agent_name"):
+            conn.execute("ALTER TABLE workspaces DROP COLUMN agent_name")
+        if _column_exists(conn, "workspaces", "sdk_session_id"):
+            conn.execute("ALTER TABLE workspaces DROP COLUMN sdk_session_id")
+        if _column_exists(conn, "workspaces", "sdk_base_url"):
+            conn.execute("ALTER TABLE workspaces DROP COLUMN sdk_base_url")
 
     # sdk_session_id on workspaces (agent-sdk session binding)
     if _table_exists(conn, "workspaces") and not _column_exists(conn, "workspaces", "sdk_session_id"):

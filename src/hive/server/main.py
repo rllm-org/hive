@@ -2327,9 +2327,6 @@ def _serialize_workspace(row: dict, agents: list | None = None) -> dict:
         "type": row["type"],
         "created_at": row["created_at"],
         "agents": agents or [],
-        # kept for backward compat with existing agent-sdk hook (reads a single session per workspace)
-        "sdk_session_id": row.get("sdk_session_id"),
-        "sdk_base_url": row.get("sdk_base_url"),
     }
     return d
 
@@ -2353,7 +2350,7 @@ async def list_workspaces(user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         rows = await (await conn.execute(
-            "SELECT w.id, w.name, w.type, w.sdk_session_id, w.sdk_base_url, w.created_at,"
+            "SELECT w.id, w.name, w.type, w.created_at,"
             " COUNT(a.id) AS agent_count,"
             " COALESCE("
             "   json_agg(json_build_object('id', a.id, 'avatar_seed', a.avatar_seed) ORDER BY a.registered_at ASC)"
@@ -2388,10 +2385,10 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
         if existing:
             raise HTTPException(409, "workspace name already exists")
         row = await (await conn.execute(
-            "INSERT INTO workspaces (user_id, name, agent_name, type, created_at)"
-            " VALUES (%s, %s, %s, %s, %s)"
-            " RETURNING id, name, type, sdk_session_id, sdk_base_url, created_at",
-            (user_id, name, "", ws_type, now())
+            "INSERT INTO workspaces (user_id, name, type, created_at)"
+            " VALUES (%s, %s, %s, %s)"
+            " RETURNING id, name, type, created_at",
+            (user_id, name, ws_type, now())
         )).fetchone()
     return _serialize_workspace(row)
 
@@ -2401,7 +2398,7 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await (await conn.execute(
-            "SELECT id, name, type, sdk_session_id, sdk_base_url, created_at FROM workspaces"
+            "SELECT id, name, type, created_at FROM workspaces"
             " WHERE id = %s AND user_id = %s",
             (workspace_id, user_id)
         )).fetchone()
@@ -2413,12 +2410,14 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
 
 @router.post("/workspaces/{workspace_id}/agents")
 async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user: dict = Depends(require_user)):
-    """Create a new agent inside this workspace.
+    """Create a new agent inside this workspace and auto-connect a dedicated agent-sdk session.
 
     Body:
       name (optional) — custom agent id; otherwise auto-generated
       harness (optional), model (optional)
+      provider (optional, default "daytona"), agent_type (optional, default "claude")
     """
+    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
     user_id = int(user["sub"])
     requested_name = (body.get("name") or "").strip().lower()
     async with get_db() as conn:
@@ -2446,12 +2445,87 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (agent_id, agent_token, ts, ts, user_id, "local", harness, model, str(uuid.uuid4()), workspace_id)
         )
-    return {"id": agent_id, "token": agent_token, "workspace_id": workspace_id}
+
+    # Auto-connect: create a dedicated agent-sdk session (its own container)
+    sdk_session_id = None
+    sdk_base_url = None
+    try:
+        client = get_client()
+        upstream = await client.create_quick_session(
+            name=f"agent-{agent_id}",
+            provider=body.get("provider", "daytona"),
+            agent_type=body.get("agent_type", "claude"),
+            model=body.get("model", "claude-sonnet-4-6"),
+            cwd=body.get("cwd", "/home/daytona"),
+        )
+        sdk_session_id = upstream.get("session_id")
+        if sdk_session_id:
+            sdk_base_url = AGENT_SDK_BASE_URL
+            async with get_db() as conn:
+                await conn.execute(
+                    "UPDATE agents SET sdk_session_id = %s, sdk_base_url = %s WHERE id = %s",
+                    (sdk_session_id, sdk_base_url, agent_id)
+                )
+    except Exception as e:
+        # Agent still exists in DB even if SDK connection fails — client can retry via /connect
+        import logging
+        logging.warning(f"Failed to auto-connect agent {agent_id}: {e}")
+
+    return {
+        "id": agent_id,
+        "token": agent_token,
+        "workspace_id": workspace_id,
+        "sdk_session_id": sdk_session_id,
+        "sdk_base_url": sdk_base_url,
+    }
+
+
+@router.post("/workspaces/{workspace_id}/agents/{agent_id}/connect")
+async def connect_workspace_agent(workspace_id: int, agent_id: str, body: dict[str, Any] = {}, user: dict = Depends(require_user)):
+    """Create or return an agent-sdk session for this specific agent (idempotent)."""
+    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT a.sdk_session_id, a.sdk_base_url FROM agents a"
+            " JOIN workspaces w ON w.id = a.workspace_id"
+            " WHERE a.id = %s AND a.workspace_id = %s AND w.user_id = %s",
+            (agent_id, workspace_id, user_id)
+        )).fetchone()
+        if not row:
+            raise HTTPException(404, "agent not found in this workspace")
+        if row["sdk_session_id"]:
+            return {
+                "sdk_session_id": row["sdk_session_id"],
+                "sdk_base_url": row["sdk_base_url"] or AGENT_SDK_BASE_URL,
+            }
+    client = get_client()
+    upstream = await client.create_quick_session(
+        name=f"agent-{agent_id}",
+        provider=body.get("provider", "daytona"),
+        agent_type=body.get("agent_type", "claude"),
+        model=body.get("model", "claude-sonnet-4-6"),
+        cwd=body.get("cwd", "/home/daytona"),
+    )
+    sdk_session_id = upstream.get("session_id")
+    if not sdk_session_id:
+        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
+    async with get_db() as conn:
+        await conn.execute(
+            "UPDATE agents SET sdk_session_id = %s, sdk_base_url = %s WHERE id = %s",
+            (sdk_session_id, AGENT_SDK_BASE_URL, agent_id)
+        )
+    return {"sdk_session_id": sdk_session_id, "sdk_base_url": AGENT_SDK_BASE_URL}
 
 
 @router.delete("/workspaces/{workspace_id}/agents/{agent_id}")
 async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = Depends(require_user)):
-    """Detach an agent from this workspace. The agent is not deleted — just unlinked."""
+    """Delete a workspace agent: tears down its agent-sdk session and removes the agent.
+
+    If the agent has runs it is unlinked from the workspace (preserving public history)
+    rather than deleted.
+    """
+    from .agent_sdk_client import get_client
     user_id = int(user["sub"])
     async with get_db() as conn:
         ws = await (await conn.execute(
@@ -2460,51 +2534,37 @@ async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = 
         )).fetchone()
         if not ws:
             raise HTTPException(404, "workspace not found")
-        result = await conn.execute(
-            "UPDATE agents SET workspace_id = NULL, sdk_session_id = NULL, sdk_base_url = NULL"
+        agent_row = await (await conn.execute(
+            "SELECT sdk_session_id, sdk_base_url FROM agents"
             " WHERE id = %s AND workspace_id = %s",
             (agent_id, workspace_id)
-        )
-        if result.rowcount == 0:
-            raise HTTPException(404, "agent not in this workspace")
-    return {"status": "ok"}
-
-
-@router.post("/workspaces/{workspace_id}/connect")
-async def connect_workspace(workspace_id: int, body: dict[str, Any] = {}, user: dict = Depends(require_user)):
-    """Create an agent-sdk session for this workspace (idempotent)."""
-    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
-    user_id = int(user["sub"])
-    async with get_db() as conn:
-        row = await (await conn.execute(
-            "SELECT * FROM workspaces WHERE id = %s AND user_id = %s",
-            (workspace_id, user_id)
         )).fetchone()
-        if not row:
-            raise HTTPException(404, "workspace not found")
-        if row.get("sdk_session_id"):
-            return {
-                "sdk_session_id": row["sdk_session_id"],
-                "sdk_base_url": row["sdk_base_url"] or AGENT_SDK_BASE_URL,
-            }
-    client = get_client()
-    config = {
-        "name": f"workspace-{workspace_id}",
-        "provider": body.get("provider", "daytona"),
-        "agent_type": body.get("agent_type", "claude"),
-        "model": body.get("model", "claude-sonnet-4-6"),
-        "cwd": body.get("cwd", "/home/daytona"),
-    }
-    upstream = await client.create_quick_session(**config)
-    sdk_session_id = upstream.get("session_id")
-    if not sdk_session_id:
-        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
+        if not agent_row:
+            raise HTTPException(404, "agent not in this workspace")
+        has_runs = (await (await conn.execute(
+            "SELECT 1 FROM runs WHERE agent_id = %s LIMIT 1", (agent_id,)
+        )).fetchone()) is not None
+
+    # Tear down the SDK session (best-effort; don't block deletion on failure)
+    if agent_row["sdk_session_id"]:
+        try:
+            client = get_client()
+            await client.delete_session(agent_row["sdk_session_id"])
+        except Exception as e:
+            import logging
+            logging.warning(f"Failed to delete sdk session for agent {agent_id}: {e}")
+
     async with get_db() as conn:
-        await conn.execute(
-            "UPDATE workspaces SET sdk_session_id = %s, sdk_base_url = %s WHERE id = %s",
-            (sdk_session_id, AGENT_SDK_BASE_URL, workspace_id)
-        )
-    return {"sdk_session_id": sdk_session_id, "sdk_base_url": AGENT_SDK_BASE_URL}
+        if has_runs:
+            # Preserve the agent row so historical runs remain attributed
+            await conn.execute(
+                "UPDATE agents SET workspace_id = NULL, sdk_session_id = NULL, sdk_base_url = NULL"
+                " WHERE id = %s", (agent_id,)
+            )
+            return {"status": "unlinked", "reason": "agent has runs and was preserved"}
+        else:
+            await conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))
+            return {"status": "deleted"}
 
 
 @router.delete("/workspaces/{workspace_id}")
