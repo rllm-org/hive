@@ -1,0 +1,1552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<base target="_blank">
+<title>ProfAI Filesystem Browser — Technical Design Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+/* === COLOR SYSTEM === */
+:root {
+  --bg: #f6f9f8;
+  --bg-alt: #edf3f1;
+  --surface: #ffffff;
+  --surface-hover: #f0f5f3;
+  --border: #d4ddd9;
+  --border-strong: #b0c4bc;
+  --text-primary: #0f1f1a;
+  --text-secondary: #4a6359;
+  --text-muted: #7a9589;
+  --primary: #0d7377;
+  --primary-light: #e0f2f1;
+  --primary-dark: #095456;
+  --accent: #d97706;
+  --accent-light: #fef3c7;
+  --accent-bg: rgba(217, 119, 6, 0.08);
+  --code-bg: #0c1a17;
+  --code-text: #c8e6c9;
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --radius: 12px;
+  --shadow-sm: 0 1px 3px rgba(15, 31, 26, 0.06);
+  --shadow-md: 0 4px 16px rgba(15, 31, 26, 0.08);
+  --shadow-lg: 0 8px 32px rgba(15, 31, 26, 0.1);
+}
+
+body.dark-mode {
+  --bg: #0a1512;
+  --bg-alt: #0f1e1a;
+  --surface: #142420;
+  --surface-hover: #1a302a;
+  --border: #1e3830;
+  --border-strong: #2a4d42;
+  --text-primary: #e0ede8;
+  --text-secondary: #93b5a7;
+  --text-muted: #5e8576;
+  --primary: #2dd4bf;
+  --primary-light: rgba(45, 212, 191, 0.1);
+  --primary-dark: #14b8a6;
+  --accent: #fbbf24;
+  --accent-light: rgba(251, 191, 36, 0.1);
+  --accent-bg: rgba(251, 191, 36, 0.06);
+  --code-bg: #0a1210;
+  --code-text: #a7f3d0;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.25);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.3);
+}
+
+/* === RESET & BASE === */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text-primary);
+  line-height: 1.7;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 10%, rgba(13,115,119,0.06) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 40% at 80% 90%, rgba(217,119,6,0.04) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* === LAYOUT === */
+.container {
+  position: relative;
+  z-index: 1;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 24px 80px;
+}
+
+/* === HERO === */
+.hero {
+  padding: 80px 0 48px;
+  text-align: center;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 5px 14px;
+  border-radius: 20px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+
+.hero h1 {
+  font-family: var(--font-display);
+  font-size: 2.6rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+.hero h1 span {
+  color: var(--primary);
+}
+
+.hero-sub {
+  font-size: 1.05rem;
+  color: var(--text-secondary);
+  max-width: 600px;
+  margin: 0 auto 28px;
+  line-height: 1.6;
+}
+
+.hero-meta {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.hero-meta span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* === SECTIONS === */
+.section {
+  margin-bottom: 48px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--border);
+}
+
+.section-num {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-light);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.section-header h2 {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* === CARDS === */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+
+.card h3 {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+
+.card p, .card li {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+/* === CODE BLOCKS === */
+.code-block {
+  position: relative;
+  background: var(--code-bg);
+  border-radius: 10px;
+  margin: 16px 0;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: #6b8f80;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.code-block pre {
+  padding: 16px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--code-text);
+}
+
+.code-block pre .kw { color: #81c784; }
+.code-block pre .str { color: #ffcc80; }
+.code-block pre .cm { color: #546e5a; font-style: italic; }
+.code-block pre .fn { color: #80cbc4; }
+.code-block pre .num { color: #f48fb1; }
+.code-block pre .op { color: #90a4ae; }
+.code-block pre .type { color: #ce93d8; }
+
+/* === GRID === */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 720px) {
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .hero h1 { font-size: 1.8rem; }
+  .container { padding: 0 16px 60px; }
+}
+
+/* === TABLES === */
+.table-wrap {
+  overflow-x: auto;
+  margin: 16px 0;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+th {
+  background: var(--bg-alt);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 10px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+
+tr:last-child td { border-bottom: none; }
+
+tr:hover td { background: var(--surface-hover); }
+
+/* === CALLOUTS === */
+.callout {
+  display: flex;
+  gap: 14px;
+  padding: 16px 20px;
+  border-radius: var(--radius);
+  border-left: 4px solid;
+  margin: 16px 0;
+  font-size: 0.88rem;
+}
+
+.callout-info {
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+  border-color: var(--primary);
+  color: var(--text-secondary);
+}
+
+.callout-warn {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--text-secondary);
+}
+
+.callout-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* === FLOW DIAGRAM === */
+.flow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 24px 0;
+  overflow-x: auto;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.flow-node {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 18px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: center;
+  min-width: 110px;
+  position: relative;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.flow-node:hover {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.flow-node .flow-label {
+  font-family: var(--font-body);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-weight: 400;
+}
+
+.flow-arrow {
+  color: var(--primary);
+  font-size: 1.2rem;
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+
+.flow-node.highlight {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+/* === TREE DEMO === */
+.tree-demo {
+  background: var(--code-bg);
+  border-radius: 10px;
+  padding: 20px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--code-text);
+  line-height: 1.8;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.tree-demo .dir { color: #80cbc4; font-weight: 500; }
+.tree-demo .file { color: #a5d6a7; }
+.tree-demo .meta { color: #546e5a; }
+.tree-demo .indent { display: inline-block; }
+
+/* === STAT BADGES === */
+.stat-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+}
+
+.stat-val {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--primary);
+}
+
+.stat-label {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+/* === LAYER DIAGRAM === */
+.layer-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 20px 0;
+}
+
+.layer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  transition: transform 0.2s;
+}
+
+.layer:hover { transform: translateX(4px); }
+
+.layer-tag {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  min-width: 70px;
+  flex-shrink: 0;
+}
+
+.layer-fe { background: color-mix(in srgb, #6366f1 8%, transparent); }
+.layer-fe .layer-tag { color: #6366f1; }
+.layer-trpc { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.layer-trpc .layer-tag { color: var(--primary); }
+.layer-be { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.layer-be .layer-tag { color: var(--accent); }
+.layer-fs { background: color-mix(in srgb, #ec4899 8%, transparent); }
+.layer-fs .layer-tag { color: #ec4899; }
+
+/* === INLINE CODE === */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  background: var(--bg-alt);
+  padding: 2px 7px;
+  border-radius: 5px;
+  color: var(--primary-dark);
+  font-weight: 500;
+}
+
+.dark-mode code {
+  background: var(--surface);
+  color: var(--primary);
+}
+
+/* === PROP LIST === */
+.prop-list {
+  list-style: none;
+  margin: 12px 0;
+}
+
+.prop-list li {
+  display: flex;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  align-items: baseline;
+}
+
+.prop-list li:last-child { border-bottom: none; }
+
+.prop-name {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--primary-dark);
+  min-width: 140px;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+}
+
+.dark-mode .prop-name { color: var(--primary); }
+
+.prop-desc { color: var(--text-secondary); }
+
+/* === COMPONENT TREE VISUAL === */
+.comp-tree {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 2;
+  overflow-x: auto;
+}
+
+.comp-tree .comp { color: var(--primary-dark); font-weight: 600; }
+.dark-mode .comp-tree .comp { color: var(--primary); }
+.comp-tree .prop { color: var(--accent); }
+.comp-tree .comment { color: var(--text-muted); font-style: italic; }
+
+/* === FOOTER === */
+.footer {
+  text-align: center;
+  padding: 32px 0 0;
+  border-top: 1px solid var(--border);
+  margin-top: 48px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  line-height: 1.8;
+}
+
+.footer a {
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* === ENTRANCE ANIMATIONS === */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ani {
+  opacity: 0;
+  animation: fadeInUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.d1 { animation-delay: 0.05s; }
+.d2 { animation-delay: 0.1s; }
+.d3 { animation-delay: 0.15s; }
+.d4 { animation-delay: 0.2s; }
+.d5 { animation-delay: 0.25s; }
+.d6 { animation-delay: 0.3s; }
+
+/* === INFRA MENU STYLES === */
+.viz-menu {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 10000;
+  font-family: inherit;
+}
+.viz-menu-toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.viz-menu-toggle:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  transform: scale(1.05);
+}
+.viz-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 200px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  opacity: 0;
+  transform: translateY(-4px) scale(0.97);
+  pointer-events: none;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.viz-menu.open .viz-menu-panel {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+.viz-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+  font-family: inherit;
+}
+.viz-menu-item:hover { background: var(--surface-hover); }
+.viz-menu-icon {
+  width: 20px;
+  text-align: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* Scroll-triggered reveal animations */
+[data-animate] {
+  opacity: 0;
+  transition-property: opacity, transform, filter;
+  transition-duration: 0.6s;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-animate="fade-up"] { transform: translateY(20px); }
+[data-animate="fade-down"] { transform: translateY(-20px); }
+[data-animate="fade-left"] { transform: translateX(-20px); }
+[data-animate="fade-right"] { transform: translateX(20px); }
+[data-animate="scale-up"] { transform: scale(0.95); }
+[data-animate="blur-in"] { filter: blur(8px); }
+[data-animate].is-visible {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+@media print {
+  .viz-menu { display: none !important; }
+  body { background: white !important; color: black !important; }
+  .dark-mode { all: unset; }
+  .card, .section, section { break-inside: avoid; }
+  .animate-in { opacity: 1 !important; animation: none !important; }
+  [data-animate] { opacity: 1 !important; transform: none !important; filter: none !important; transition: none !important; }
+  @page { margin: 1.5cm; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  [data-animate] {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    transition: none !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- INFRA MENU HTML -->
+<nav class="viz-menu" id="vizMenu" aria-label="Visualization controls">
+  <button class="viz-menu-toggle" onclick="toggleMenu()" aria-label="Toggle menu" aria-expanded="false">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <line x1="3" y1="5" x2="15" y2="5"/><line x1="3" y1="9" x2="15" y2="9"/><line x1="3" y1="13" x2="15" y2="13"/>
+    </svg>
+  </button>
+  <div class="viz-menu-panel" id="vizMenuPanel">
+    <button onclick="toggleTheme()" class="viz-menu-item">
+      <span class="viz-menu-icon" id="themeIcon">&#9684;</span>
+      <span id="themeLabel">Toggle dark mode</span>
+    </button>
+    <button onclick="window.print()" class="viz-menu-item">
+      <span class="viz-menu-icon">&#9114;</span>
+      <span>Print / Save as PDF</span>
+    </button>
+    <button onclick="toggleFullscreen()" class="viz-menu-item">
+      <span class="viz-menu-icon" id="fsIcon">&#9974;</span>
+      <span id="fsLabel">Fullscreen</span>
+    </button>
+    <hr style="border:none;border-top:1px solid var(--border);margin:2px 8px">
+    <button onclick="saveAsImage()" class="viz-menu-item" id="saveImgBtn">
+      <span class="viz-menu-icon">&#128247;</span>
+      <span>Save as image</span>
+    </button>
+  </div>
+</nav>
+
+<div class="container">
+
+<!-- ═══════ HERO ═══════ -->
+<section class="hero">
+  <div class="ani d1"><div class="hero-badge">Technical Design Report</div></div>
+  <h1 class="ani d2">ProfAI <span>Filesystem Browser</span></h1>
+  <p class="hero-sub ani d3">A complete technical dissection of the split-pane file tree UI — from recursive disk walking on the backend to recursive React component rendering on the frontend.</p>
+  <div class="hero-meta ani d4">
+    <span>April 2026</span>
+    <span>FilesPage.tsx + routers.ts</span>
+    <span>~440 LOC total</span>
+  </div>
+</section>
+
+<!-- ═══════ 1. SYSTEM OVERVIEW ═══════ -->
+<section class="section" data-animate="fade-up">
+  <div class="section-header">
+    <div class="section-num">01</div>
+    <h2>System Overview</h2>
+  </div>
+
+  <p style="color:var(--text-secondary);margin-bottom:20px;">The file browser is a read-only viewer that lets users explore project artifacts generated by AI agents. It's split into four layers:</p>
+
+  <div class="layer-stack">
+    <div class="layer layer-fe">
+      <span class="layer-tag">Frontend</span>
+      <span>React + Monaco Editor + Streamdown &mdash; <code>client/src/pages/FilesPage.tsx</code> (400 lines)</span>
+    </div>
+    <div class="layer layer-trpc">
+      <span class="layer-tag">tRPC</span>
+      <span>Type-safe RPC queries &mdash; <code>projectFiles.tree</code> and <code>projectFiles.read</code></span>
+    </div>
+    <div class="layer layer-be">
+      <span class="layer-tag">Backend</span>
+      <span>Express + Node.js fs &mdash; <code>server/routers.ts</code> lines 1426-1512 (~86 lines)</span>
+    </div>
+    <div class="layer layer-fs">
+      <span class="layer-tag">Disk</span>
+      <span>Project files on filesystem &mdash; <code>projects/{id}_{name}/</code></span>
+    </div>
+  </div>
+
+  <div class="stat-row" data-animate="fade-up" data-delay="100">
+    <div class="stat"><span class="stat-val">~400</span><span class="stat-label">Frontend LOC</span></div>
+    <div class="stat"><span class="stat-val">~86</span><span class="stat-label">Backend LOC</span></div>
+    <div class="stat"><span class="stat-val">15s</span><span class="stat-label">Poll interval</span></div>
+    <div class="stat"><span class="stat-val">20MB</span><span class="stat-label">Max file size</span></div>
+    <div class="stat"><span class="stat-val">6</span><span class="stat-label">File renderers</span></div>
+  </div>
+</section>
+
+<!-- ═══════ 2. DATA FLOW ═══════ -->
+<section class="section" data-animate="fade-up">
+  <div class="section-header">
+    <div class="section-num">02</div>
+    <h2>Data Flow Architecture</h2>
+  </div>
+
+  <p style="color:var(--text-secondary);margin-bottom:16px;">Two independent data flows: one for the tree structure (polled), one for file content (on-demand).</p>
+
+  <div class="card">
+    <h3>Flow 1: Tree Structure (Polled every 15s)</h3>
+    <div class="flow">
+      <div class="flow-node">FilesPage<div class="flow-label">useQuery</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node highlight">tRPC<div class="flow-label">projectFiles.tree</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node">walk()<div class="flow-label">recursive readdirSync</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node">FileNode[]<div class="flow-label">sorted tree JSON</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node">TreeNode<div class="flow-label">recursive render</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Flow 2: File Content (On-Demand)</h3>
+    <div class="flow">
+      <div class="flow-node">Click file<div class="flow-label">setSelectedPath</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node highlight">tRPC<div class="flow-label">projectFiles.read</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node">readFileSync<div class="flow-label">UTF-8 or base64</div></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node">FileViewer<div class="flow-label">type-based render</div></div>
+    </div>
+    <div class="callout callout-warn" style="margin-top:14px;">
+      <span class="callout-icon">&#9888;</span>
+      <div><strong>PDF exception:</strong> PDFs bypass tRPC entirely. They're served via a REST endpoint <code>GET /api/projects/:id/files/*</code> and rendered in an <code>&lt;iframe&gt;</code>. Browser PDF plugins need a real URL, not a base64 data URI.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ 3. DATA STRUCTURES ═══════ -->
+<section class="section" data-animate="fade-up">
+  <div class="section-header">
+    <div class="section-num">03</div>
+    <h2>Core Data Structures</h2>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>FileNode (Tree)</h3>
+      <p>Shared between backend and frontend. Directories have <code>children</code>; files are leaf nodes.</p>
+      <div class="code-block">
+        <div class="code-header">TypeScript</div>
+        <pre><span class="kw">type</span> <span class="type">FileNode</span> <span class="op">=</span> {
+  <span class="fn">name</span>: <span class="type">string</span>;       <span class="cm">// "train.py"</span>
+  <span class="fn">path</span>: <span class="type">string</span>;       <span class="cm">// "experiments/train.py"</span>
+  <span class="fn">type</span>: <span class="str">"file"</span> <span class="op">|</span> <span class="str">"directory"</span>;
+  <span class="fn">size</span>: <span class="type">number</span>;       <span class="cm">// bytes (0 for dirs)</span>
+  <span class="fn">modifiedAt</span>: <span class="type">string</span>; <span class="cm">// ISO timestamp</span>
+  <span class="fn">children?</span>: <span class="type">FileNode[]</span>;
+};</pre>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>File Read Response</h3>
+      <p>The <code>read</code> endpoint returns content with boolean flags for the frontend to pick a renderer.</p>
+      <div class="code-block">
+        <div class="code-header">TypeScript</div>
+        <pre>{
+  <span class="fn">content</span>: <span class="type">string</span>,  <span class="cm">// text or data:URI</span>
+  <span class="fn">name</span>: <span class="type">string</span>,
+  <span class="fn">binary</span>: <span class="type">boolean</span>,
+  <span class="fn">image</span>: <span class="type">boolean</span>,
+  <span class="fn">audio</span>: <span class="type">boolean</span>,
+  <span class="fn">video</span>: <span class="type">boolean</span>,
+  <span class="fn">pdf</span>: <span class="type">boolean</span>,
+}</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>FileKind (Frontend Discriminator)</h3>
+    <p>Maps response flags + file extension to one of six rendering strategies:</p>
+    <div class="code-block">
+      <div class="code-header">TypeScript</div>
+      <pre><span class="kw">type</span> <span class="type">FileKind</span> <span class="op">=</span> <span class="str">"code"</span> <span class="op">|</span> <span class="str">"markdown"</span> <span class="op">|</span> <span class="str">"image"</span> <span class="op">|</span> <span class="str">"pdf"</span> <span class="op">|</span> <span class="str">"binary"</span> <span class="op">|</span> <span class="str">"text"</span>;</pre>
+    </div>
+    <p style="margin-top:8px;">Priority: <code>image</code> &rarr; <code>pdf</code> &rarr; <code>binary</code> &rarr; extension-based (<code>markdown</code> &rarr; <code>code</code> &rarr; <code>text</code>) &rarr; fallback to <code>code</code>.</p>
+  </div>
+</section>
+
+<!-- ═══════ 4. BACKEND: TREE WALK ═══════ -->
+<section class="section" data-animate="fade-up">
+  <div class="section-header">
+    <div class="section-num">04</div>
+    <h2>Backend: Recursive Tree Walk</h2>
+  </div>
+
+  <div class="card">
+    <h3>The walk() Algorithm</h3>
+    <p style="margin-bottom:12px;">A synchronous recursive function in <code>server/routers.ts:1438-1461</code>. Reads the entire project directory tree in one call.</p>
+
+    <div class="code-block">
+      <div class="code-header">server/routers.ts &mdash; walk()</div>
+      <pre><span class="kw">function</span> <span class="fn">walk</span>(dir: <span class="type">string</span>, relPrefix: <span class="type">string</span>): <span class="type">FileNode[]</span> {
+  <span class="kw">const</span> entries: <span class="type">FileNode[]</span> = [];
+  <span class="kw">for</span> (<span class="kw">const</span> entry <span class="kw">of</span> fs.<span class="fn">readdirSync</span>(dir)) {
+    <span class="kw">if</span> (entry.<span class="fn">startsWith</span>(<span class="str">"."</span>)) <span class="kw">continue</span>;  <span class="cm">// skip hidden</span>
+    <span class="kw">const</span> full = path.<span class="fn">join</span>(dir, entry);
+    <span class="kw">const</span> rel = relPrefix ? <span class="str">`${relPrefix}/${entry}`</span> : entry;
+    <span class="kw">const</span> stat = fs.<span class="fn">statSync</span>(full);
+    <span class="kw">if</span> (stat.<span class="fn">isDirectory</span>()) {
+      entries.<span class="fn">push</span>({ ..., children: <span class="fn">walk</span>(full, rel) });
+    } <span class="kw">else</span> {
+      entries.<span class="fn">push</span>({ ..., size: stat.size });
+    }
+  }
+  <span class="cm">// Sort: directories first, then alphabetical</span>
+  entries.<span class="fn">sort</span>((a, b) => {
+    <span class="kw">if</span> (a.type !== b.type) <span class="kw">return</span> a.type === <span class="str">"directory"</span> ? <span class="num">-1</span> : <span class="num">1</span>;
+    <span class="kw">return</span> a.name.<span class="fn">localeCompare</span>(b.name);
+  });
+  <span class="kw">return</span> entries;
+}</pre>
+    </div>
+
+    <div class="grid-2" style="margin-top:16px;">
+      <div>
+        <h3 style="font-size:0.9rem;margin-bottom:8px;">What it skips</h3>
+        <ul class="prop-list">
+          <li><span class="prop-name">. prefix files</span><span class="prop-desc">.git, .env, .DS_Store, etc.</span></li>
+          <li><span class="prop-name">Inaccessible</span><span class="prop-desc">try/catch on stat and readdir</span></li>
+          <li><span class="prop-name">Broken symlinks</span><span class="prop-desc">Caught by stat exception</span></li>
+        </ul>
+      </div>
+      <div>
+        <h3 style="font-size:0.9rem;margin-bottom:8px;">Sort order</h3>
+        <ul class="prop-list">
+          <li><span class="prop-name">1st</span><span class="prop-desc">Directories before files</span></li>
+          <li><span class="prop-name">2nd</span><span class="prop-desc">Alphabetical via localeCompare</span></li>
+          <li><span class="prop-name">Result</span><span class="prop-desc"><code>experiments/</code> before <code>train.py</code></span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>File Read Endpoint</h3>
+    <p style="margin-bottom:12px;"><code>server/routers.ts:1464-1511</code> &mdash; serves file content with binary detection by extension.</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Extension Group</th><th>Encoding</th><th>MIME Example</th></tr></thead>
+        <tbody>
+          <tr><td><code>.png .jpg .gif .bmp .ico</code></td><td>Base64 data URI</td><td><code>data:image/png;base64,...</code></td></tr>
+          <tr><td><code>.wav .mp3 .ogg .flac</code></td><td>Base64 data URI</td><td><code>data:audio/wav;base64,...</code></td></tr>
+          <tr><td><code>.mp4 .webm</code></td><td>Base64 data URI</td><td><code>data:video/mp4;base64,...</code></td></tr>
+          <tr><td><code>.pdf</code></td><td>REST endpoint (iframe)</td><td><code>/api/projects/:id/files/*</code></td></tr>
+          <tr><td><code>.zip .tar .gz .bin .pkl .pt ...</code></td><td>Placeholder text</td><td><code>[Binary file: N bytes]</code></td></tr>
+          <tr><td>Everything else</td><td>UTF-8 string</td><td>Raw text content</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ 5. FRONTEND: COMPONENT ARCHITECTURE ═══════ -->
+<section class="section" data-animate="fade-up">
+  <div class="section-header">
+    <div class="section-num">05</div>
+    <h2>Frontend: Component Architecture</h2>
+  </div>
+
+  <div class="card">
+    <h3>Component Hierarchy</h3>
+    <div class="comp-tree">
+<span class="comp">FilesPage</span> <span class="comment">// state owner — manages all state</span>
+  <span class="comment">// State: selectedPath, expanded (Set), panelOpen, panelWidth</span>
+  <span class="comment">// Queries: projectFiles.tree (15s poll), projectFiles.read (on-demand)</span>
+  |
+  +-- <span class="prop">[if panelOpen]</span> Tree Sidebar <span class="comment">// width={panelWidth}, overflow-y-auto</span>
+  |   |
+  |   +-- <span class="comp">TreeNode</span> <span class="prop">depth=0</span> <span class="comment">// recursive, one per root entry</span>
+  |       |
+  |       +-- &lt;button&gt; <span class="comment">// click: dir → toggleExpand | file → onSelect</span>
+  |       |   +-- Chevron icon <span class="comment">// Right (closed) or Down (open)</span>
+  |       |   +-- File/Folder icon <span class="comment">// color-coded by type</span>
+  |       |   +-- Name label
+  |       |   +-- Size badge <span class="comment">// files only, e.g. "4.2 KB"</span>
+  |       |
+  |       +-- <span class="prop">[if isDir && isOpen]</span> children.map &rarr; <span class="comp">TreeNode</span> <span class="prop">depth+1</span>
+  |
+  +-- Drag Handle <span class="comment">// 1px, cursor-col-resize, 160-480px range</span>
+  |
+  +-- Content Pane <span class="comment">// flex-1, fills remaining width</span>
+      |
+      +-- File Header <span class="comment">// icon + filename + language badge</span>
+      +-- <span class="comp">FileViewer</span> <span class="comment">// switches on FileKind</span>
+          +-- <span class="prop">"code"</span>     &rarr; Monaco Editor <span class="comment">// syntax highlight, read-only</span>
+          +-- <span class="prop">"text"</span>     &rarr; Monaco Editor <span class="comment">// plaintext, word-wrap on</span>
+          +-- <span class="prop">"markdown"</span> &rarr; Streamdown   <span class="comment">// GFM + math rendering</span>
+          +-- <span class="prop">"image"</span>    &rarr; &lt;img&gt;        <span class="comment">// base64 data URI</span>
+          +-- <span class="prop">"pdf"</span>      &rarr; &lt;iframe&gt;     <span class="comment">// REST URL</span>
+          +-- <span class="prop">"binary"</span>   &rarr; Placeholder  <span class="comment">// icon + size text</span>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ 6. STATE MANAGEMENT ═══════ -->
+<section class="section" data-animate="fade-up">
+  <div class="section-header">
+    <div class="section-num">06</div>
+    <h2>State Management</h2>
+  </div>
+
+  <p style="color:var(--text-secondary);margin-bottom:16px;">All state is <strong>local React state</strong> in <code>FilesPage</code>. No Redux, no Context (beyond project ID from layout), no persistence.</p>
+
+  <div class="card">
+    <h3>State Variables</h3>
+    <ul class="prop-list">
+      <li>
+        <span class="prop-name">selectedPath</span>
+        <span class="prop-desc"><code>string | null</code> &mdash; path of the currently selected file. Set by clicking a file in the tree. Triggers the <code>projectFiles.read</code> query.</span>
+      </li>
+      <li>
+        <span class="prop-name">expanded</span>
+        <span class="prop-desc"><code>Set&lt;string&gt;</code> &mdash; paths of open directories. O(1) lookup via <code>.has()</code>. Toggled via immutable Set copy (new Set pattern for React state). <strong>Not persisted</strong> &mdash; lost on page refresh.</span>
+      </li>
+      <li>
+        <span class="prop-name">panelOpen</span>
+        <span class="prop-desc"><code>boolean</code> &mdash; whether the tree sidebar is visible. Default <code>true</code>.</span>
+      </li>
+      <li>
+        <span class="prop-name">panelWidth</span>
+        <span class="prop-desc"><code>number</code> &mdash; sidebar width in px. Default 256. Clamped to 160-480px during drag.</span>
+      </li>
+      <li>
+        <span class="prop-name">dragging</span>
+        <span class="prop-desc"><code>useRef(boolean)</code> &mdash; tracks active resize drag. Ref avoids re-renders during mousemove.</span>
+      </li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Expand/Collapse Mechanics</h3>
+    <div class="code-block">
+      <div class="code-header">FilesPage.tsx &mdash; toggleExpand</div>
+      <pre><span class="kw">const</span> <span class="fn">toggleExpand</span> = <span class="fn">useCallback</span>((path: <span class="type">string</span>) => {
+  <span class="fn">setExpanded</span>((prev) => {
+    <span class="kw">const</span> next = <span class="kw">new</span> <span class="type">Set</span>(prev);
+    <span class="kw">if</span> (next.<span class="fn">has</span>(path)) next.<span class="fn">delete</span>(path);
+    <span class="kw">else</span> next.<span class="fn">add</span>(path);
+    <span class="kw">return</span> next;
+  });
+}, []);</pre>
+    </div>
+    <p style="margin-top:8px;">Immutable Set pattern: creates new Set so React detects change. Empty deps array keeps the same function reference across renders. Children are only mounted when <code>isDir && expanded.has(path)</code> &mdash; collapsed directories have zero DOM footprint.</p>
+  </div>
+</section>
+
+<!-- ═══════ 7. TREE RENDERING ═══════ -->
+<section class="section" data-animate="fade-up">
+  <div class="section-header">
+    <div class="section-num">07</div>
+    <h2>TreeNode: Recursive Rendering</h2>
+  </div>
+
+  <div class="card">
+    <h3>The Core Pattern</h3>
+    <p style="margin-bottom:12px;">A ~50-line recursive React component. Each instance renders one file/directory and conditionally renders its children.</p>
+
+    <div class="code-block">
+      <div class="code-header">FilesPage.tsx:80-129 &mdash; TreeNode</div>
+      <pre><span class="kw">function</span> <span class="fn">TreeNode</span>({ node, depth, selectedPath, onSelect, expanded, toggleExpand }) {
+  <span class="kw">const</span> isDir = node.type === <span class="str">"directory"</span>;
+  <span class="kw">const</span> isOpen = expanded.<span class="fn">has</span>(node.path);  <span class="cm">// O(1) lookup</span>
+  <span class="kw">const</span> isSelected = selectedPath === node.path;
+
+  <span class="kw">return</span> (
+    &lt;&gt;
+      &lt;button
+        onClick={() =&gt; isDir ? <span class="fn">toggleExpand</span>(node.path) : <span class="fn">onSelect</span>(node.path)}
+        style={{ paddingLeft: <span class="str">`${depth * 16 + 8}px`</span> }}  <span class="cm">// indent per depth</span>
+      &gt;
+        {isDir ? &lt;Chevron /&gt; : &lt;spacer /&gt;}
+        &lt;Icon /&gt;
+        &lt;span&gt;{node.name}&lt;/span&gt;
+        {!isDir &amp;&amp; &lt;span&gt;{<span class="fn">formatSize</span>(node.size)}&lt;/span&gt;}
+      &lt;/button&gt;
+      {isDir &amp;&amp; isOpen &amp;&amp; node.children?.<span class="fn">map</span>((child) =&gt;
+        &lt;<span class="fn">TreeNode</span> node={child} depth={depth + <span class="num">1</span>} ... /&gt;
+      )}
+    &lt;/&gt;
+  );
+}</pre>
+    </div>
+
+    <div class="grid-2" style="margin-top:16px;">
+      <div>
+        <h3 style="font-size:0.9rem;margin-bottom:8px;">Indentation</h3>
+        <div class="tree-demo">
+          <div><span class="dir">&#9660; experiments</span> <span class="meta">&larr; depth=0, pad=8px</span></div>
+          <div><span class="indent" style="width:16px"></span><span class="dir">&#9660; exp_001</span> <span class="meta">&larr; depth=1, pad=24px</span></div>
+          <div><span class="indent" style="width:32px"></span><span class="file">&#9656; train.py</span> <span class="meta">&larr; depth=2, pad=40px</span></div>
+          <div><span class="indent" style="width:32px"></span><span class="file">&#9656; config.yaml</span> <span class="meta">&larr; depth=2, pad=40px</span></div>
+          <div><span class="dir">&#9654; results</span> <span class="meta">&larr; depth=0, pad=8px (collapsed)</span></div>
+          <div><span class="file">&#9656; README.md</span> <span class="meta">&larr; depth=0, pad=8px</span></div>
+        </div>
+      </div>
+      <div>
+        <h3 style="font-size:0.9rem;margin-bottom:8px;">Icon Mapping</h3>
+        <ul class="prop-list">
+          <li><span class="prop-name" style="color:#60a5fa;">Folder / FolderOpen</span><span class="prop-desc">Directories (blue-400)</span></li>
+          <li><span class="prop-name" style="color:#fbbf24;">FileCode</span><span class="prop-desc">.py .ts .js .json .yaml .tex ...</span></li>
+          <li><span class="prop-name" style="color:#4ade80;">Image</span><span class="prop-desc">.png .jpg .gif .bmp .svg</span></li>
+          <li><span class="prop-name">FileText</span><span class="prop-desc">.md .txt .log .csv .pdf</span></li>
+          <li><span class="prop-name">File</span><span class="prop-desc">Everything else (fallback)</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ 8. FILE VIEWER ═══════ -->
+<section class="section" data-animate="fade-up">
+  <div class="section-header">
+    <div class="section-num">08</div>
+    <h2>FileViewer: Content Rendering</h2>
+  </div>
+
+  <p style="color:var(--text-secondary);margin-bottom:16px;">A switch statement dispatching to six different renderers based on <code>FileKind</code>.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Kind</th><th>Renderer</th><th>Key Config</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>code</code></td>
+          <td>Monaco Editor</td>
+          <td>Syntax highlighted per extension, folding enabled, word-wrap OFF, minimap if &gt;100 lines, <code>vs-dark</code> theme</td>
+        </tr>
+        <tr>
+          <td><code>text</code></td>
+          <td>Monaco Editor</td>
+          <td>Language: <code>plaintext</code>, word-wrap ON, minimap if &gt;100 lines</td>
+        </tr>
+        <tr>
+          <td><code>markdown</code></td>
+          <td>Streamdown</td>
+          <td>remark-gfm (tables, strikethrough) + remark-math (LaTeX equations)</td>
+        </tr>
+        <tr>
+          <td><code>image</code></td>
+          <td><code>&lt;img&gt;</code></td>
+          <td>Base64 data URI, centered container, <code>max-w-full max-h-full object-contain</code></td>
+        </tr>
+        <tr>
+          <td><code>pdf</code></td>
+          <td><code>&lt;iframe&gt;</code></td>
+          <td>REST URL <code>/api/projects/:id/files/*</code>, full width/height, no border</td>
+        </tr>
+        <tr>
+          <td><code>binary</code></td>
+          <td>Placeholder</td>
+          <td>File icon (opacity 30%) + <code>[Binary file: N bytes]</code> text</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h3>Monaco Editor Shared Config</h3>
+    <p style="margin-bottom:10px;">Both <code>code</code> and <code>text</code> kinds share these settings &mdash; the viewer is completely read-only:</p>
+    <div class="code-block">
+      <div class="code-header">Monaco Options</div>
+      <pre>{
+  <span class="fn">readOnly</span>: <span class="kw">true</span>,
+  <span class="fn">domReadOnly</span>: <span class="kw">true</span>,       <span class="cm">// blocks paste, delete</span>
+  <span class="fn">contextmenu</span>: <span class="kw">false</span>,      <span class="cm">// no right-click menu</span>
+  <span class="fn">minimap</span>: { enabled: lines > <span class="num">100</span> },
+  <span class="fn">scrollBeyondLastLine</span>: <span class="kw">false</span>,
+  <span class="fn">fontSize</span>: <span class="num">12</span>,
+  <span class="fn">lineNumbers</span>: <span class="str">"on"</span>,
+  <span class="fn">renderLineHighlight</span>: <span class="str">"none"</span>,
+  <span class="fn">scrollbar</span>: { verticalScrollbarSize: <span class="num">8</span>, horizontalScrollbarSize: <span class="num">8</span> },
+  <span class="fn">padding</span>: { top: <span class="num">8</span>, bottom: <span class="num">8</span> },
+}</pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Language Detection</h3>
+    <p style="margin-bottom:10px;">Extension-based mapping in <code>getMonacoLanguage()</code> with special-case filename handling:</p>
+    <div class="grid-2">
+      <div>
+        <ul class="prop-list">
+          <li><span class="prop-name">.py</span><span class="prop-desc">python</span></li>
+          <li><span class="prop-name">.ts .tsx</span><span class="prop-desc">typescript</span></li>
+          <li><span class="prop-name">.js .jsx</span><span class="prop-desc">javascript</span></li>
+          <li><span class="prop-name">.json</span><span class="prop-desc">json</span></li>
+          <li><span class="prop-name">.yaml .yml</span><span class="prop-desc">yaml</span></li>
+          <li><span class="prop-name">.sh .bash</span><span class="prop-desc">shell</span></li>
+          <li><span class="prop-name">.tex</span><span class="prop-desc">latex</span></li>
+        </ul>
+      </div>
+      <div>
+        <ul class="prop-list">
+          <li><span class="prop-name">.go</span><span class="prop-desc">go</span></li>
+          <li><span class="prop-name">.rs</span><span class="prop-desc">rust</span></li>
+          <li><span class="prop-name">.cpp .c .h</span><span class="prop-desc">cpp / c</span></li>
+          <li><span class="prop-name">.java</span><span class="prop-desc">java</span></li>
+          <li><span class="prop-name">.rb</span><span class="prop-desc">ruby</span></li>
+          <li><span class="prop-name">Dockerfile</span><span class="prop-desc">dockerfile</span></li>
+          <li><span class="prop-name">Makefile</span><span class="prop-desc">shell</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ 9. SPLIT PANE ═══════ -->
+<section class="section" data-animate="fade-up">
+  <div class="section-header">
+    <div class="section-num">09</div>
+    <h2>Split Pane &amp; Resize</h2>
+  </div>
+
+  <div class="card">
+    <h3>Layout Structure</h3>
+    <p style="margin-bottom:12px;">A CSS flexbox layout with three zones: sidebar (fixed width), drag handle (1px), content (flex-1).</p>
+    <div class="code-block">
+      <div class="code-header">Layout Pseudocode</div>
+      <pre>&lt;div <span class="kw">class</span>=<span class="str">"flex h-full"</span>&gt;
+  &lt;div <span class="kw">style</span>={{ width: panelWidth }} <span class="kw">class</span>=<span class="str">"shrink-0"</span>&gt;
+    <span class="cm">&lt;!-- Tree sidebar: header + scrollable tree --&gt;</span>
+  &lt;/div&gt;
+
+  &lt;div <span class="kw">class</span>=<span class="str">"w-1 cursor-col-resize"</span> onMouseDown={onDragStart}&gt;
+    <span class="cm">&lt;!-- 1px drag handle with hover/active states --&gt;</span>
+  &lt;/div&gt;
+
+  &lt;div <span class="kw">class</span>=<span class="str">"flex-1"</span>&gt;
+    <span class="cm">&lt;!-- Content pane: file header + FileViewer --&gt;</span>
+  &lt;/div&gt;
+&lt;/div&gt;</pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Drag Resize Handler</h3>
+    <p style="margin-bottom:12px;">Attaches <code>mousemove</code>/<code>mouseup</code> listeners to the <strong>document</strong> (not the handle) so dragging works even when the cursor leaves the 1px target.</p>
+    <div class="grid-2">
+      <div>
+        <ul class="prop-list">
+          <li><span class="prop-name">Min width</span><span class="prop-desc">160px</span></li>
+          <li><span class="prop-name">Max width</span><span class="prop-desc">480px</span></li>
+          <li><span class="prop-name">Default</span><span class="prop-desc">256px</span></li>
+        </ul>
+      </div>
+      <div>
+        <ul class="prop-list">
+          <li><span class="prop-name">Hover</span><span class="prop-desc"><code>bg-primary/30</code></span></li>
+          <li><span class="prop-name">Active</span><span class="prop-desc"><code>bg-primary/50</code></span></li>
+          <li><span class="prop-name">Tracking</span><span class="prop-desc"><code>useRef</code> (no re-renders)</span></li>
+        </ul>
+      </div>
+    </div>
+    <p style="margin-top:8px;">The collapsed state shows a narrow rail with a <code>PanelLeftOpen</code> icon to restore the sidebar.</p>
+  </div>
+</section>
+
+<!-- ═══════ 10. SECURITY ═══════ -->
+<section class="section" data-animate="fade-up">
+  <div class="section-header">
+    <div class="section-num">10</div>
+    <h2>Security Measures</h2>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>Path Traversal Protection</h3>
+      <div class="code-block">
+        <div class="code-header">routers.ts:1472-1473</div>
+        <pre><span class="kw">const</span> fullPath = path.<span class="fn">resolve</span>(projDir, filePath);
+<span class="kw">if</span> (!fullPath.<span class="fn">startsWith</span>(projDir))
+  <span class="kw">throw new</span> <span class="type">Error</span>(<span class="str">"Invalid file path"</span>);</pre>
+      </div>
+      <p><code>path.resolve()</code> normalizes <code>../</code> sequences, then the startsWith check ensures the resolved path is within the project directory. Prevents <code>../../etc/passwd</code> attacks.</p>
+    </div>
+
+    <div class="card">
+      <h3>Other Protections</h3>
+      <ul class="prop-list">
+        <li><span class="prop-name">Access control</span><span class="prop-desc"><code>checkProjectAccess(id, userId)</code> on every tRPC call</span></li>
+        <li><span class="prop-name">Size limit</span><span class="prop-desc">20MB max &mdash; prevents OOM on huge files</span></li>
+        <li><span class="prop-name">Hidden files</span><span class="prop-desc">Tree walk skips <code>.</code> prefix &mdash; no <code>.env</code> exposure</span></li>
+        <li><span class="prop-name">Read-only UI</span><span class="prop-desc"><code>readOnly + domReadOnly</code> &mdash; no editing, no paste</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ 11. EDGE CASES ═══════ -->
+<section class="section" data-animate="fade-up">
+  <div class="section-header">
+    <div class="section-num">11</div>
+    <h2>Edge Cases &amp; Loading States</h2>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Condition</th><th>Handling</th><th>UI</th></tr></thead>
+      <tbody>
+        <tr><td>No project selected</td><td><code>!activeProjectId</code> guard</td><td>Centered message: "Select a project"</td></tr>
+        <tr><td>Tree loading</td><td>tRPC <code>isLoading</code></td><td>Spinner + "Loading..."</td></tr>
+        <tr><td>Empty project</td><td><code>!tree || tree.length === 0</code></td><td>FolderTree icon + "No files yet" + helper text</td></tr>
+        <tr><td>No file selected</td><td><code>!selectedPath</code></td><td>"Select a file to view its contents"</td></tr>
+        <tr><td>File loading</td><td>tRPC <code>isLoading</code></td><td>Spinner in content pane</td></tr>
+        <tr><td>File &gt; 20MB</td><td>Server throws error</td><td>tRPC error boundary</td></tr>
+        <tr><td>Unrenderable binary</td><td>Binary flag set, not image/audio/video/pdf</td><td>File icon + "[Binary file: N bytes]"</td></tr>
+        <tr><td>Project dir missing</td><td><code>!fs.existsSync</code></td><td>Returns empty array &rarr; "No files yet"</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════ 12. DESIGN DECISIONS ═══════ -->
+<section class="section" data-animate="fade-up">
+  <div class="section-header">
+    <div class="section-num">12</div>
+    <h2>Design Decisions &amp; Tradeoffs</h2>
+  </div>
+
+  <div class="card">
+    <h3>Full Tree Fetch (Not Lazy)</h3>
+    <p>The entire tree is returned in a single response. No lazy loading of subtrees. This works because project directories are small (agent-generated artifacts, not monorepos). <strong>Tradeoff:</strong> won't scale to millions of files, but doesn't need to.</p>
+  </div>
+
+  <div class="card">
+    <h3>15s Polling (Not WebSocket)</h3>
+    <p>tRPC's <code>refetchInterval: 15000</code> polls for new files. Agents write files periodically during experiments. <strong>Tradeoff:</strong> up to 15s delay seeing new files. A WebSocket would add complexity with minimal benefit for this use case.</p>
+  </div>
+
+  <div class="card">
+    <h3>No Persistent Expand State</h3>
+    <p>The <code>expanded</code> Set lives in React state only. Page refresh collapses everything. <strong>Tradeoff:</strong> slight friction on refresh, but keeps implementation simple with no localStorage/sessionStorage dependency.</p>
+  </div>
+
+  <div class="card">
+    <h3>Base64 for Media (Not Streaming)</h3>
+    <p>Images, audio, and video are returned as base64 data URIs via tRPC JSON. <strong>Tradeoff:</strong> ~33% size overhead vs binary streaming, but avoids separate REST endpoints for each media type. PDFs are the exception &mdash; they get their own REST endpoint because browser PDF plugins need a real URL.</p>
+  </div>
+
+  <div class="card">
+    <h3>Read-Only (No Editing)</h3>
+    <p>Monaco is configured as <code>readOnly + domReadOnly</code> with context menus disabled. Users view agent output; they don't edit it. <strong>Tradeoff:</strong> no dirty state tracking, no save flow, no conflict resolution. The simplicity is intentional.</p>
+  </div>
+
+  <div class="card">
+    <h3>Extension-Based Binary Detection</h3>
+    <p>Binary files are detected by extension, not by reading magic bytes. <strong>Tradeoff:</strong> could misclassify renamed files, but avoids reading file headers for every request. Speed over accuracy, acceptable for a known-format project filesystem.</p>
+  </div>
+</section>
+
+<!-- ═══════ FOOTER ═══════ -->
+<div class="footer">
+  <div>ProfAI &middot; April 2026</div>
+  <div>Generated by <a href="https://fburl.com/claude-templates/k5rd6ab0">/visualize</a> claude skill</div>
+</div>
+
+</div><!-- /container -->
+
+<!-- INFRA MENU JS -->
+<script>
+function toggleMenu() {
+  var menu = document.getElementById('vizMenu');
+  var toggle = menu.querySelector('.viz-menu-toggle');
+  var isOpen = menu.classList.toggle('open');
+  toggle.setAttribute('aria-expanded', isOpen);
+}
+document.addEventListener('click', function(e) {
+  var menu = document.getElementById('vizMenu');
+  if (menu && !menu.contains(e.target)) menu.classList.remove('open');
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    var menu = document.getElementById('vizMenu');
+    if (menu) menu.classList.remove('open');
+  }
+});
+function toggleTheme() {
+  var isDark = document.body.classList.toggle('dark-mode');
+  localStorage.setItem('visualize-dark-mode', isDark);
+  updateThemeLabel();
+}
+function updateThemeLabel() {
+  var isDark = document.body.classList.contains('dark-mode');
+  var icon = document.getElementById('themeIcon');
+  var label = document.getElementById('themeLabel');
+  if (icon) icon.textContent = isDark ? '\u2600' : '\u25D4';
+  if (label) label.textContent = isDark ? 'Light mode' : 'Dark mode';
+}
+if (localStorage.getItem('visualize-dark-mode') === 'true' ||
+    (!localStorage.getItem('visualize-dark-mode') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+  document.body.classList.add('dark-mode');
+}
+updateThemeLabel();
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(function(){});
+  } else {
+    document.exitFullscreen();
+  }
+}
+document.addEventListener('fullscreenchange', function() {
+  var icon = document.getElementById('fsIcon');
+  var label = document.getElementById('fsLabel');
+  var isFs = !!document.fullscreenElement;
+  if (icon) icon.textContent = isFs ? '\u26F6' : '\u26F6';
+  if (label) label.textContent = isFs ? 'Exit fullscreen' : 'Fullscreen';
+});
+
+// Scroll-triggered reveal
+(function initScrollReveal() {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    document.querySelectorAll('[data-animate]').forEach(function(el) { el.classList.add('is-visible'); });
+    return;
+  }
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        var el = entry.target;
+        var delay = parseInt(el.getAttribute('data-delay') || '0', 10);
+        var duration = el.getAttribute('data-duration');
+        if (duration) el.style.transitionDuration = duration + 'ms';
+        if (delay > 0) {
+          setTimeout(function() { el.classList.add('is-visible'); }, delay);
+        } else {
+          el.classList.add('is-visible');
+        }
+        observer.unobserve(el);
+      }
+    });
+  }, { threshold: 0.15 });
+  document.querySelectorAll('[data-animate]').forEach(function(el) { observer.observe(el); });
+})();
+
+// Slide hash nav (auto-detected)
+(function initSlideHash() {
+  var slides = document.querySelectorAll('.slide');
+  if (slides.length < 2) return;
+  var lastHash = '';
+  function syncHash() {
+    for (var i = 0; i < slides.length; i++) {
+      if (slides[i].classList.contains('active')) {
+        var h = '#' + (i + 1);
+        if (h !== lastHash) { lastHash = h; history.replaceState(null, '', h); }
+        return;
+      }
+    }
+  }
+  var observer = new MutationObserver(syncHash);
+  for (var i = 0; i < slides.length; i++) {
+    observer.observe(slides[i], { attributes: true, attributeFilter: ['class'] });
+  }
+  window.goToSlide = function(n) {
+    if (n < 0 || n >= slides.length) return;
+    var active = document.querySelector('.slide.active');
+    if (active) active.classList.remove('active');
+    slides[n].classList.add('active');
+  };
+  window.addEventListener('hashchange', function() {
+    var n = parseInt(location.hash.replace('#', ''), 10);
+    if (n >= 1 && n <= slides.length) window.goToSlide(n - 1);
+  });
+  var startHash = parseInt(location.hash.replace('#', ''), 10);
+  if (startHash >= 1 && startHash <= slides.length) {
+    var active = document.querySelector('.slide.active');
+    if (active) active.classList.remove('active');
+    slides[startHash - 1].classList.add('active');
+  }
+})();
+
+function loadHtml2Canvas() {
+  if (typeof html2canvas !== 'undefined') return Promise.resolve();
+  return new Promise(function(resolve, reject) {
+    var script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    script.integrity = 'sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H';
+    script.crossOrigin = 'anonymous';
+    script.onload = resolve;
+    script.onerror = function() { reject(new Error('html2canvas load failed')); };
+    document.head.appendChild(script);
+  });
+}
+
+function saveAsImage() {
+  var btn = document.getElementById('saveImgBtn');
+  var label = btn.querySelector('span:last-child');
+  var origText = label.textContent;
+  label.textContent = 'Loading...';
+  btn.style.pointerEvents = 'none';
+  loadHtml2Canvas().then(function() {
+    label.textContent = 'Capturing...';
+    doCapture(btn, label, origText);
+  }).catch(function(err) {
+    console.error('Failed to load html2canvas:', err);
+    label.textContent = origText;
+    btn.style.pointerEvents = '';
+    alert('Could not load screenshot library. Try Print / Save as PDF instead.');
+  });
+}
+
+function doCapture(btn, label, origText) {
+  var menu = document.getElementById('vizMenu');
+  menu.style.display = 'none';
+  var target = document.querySelector('.container') || document.querySelector('main') || document.body;
+  var overrideStyle = document.createElement('style');
+  overrideStyle.id = 'html2canvas-capture-overrides';
+  overrideStyle.textContent = '*, *::before, *::after { animation-play-state: paused !important; animation-delay: 0s !important; animation-duration: 0s !important; transition-duration: 0s !important; } .ani, .animate-in, [class*="delay-"], .d1,.d2,.d3,.d4,.d5,.d6,.d7,.d8,.d9,.d10, [data-animate] { opacity: 1 !important; transform: none !important; filter: none !important; }';
+  document.head.appendChild(overrideStyle);
+  var origBg = target.style.background;
+  if (target !== document.body) {
+    target.style.background = getComputedStyle(document.body).backgroundColor || '#ffffff';
+  }
+  var scrollPos = window.scrollY;
+  window.scrollTo(0, 0);
+  var capture = function() {
+    void target.offsetHeight;
+    var origGCS = window.getComputedStyle;
+    html2canvas(target, {
+      scale: 2, useCORS: true, allowTaint: false, logging: false,
+      onclone: function(clonedDoc) {
+        var els = clonedDoc.querySelectorAll('.ani, .animate-in, [class*="delay-"], [data-animate]');
+        for (var i = 0; i < els.length; i++) { els[i].style.opacity = '1'; els[i].style.transform = 'none'; }
+      }
+    }).then(function(canvas) {
+      var filename = (document.title || 'visualization') + '.png';
+      canvas.toBlob(function(blob) {
+        if (!blob) { alert('Screenshot failed.'); return; }
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.download = filename; link.href = url;
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
+      }, 'image/png');
+    }).catch(function(err) {
+      console.error('Screenshot failed:', err);
+      alert('Screenshot failed. Try Print / Save as PDF instead.');
+    }).finally(function() {
+      window.getComputedStyle = origGCS;
+      overrideStyle.remove();
+      target.style.background = origBg;
+      menu.style.display = '';
+      label.textContent = origText;
+      btn.style.pointerEvents = '';
+      menu.classList.remove('open');
+      window.scrollTo(0, scrollPos);
+    });
+  };
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function() { setTimeout(capture, 50); });
+  } else {
+    setTimeout(capture, 500);
+  }
+}
+</script>
+
+</body>
+</html>
