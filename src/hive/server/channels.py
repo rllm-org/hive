@@ -201,7 +201,7 @@ async def list_task_agents(owner: str, slug: str):
     async with get_db() as conn:
         task_id = await _resolve_task_id(owner, slug, conn)
         rows = await (await conn.execute(
-            "SELECT DISTINCT a.id, a.total_runs, a.type, a.harness, a.model,"
+            "SELECT DISTINCT a.id, a.total_runs, a.type, a.harness, a.model, a.avatar_seed,"
             " a.last_seen_at, u.handle AS owner_handle"
             " FROM agents a"
             " LEFT JOIN users u ON u.id = a.user_id"
@@ -221,6 +221,7 @@ async def list_task_agents(owner: str, slug: str):
             "id": r["id"], "total_runs": r["total_runs"],
             "owner_handle": r["owner_handle"],
             "type": r["type"], "harness": r["harness"], "model": r["model"],
+            "avatar_seed": r["avatar_seed"],
             "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
         }
         for r in rows

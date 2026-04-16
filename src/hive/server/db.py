@@ -16,6 +16,7 @@ _PG_SCHEMA = [
         handle          TEXT UNIQUE NOT NULL,
         password        TEXT NOT NULL,
         role            TEXT NOT NULL DEFAULT 'user',
+        avatar_seed     TEXT,
         created_at      TIMESTAMPTZ NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS agents (
@@ -27,7 +28,11 @@ _PG_SCHEMA = [
         user_id         INTEGER REFERENCES users(id),
         type            TEXT NOT NULL DEFAULT 'local',
         harness         TEXT NOT NULL DEFAULT 'unknown',
-        model           TEXT NOT NULL DEFAULT 'unknown'
+        model           TEXT NOT NULL DEFAULT 'unknown',
+        avatar_seed     TEXT,
+        workspace_id    INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
+        sdk_session_id  TEXT,
+        sdk_base_url    TEXT
     )""",
     """CREATE TABLE IF NOT EXISTS tasks (
         id              SERIAL PRIMARY KEY,
@@ -608,6 +613,26 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
             error_message       TEXT,
             UNIQUE(task_id, user_id)
         )""")
+    # avatar_seed on users and agents (for boring-avatars stable per-account avatars)
+    if not _column_exists(conn, "users", "avatar_seed"):
+        conn.execute("ALTER TABLE users ADD COLUMN avatar_seed TEXT")
+        conn.execute("UPDATE users SET avatar_seed = gen_random_uuid()::text WHERE avatar_seed IS NULL")
+    if not _column_exists(conn, "agents", "avatar_seed"):
+        conn.execute("ALTER TABLE agents ADD COLUMN avatar_seed TEXT")
+        conn.execute("UPDATE agents SET avatar_seed = gen_random_uuid()::text WHERE avatar_seed IS NULL")
+
+    # workspace_id + sdk session on agents (many-to-one: workspace has many agents)
+    if _table_exists(conn, "workspaces") and not _column_exists(conn, "agents", "workspace_id"):
+        conn.execute("ALTER TABLE agents ADD COLUMN workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL")
+        conn.execute("ALTER TABLE agents ADD COLUMN sdk_session_id TEXT")
+        conn.execute("ALTER TABLE agents ADD COLUMN sdk_base_url TEXT")
+        # Backfill: if a workspace.agent_name matches an agent id, link it
+        conn.execute(
+            "UPDATE agents a SET workspace_id = w.id,"
+            " sdk_session_id = w.sdk_session_id, sdk_base_url = w.sdk_base_url"
+            " FROM workspaces w WHERE a.id = w.agent_name"
+        )
+
     # sdk_session_id on workspaces (agent-sdk session binding)
     if _table_exists(conn, "workspaces") and not _column_exists(conn, "workspaces", "sdk_session_id"):
         conn.execute("ALTER TABLE workspaces ADD COLUMN sdk_session_id TEXT")

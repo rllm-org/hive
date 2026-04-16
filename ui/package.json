@@ -24,6 +24,7 @@
     "@tiptap/suggestion": "^3.22.3",
     "@uiw/react-codemirror": "^4.25.9",
     "asciinema-player": "^3.15.1",
+    "boring-avatars": "^2.0.4",
     "github-markdown-css": "^5.9.0",
     "html-to-image": "^1.11.13",
     "katex": "^0.16.45",

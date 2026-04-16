@@ -17,6 +17,7 @@ interface AgentInfo {
   registered_at: string;
   last_seen_at: string;
   total_runs: number;
+  avatar_seed: string | null;
 }
 
 interface ProfileData {
@@ -25,16 +26,23 @@ interface ProfileData {
   role: string;
   github_username: string | null;
   avatar_url: string | null;
+  avatar_seed: string | null;
   created_at: string;
   has_password: boolean;
   agents: AgentInfo[];
 }
 
+interface WorkspaceAgentPreview {
+  id: string;
+  avatar_seed: string | null;
+}
+
 interface Workspace {
   id: number;
   name: string;
-  agent_name: string;
   type: "local" | "cloud";
+  agent_count?: number;
+  agents?: WorkspaceAgentPreview[];
   created_at: string;
 }
 
@@ -245,7 +253,6 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
     while (existingNames.includes(`my-workspace-${x}`)) x++;
     return `my-workspace-${x}`;
   });
-  const [agentName, setAgentName] = useState("agent-1");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -256,7 +263,7 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
       const res = await fetch(`${API_BASE}/workspaces`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeader() },
-        body: JSON.stringify({ name: name.trim(), agent_name: agentName.trim(), type }),
+        body: JSON.stringify({ name: name.trim(), type }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail ?? "Failed to create workspace");
@@ -308,21 +315,9 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Agent Name</label>
-            <input
-              type="text"
-              value={agentName}
-              onChange={(e) => setAgentName(e.target.value)}
-              placeholder="agent-1"
-              className="w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
-              style={{ outline: "none", boxShadow: "none" }}
-            />
-          </div>
-
           <button
             onClick={() => handleCreate("local")}
-            disabled={submitting || !name.trim() || !agentName.trim()}
+            disabled={submitting || !name.trim()}
             className="w-full flex items-center gap-4 p-4 border border-[var(--color-border)] hover:bg-[var(--color-layer-1)] transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <LuLaptop size={24} className="text-[var(--color-text-secondary)] shrink-0" />
@@ -336,7 +331,7 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
 
           <button
             onClick={() => handleCreate("cloud")}
-            disabled={submitting || !name.trim() || !agentName.trim()}
+            disabled={submitting || !name.trim()}
             className="w-full flex items-center gap-4 p-4 border border-[var(--color-border)] hover:bg-[var(--color-layer-1)] transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <LuCloud size={24} className="text-[var(--color-text-secondary)] shrink-0" />
@@ -429,14 +424,15 @@ export function ProfilePanel() {
         {/* Profile header */}
         <div className="flex items-center gap-4 mb-2">
           {(profile?.avatar_url || user.avatar_url) ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={profile?.avatar_url || user.avatar_url!}
               alt="Profile"
               className="w-16 h-16 rounded-full shrink-0 object-cover"
             />
           ) : (
-            <div className="w-16 h-16 rounded-full bg-[var(--color-accent)] flex items-center justify-center text-white font-bold text-2xl shrink-0">
-              {user.handle[0].toUpperCase()}
+            <div className="w-16 h-16 rounded-full overflow-hidden shrink-0">
+              <Avatar id={user.handle} seed={profile?.avatar_seed} kind="user" size="xl" />
             </div>
           )}
           <div>
@@ -499,24 +495,51 @@ export function ProfilePanel() {
                 <p className="text-sm text-[var(--color-text-tertiary)]">Create a workspace to start working with an agent.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {workspaces.map((ws) => (
-                  <div
-                    key={ws.id}
-                    onClick={() => router.push(`/workspaces/${ws.id}`)}
-                    className="flex items-center gap-4 p-4 bg-[var(--color-surface)] border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors"
-                  >
-                    <Avatar id={ws.agent_name} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-[var(--color-text)] truncate">
-                        {ws.name}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {workspaces.map((ws) => {
+                  const agentPreviews = ws.agents ?? [];
+                  const shown = agentPreviews.slice(0, 4);
+                  const extra = (ws.agent_count ?? agentPreviews.length) - shown.length;
+                  return (
+                    <div
+                      key={ws.id}
+                      onClick={() => router.push(`/workspaces/${ws.id}`)}
+                      className="flex items-center gap-3 p-4 bg-[var(--color-surface)] border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)] font-semibold">
+                          {ws.type}
+                        </div>
+                        <div className="text-sm font-semibold text-[var(--color-text)] truncate">
+                          {ws.name}
+                        </div>
                       </div>
-                      <div className="text-xs text-[var(--color-text-tertiary)] truncate mt-0.5">
-                        {ws.agent_name} · {ws.type}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {shown.length > 0 ? (
+                          <>
+                            {shown.map((a) => (
+                              <div
+                                key={a.id}
+                                title={a.id}
+                                className="overflow-hidden"
+                                style={{ width: 22, height: 22, borderRadius: 4 }}
+                              >
+                                <Avatar id={a.id} seed={a.avatar_seed} kind="agent" size="sm" />
+                              </div>
+                            ))}
+                            {extra > 0 && (
+                              <span className="text-[11px] text-[var(--color-text-tertiary)] ml-1">
+                                +{extra}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-[11px] text-[var(--color-text-tertiary)]">No agents</span>
+                        )}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -548,22 +571,21 @@ export function ProfilePanel() {
               </div>
             )}
 
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {profile?.agents.map((agent) => (
                 <div
                   key={agent.id}
-                  className="flex items-center gap-4 p-4 bg-[var(--color-surface)] border border-[var(--color-border)]"
+                  onClick={() => router.push(`/agents/${agent.id}?from=Account`)}
+                  className="flex items-center gap-3 p-4 bg-[var(--color-surface)] border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors"
                 >
-                  <Avatar id={agent.id} size="sm" />
+                  <Avatar id={agent.id} seed={agent.avatar_seed} kind="agent" size="md" />
                   <div className="flex-1 min-w-0">
-                    <div className="text-base font-medium text-[var(--color-text)] truncate">
+                    <div className="text-sm font-semibold text-[var(--color-text)] truncate">
                       {agent.id}
                     </div>
-                    <div className="text-xs text-[var(--color-text-tertiary)]">
-                      <span className="flex items-center gap-1.5">
-                        <LuActivity size={12} />
-                        {agent.total_runs} runs
-                      </span>
+                    <div className="text-xs text-[var(--color-text-tertiary)] flex items-center gap-1.5 mt-0.5">
+                      <LuActivity size={11} />
+                      {agent.total_runs} runs
                     </div>
                   </div>
                 </div>

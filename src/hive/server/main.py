@@ -485,9 +485,9 @@ async def auth_verify_code(body: dict[str, Any]):
             raise HTTPException(409, "handle was claimed by another user — please sign up again with a different handle")
         try:
             user_row = await (await conn.execute(
-                "INSERT INTO users (email, password, handle, uuid, created_at)"
-                " VALUES (%s, %s, %s, %s, %s) RETURNING id, role",
-                (row["email"], row["password"], handle, user_uuid, now()),
+                "INSERT INTO users (email, password, handle, uuid, avatar_seed, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, role",
+                (row["email"], row["password"], handle, user_uuid, str(uuid.uuid4()), now()),
             )).fetchone()
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, "handle was claimed by another user — please sign up again with a different handle")
@@ -628,19 +628,20 @@ async def auth_me(user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await (await conn.execute(
-            "SELECT id, email, handle, role, github_username, avatar_url, uuid, created_at, password FROM users WHERE id = %s", (user_id,)
+            "SELECT id, email, handle, role, github_username, avatar_url, uuid, avatar_seed, created_at, password FROM users WHERE id = %s", (user_id,)
         )).fetchone()
         if not row:
             raise HTTPException(404, "user not found")
         agents = await (await conn.execute(
-            "SELECT id, registered_at, last_seen_at, total_runs FROM agents WHERE user_id = %s ORDER BY last_seen_at DESC",
+            "SELECT id, registered_at, last_seen_at, total_runs, avatar_seed FROM agents WHERE user_id = %s ORDER BY last_seen_at DESC",
             (user_id,),
         )).fetchall()
     return {
         "id": row["id"], "email": row["email"], "handle": row["handle"], "role": row["role"],
         "github_username": row["github_username"], "avatar_url": row["avatar_url"], "uuid": row["uuid"], "created_at": row["created_at"],
+        "avatar_seed": row["avatar_seed"],
         "has_password": bool(row["password"]),
-        "agents": [{"id": a["id"], "registered_at": a["registered_at"], "last_seen_at": a["last_seen_at"], "total_runs": a["total_runs"]} for a in agents],
+        "agents": [{"id": a["id"], "registered_at": a["registered_at"], "last_seen_at": a["last_seen_at"], "total_runs": a["total_runs"], "avatar_seed": a["avatar_seed"]} for a in agents],
     }
 
 
@@ -843,9 +844,9 @@ async def auth_github(body: dict[str, Any]):
         new_handle = await _generate_unique_handle(conn, base_handle)
         user_uuid = str(uuid.uuid4())
         row = await (await conn.execute(
-            "INSERT INTO users (email, handle, github_id, github_username, github_token, github_refresh_token, github_token_expires, avatar_url, github_connected_at, uuid, created_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id, role",
-            (gh_email, new_handle, gh_id, gh_username, gh_token_enc, gh_refresh_enc, gh_expires, gh_avatar, now(), user_uuid, now()),
+            "INSERT INTO users (email, handle, github_id, github_username, github_token, github_refresh_token, github_token_expires, avatar_url, github_connected_at, uuid, avatar_seed, created_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id, role",
+            (gh_email, new_handle, gh_id, gh_username, gh_token_enc, gh_refresh_enc, gh_expires, gh_avatar, now(), user_uuid, str(uuid.uuid4()), now()),
         )).fetchone()
     token = _create_jwt(row["id"], gh_email, row["role"], new_handle)
     return JSONResponse(
@@ -1000,9 +1001,9 @@ async def register(
             agent_id = await generate_name(conn)
         try:
             await conn.execute(
-                "INSERT INTO agents (id, token, registered_at, last_seen_at, type, harness, model)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (agent_id, agent_token, ts, ts, agent_type, harness, model),
+                "INSERT INTO agents (id, token, registered_at, last_seen_at, type, harness, model, avatar_seed)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (agent_id, agent_token, ts, ts, agent_type, harness, model, str(uuid.uuid4())),
             )
         except psycopg.errors.UniqueViolation:
             raise HTTPException(409, f"name '{agent_id}' is already taken")
@@ -1019,7 +1020,7 @@ async def list_agents(q: str | None = Query(None), limit: int = Query(50)):
     async with get_db() as conn:
         if q:
             rows = await (await conn.execute(
-                "SELECT a.id, a.total_runs, a.type, a.harness, a.model,"
+                "SELECT a.id, a.total_runs, a.type, a.harness, a.model, a.avatar_seed,"
                 " a.last_seen_at, u.handle AS owner_handle FROM agents a"
                 " LEFT JOIN users u ON u.id = a.user_id"
                 " WHERE a.id ILIKE %s ORDER BY a.last_seen_at DESC NULLS LAST, a.id ASC LIMIT %s",
@@ -1027,7 +1028,7 @@ async def list_agents(q: str | None = Query(None), limit: int = Query(50)):
             )).fetchall()
         else:
             rows = await (await conn.execute(
-                "SELECT a.id, a.total_runs, a.type, a.harness, a.model,"
+                "SELECT a.id, a.total_runs, a.type, a.harness, a.model, a.avatar_seed,"
                 " a.last_seen_at, u.handle AS owner_handle FROM agents a"
                 " LEFT JOIN users u ON u.id = a.user_id"
                 " ORDER BY a.last_seen_at DESC NULLS LAST, a.id ASC LIMIT %s",
@@ -1038,6 +1039,7 @@ async def list_agents(q: str | None = Query(None), limit: int = Query(50)):
             "id": r["id"], "total_runs": r["total_runs"],
             "owner_handle": r["owner_handle"],
             "type": r["type"], "harness": r["harness"], "model": r["model"],
+            "avatar_seed": r["avatar_seed"],
             "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
         }
         for r in rows
@@ -1050,7 +1052,8 @@ async def get_agent_profile(agent_id: str):
     async with get_db() as conn:
         row = await (await conn.execute(
             "SELECT a.id, a.registered_at, a.last_seen_at, a.total_runs,"
-            " a.type, a.harness, a.model, u.handle AS owner_handle"
+            " a.type, a.harness, a.model, a.avatar_seed, a.workspace_id,"
+            " u.handle AS owner_handle"
             " FROM agents a LEFT JOIN users u ON u.id = a.user_id"
             " WHERE a.id = %s",
             (agent_id,),
@@ -1078,8 +1081,112 @@ async def get_agent_profile(agent_id: str):
         "type": row["type"],
         "harness": row["harness"],
         "model": row["model"],
+        "avatar_seed": row["avatar_seed"],
+        "workspace_id": row["workspace_id"],
         "harnesses": harnesses,
     })
+
+
+@router.get("/agents/{agent_id}/stats")
+async def get_agent_stats(agent_id: str):
+    """Aggregate stats for an agent across all public tasks."""
+    async with get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT COUNT(*) AS total_runs,"
+            " COUNT(DISTINCT r.task_id) AS tasks_contributed,"
+            " MAX(r.score) AS best_score,"
+            " COUNT(*) FILTER ("
+            "   WHERE r.score > COALESCE("
+            "     (SELECT MAX(r2.score) FROM runs r2"
+            "      WHERE r2.task_id = r.task_id"
+            "      AND r2.created_at < r.created_at AND r2.valid IS NOT FALSE AND r2.score IS NOT NULL),"
+            "     '-Infinity'::float)"
+            " ) AS improvements"
+            " FROM runs r JOIN tasks t ON t.id = r.task_id"
+            " WHERE r.agent_id = %s AND t.visibility = 'public'"
+            " AND r.valid IS NOT FALSE AND r.score IS NOT NULL",
+            (agent_id,),
+        )).fetchone()
+    return {
+        "total_runs": row["total_runs"] or 0,
+        "tasks_contributed": row["tasks_contributed"] or 0,
+        "best_score": row["best_score"],
+        "improvements": row["improvements"] or 0,
+    }
+
+
+@router.get("/agents/{agent_id}/tasks")
+async def get_agent_tasks(agent_id: str):
+    """List of public tasks the agent has contributed to with per-task best score, run count, and improvements."""
+    async with get_db() as conn:
+        rows = await (await conn.execute(
+            "SELECT t.id, t.owner, t.slug, t.name,"
+            " COUNT(r.*) AS runs, MAX(r.score) AS best_score,"
+            " COUNT(*) FILTER ("
+            "   WHERE r.score > COALESCE("
+            "     (SELECT MAX(r2.score) FROM runs r2"
+            "      WHERE r2.task_id = r.task_id"
+            "      AND r2.created_at < r.created_at AND r2.valid IS NOT FALSE AND r2.score IS NOT NULL),"
+            "     '-Infinity'::float)"
+            " ) AS improvements"
+            " FROM runs r JOIN tasks t ON t.id = r.task_id"
+            " WHERE r.agent_id = %s AND t.visibility = 'public'"
+            " AND r.valid IS NOT FALSE AND r.score IS NOT NULL"
+            " GROUP BY t.id, t.owner, t.slug, t.name"
+            " ORDER BY improvements DESC, best_score DESC NULLS LAST",
+            (agent_id,),
+        )).fetchall()
+    return {"tasks": [{
+        "id": r["id"], "owner": r["owner"], "slug": r["slug"], "name": r["name"],
+        "runs": r["runs"], "best_score": r["best_score"], "improvements": r["improvements"],
+    } for r in rows]}
+
+
+@router.get("/agents/{agent_id}/activity")
+async def get_agent_activity(agent_id: str, limit: int = 30):
+    """Recent runs for an agent (most recent first)."""
+    limit = min(max(1, limit), 100)
+    async with get_db() as conn:
+        rows = await (await conn.execute(
+            "SELECT r.id, r.tldr, r.score, r.created_at,"
+            " t.owner, t.slug, t.name AS task_name"
+            " FROM runs r JOIN tasks t ON t.id = r.task_id"
+            " WHERE r.agent_id = %s AND t.visibility = 'public'"
+            " ORDER BY r.created_at DESC LIMIT %s",
+            (agent_id, limit),
+        )).fetchall()
+    return {"runs": [{
+        "id": r["id"], "tldr": r["tldr"], "score": r["score"], "created_at": r["created_at"],
+        "task": {"owner": r["owner"], "slug": r["slug"], "name": r["task_name"]},
+    } for r in rows]}
+
+
+@router.get("/agents/{agent_id}/heatmap")
+async def get_agent_heatmap(agent_id: str, days: int = 365):
+    """Daily run + improvement counts for the contribution heatmap."""
+    days = min(max(1, days), 730)
+    async with get_db() as conn:
+        rows = await (await conn.execute(
+            "SELECT DATE(r.created_at) AS day,"
+            " COUNT(*) AS runs,"
+            " COUNT(*) FILTER ("
+            "   WHERE r.score > COALESCE("
+            "     (SELECT MAX(r2.score) FROM runs r2"
+            "      WHERE r2.task_id = r.task_id"
+            "      AND r2.created_at < r.created_at AND r2.valid IS NOT FALSE AND r2.score IS NOT NULL),"
+            "     '-Infinity'::float)"
+            " ) AS improvements"
+            " FROM runs r JOIN tasks t ON t.id = r.task_id"
+            " WHERE r.agent_id = %s AND t.visibility = 'public'"
+            f"  AND r.created_at >= now() - interval '{days} days'"
+            " GROUP BY day ORDER BY day",
+            (agent_id,),
+        )).fetchall()
+    return {"days": [{
+        "date": r["day"].isoformat(),
+        "runs": r["runs"],
+        "improvements": r["improvements"],
+    } for r in rows]}
 
 
 @router.get("/users")
@@ -1089,13 +1196,13 @@ async def list_users(q: str = "", limit: int = 20):
     async with get_db() as conn:
         if q:
             rows = await (await conn.execute(
-                "SELECT id, handle, avatar_url FROM users"
+                "SELECT id, handle, avatar_url, avatar_seed FROM users"
                 " WHERE handle ILIKE %s ORDER BY handle LIMIT %s",
                 (f"{q}%", limit),
             )).fetchall()
         else:
             rows = await (await conn.execute(
-                "SELECT id, handle, avatar_url FROM users ORDER BY handle LIMIT %s",
+                "SELECT id, handle, avatar_url, avatar_seed FROM users ORDER BY handle LIMIT %s",
                 (limit,),
             )).fetchall()
     return JSONResponse({"users": [dict(r) for r in rows]})
@@ -1106,7 +1213,7 @@ async def get_user_profile(handle: str):
     """Public user profile by handle: identity, joined date, agent count."""
     async with get_db() as conn:
         row = await (await conn.execute(
-            "SELECT u.id, u.handle, u.avatar_url, u.created_at,"
+            "SELECT u.id, u.handle, u.avatar_url, u.avatar_seed, u.created_at,"
             " (SELECT COUNT(*) FROM agents WHERE user_id = u.id) AS agent_count"
             " FROM users u WHERE u.handle = %s",
             (handle,),
@@ -1117,6 +1224,7 @@ async def get_user_profile(handle: str):
         "id": row["id"],
         "handle": row["handle"],
         "avatar_url": row["avatar_url"],
+        "avatar_seed": row["avatar_seed"],
         "created_at": row["created_at"],
         "agent_count": row["agent_count"],
     })
@@ -1140,8 +1248,8 @@ async def register_batch(body: dict[str, Any] = {}):
                 agent_id = await generate_name(conn)
             try:
                 await conn.execute(
-                    "INSERT INTO agents (id, token, registered_at, last_seen_at) VALUES (%s, %s, %s, %s)",
-                    (agent_id, agent_token, ts, ts),
+                    "INSERT INTO agents (id, token, registered_at, last_seen_at, avatar_seed) VALUES (%s, %s, %s, %s, %s)",
+                    (agent_id, agent_token, ts, ts, str(uuid.uuid4())),
                 )
             except psycopg.errors.UniqueViolation:
                 await conn.rollback()
@@ -2212,17 +2320,32 @@ async def get_graph(owner: str, slug: str, authorization: str = Header(""), max_
 
 
 
-def _serialize_workspace(row: dict) -> dict:
+def _serialize_workspace(row: dict, agents: list | None = None) -> dict:
     d: dict[str, Any] = {
         "id": row["id"],
         "name": row["name"],
-        "agent_name": row["agent_name"],
         "type": row["type"],
+        "created_at": row["created_at"],
+        "agents": agents or [],
+        # kept for backward compat with existing agent-sdk hook (reads a single session per workspace)
         "sdk_session_id": row.get("sdk_session_id"),
         "sdk_base_url": row.get("sdk_base_url"),
-        "created_at": row["created_at"],
     }
     return d
+
+
+async def _agents_in_workspace(conn, workspace_id: int) -> list[dict]:
+    rows = await (await conn.execute(
+        "SELECT id, type, harness, model, avatar_seed, sdk_session_id, sdk_base_url, last_seen_at"
+        " FROM agents WHERE workspace_id = %s ORDER BY registered_at ASC",
+        (workspace_id,)
+    )).fetchall()
+    return [{
+        "id": r["id"], "type": r["type"], "harness": r["harness"], "model": r["model"],
+        "avatar_seed": r["avatar_seed"],
+        "sdk_session_id": r["sdk_session_id"], "sdk_base_url": r["sdk_base_url"],
+        "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
+    } for r in rows]
 
 
 @router.get("/workspaces")
@@ -2230,23 +2353,32 @@ async def list_workspaces(user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         rows = await (await conn.execute(
-            "SELECT id, name, agent_name, type, sdk_session_id, sdk_base_url, created_at FROM workspaces"
-            " WHERE user_id = %s ORDER BY created_at DESC",
+            "SELECT w.id, w.name, w.type, w.sdk_session_id, w.sdk_base_url, w.created_at,"
+            " COUNT(a.id) AS agent_count,"
+            " COALESCE("
+            "   json_agg(json_build_object('id', a.id, 'avatar_seed', a.avatar_seed) ORDER BY a.registered_at ASC)"
+            "   FILTER (WHERE a.id IS NOT NULL), '[]'::json"
+            " ) AS agents"
+            " FROM workspaces w LEFT JOIN agents a ON a.workspace_id = w.id"
+            " WHERE w.user_id = %s"
+            " GROUP BY w.id"
+            " ORDER BY w.created_at DESC",
             (user_id,)
         )).fetchall()
-    return {"workspaces": [_serialize_workspace(r) for r in rows]}
+    return {"workspaces": [{
+        **_serialize_workspace(r),
+        "agent_count": r["agent_count"],
+        "agents": r["agents"],
+    } for r in rows]}
 
 
 @router.post("/workspaces")
 async def create_workspace(body: dict[str, Any], user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     name = (body.get("name") or "").strip()
-    agent_name = (body.get("agent_name") or "").strip()
     ws_type = (body.get("type") or "local").strip()
     if not name:
         raise HTTPException(400, "name is required")
-    if not agent_name:
-        raise HTTPException(400, "agent_name is required")
     if ws_type not in ("local", "cloud"):
         raise HTTPException(400, "type must be 'local' or 'cloud'")
     async with get_db() as conn:
@@ -2258,8 +2390,8 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
         row = await (await conn.execute(
             "INSERT INTO workspaces (user_id, name, agent_name, type, created_at)"
             " VALUES (%s, %s, %s, %s, %s)"
-            " RETURNING id, name, agent_name, type, sdk_session_id, sdk_base_url, created_at",
-            (user_id, name, agent_name, ws_type, now())
+            " RETURNING id, name, type, sdk_session_id, sdk_base_url, created_at",
+            (user_id, name, "", ws_type, now())
         )).fetchone()
     return _serialize_workspace(row)
 
@@ -2269,13 +2401,73 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await (await conn.execute(
-            "SELECT id, name, agent_name, type, sdk_session_id, sdk_base_url, created_at FROM workspaces"
+            "SELECT id, name, type, sdk_session_id, sdk_base_url, created_at FROM workspaces"
             " WHERE id = %s AND user_id = %s",
             (workspace_id, user_id)
         )).fetchone()
         if not row:
             raise HTTPException(404, "workspace not found")
-    return _serialize_workspace(row)
+        agents = await _agents_in_workspace(conn, workspace_id)
+    return _serialize_workspace(row, agents=agents)
+
+
+@router.post("/workspaces/{workspace_id}/agents")
+async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user: dict = Depends(require_user)):
+    """Create a new agent inside this workspace.
+
+    Body:
+      name (optional) — custom agent id; otherwise auto-generated
+      harness (optional), model (optional)
+    """
+    user_id = int(user["sub"])
+    requested_name = (body.get("name") or "").strip().lower()
+    async with get_db() as conn:
+        ws = await (await conn.execute(
+            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s",
+            (workspace_id, user_id)
+        )).fetchone()
+        if not ws:
+            raise HTTPException(404, "workspace not found")
+        if requested_name:
+            if not re.match(r"^[a-z][a-z0-9-]{1,38}[a-z0-9]$", requested_name):
+                raise HTTPException(400, "name must be 3-40 chars, lowercase letters, digits, or hyphens")
+            existing = await (await conn.execute("SELECT 1 FROM agents WHERE id = %s", (requested_name,))).fetchone()
+            if existing:
+                raise HTTPException(409, f"agent '{requested_name}' already exists")
+            agent_id = requested_name
+        else:
+            agent_id = await generate_name(conn)
+        agent_token = str(uuid.uuid4())
+        harness = (body.get("harness") or "unknown").strip() or "unknown"
+        model = (body.get("model") or "unknown").strip() or "unknown"
+        ts = now()
+        await conn.execute(
+            "INSERT INTO agents (id, token, registered_at, last_seen_at, user_id, type, harness, model, avatar_seed, workspace_id)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (agent_id, agent_token, ts, ts, user_id, "local", harness, model, str(uuid.uuid4()), workspace_id)
+        )
+    return {"id": agent_id, "token": agent_token, "workspace_id": workspace_id}
+
+
+@router.delete("/workspaces/{workspace_id}/agents/{agent_id}")
+async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = Depends(require_user)):
+    """Detach an agent from this workspace. The agent is not deleted — just unlinked."""
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        ws = await (await conn.execute(
+            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s",
+            (workspace_id, user_id)
+        )).fetchone()
+        if not ws:
+            raise HTTPException(404, "workspace not found")
+        result = await conn.execute(
+            "UPDATE agents SET workspace_id = NULL, sdk_session_id = NULL, sdk_base_url = NULL"
+            " WHERE id = %s AND workspace_id = %s",
+            (agent_id, workspace_id)
+        )
+        if result.rowcount == 0:
+            raise HTTPException(404, "agent not in this workspace")
+    return {"status": "ok"}
 
 
 @router.post("/workspaces/{workspace_id}/connect")

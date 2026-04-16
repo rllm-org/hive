@@ -1,21 +1,193 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { LuArrowLeft } from "react-icons/lu";
+import { LuArrowLeft, LuPlus } from "react-icons/lu";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { apiFetch } from "@/lib/api";
-import { getAgentColor } from "@/lib/agent-colors";
+import { apiFetch, apiPostJson } from "@/lib/api";
+import BoringAvatar from "boring-avatars";
+
+const AVATAR_COLORS = ["#92A1C6", "#146A7C", "#F0AB3D", "#C271B4", "#C20D90"];
+
+function AgentAvatar({ seed, id, size = 20 }: { seed: string | null; id: string; size?: number }) {
+  return (
+    <div className="overflow-hidden shrink-0" style={{ width: size, height: size, borderRadius: 4 }}>
+      <BoringAvatar name={seed || id} variant="beam" size={size} square colors={AVATAR_COLORS} />
+    </div>
+  );
+}
+
+function AgentTabs({
+  agents,
+  activeAgentId,
+  onSelect,
+  onCreate,
+  adding,
+}: {
+  agents: WorkspaceAgent[];
+  activeAgentId: string | null;
+  onSelect: (id: string) => void;
+  onCreate: (name?: string) => Promise<{ id: string } | undefined>;
+  adding: boolean;
+}) {
+  const [showModal, setShowModal] = useState(false);
+
+  return (
+    <>
+      <div className="shrink-0 flex items-center gap-1 px-3 pt-3 border-b border-[var(--color-border)]">
+        {agents.map((a) => {
+          const active = a.id === activeAgentId;
+          return (
+            <button
+              key={a.id}
+              onClick={() => onSelect(a.id)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
+                active
+                  ? "bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)] border-b-[var(--color-surface)] -mb-px"
+                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] border border-transparent"
+              }`}
+              style={{ borderRadius: "6px 6px 0 0" }}
+            >
+              <AgentAvatar seed={a.avatar_seed} id={a.id} size={16} />
+              <span className="truncate max-w-[120px]">{a.id}</span>
+            </button>
+          );
+        })}
+        <button
+          onClick={() => setShowModal(true)}
+          className="ml-1 flex items-center gap-1 px-2 py-1.5 text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+          style={{ borderRadius: 4 }}
+        >
+          <LuPlus size={12} />
+          Agent
+        </button>
+      </div>
+      {showModal && (
+        <CreateAgentModal
+          existingNames={agents.map((a) => a.id)}
+          onClose={() => setShowModal(false)}
+          onCreate={onCreate}
+          submitting={adding}
+        />
+      )}
+    </>
+  );
+}
+
+function CreateAgentModal({
+  existingNames,
+  onClose,
+  onCreate,
+  submitting,
+}: {
+  existingNames: string[];
+  onClose: () => void;
+  onCreate: (name?: string) => Promise<{ id: string } | undefined>;
+  submitting: boolean;
+}) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const [name, setName] = useState(() => {
+    const set = new Set(existingNames);
+    let x = 1;
+    while (set.has(`agent-${x}`)) x++;
+    return `agent-${x}`;
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [onClose]);
+
+  const submit = async () => {
+    const trimmed = name.trim().toLowerCase();
+    if (!trimmed) { setError("Name required"); return; }
+    setError(null);
+    try {
+      await onCreate(trimmed);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+    }
+  };
+
+  return (
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30"
+      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+    >
+      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[420px] flex flex-col animate-fade-in" style={{ borderRadius: 6 }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+          <h2 className="text-base font-semibold text-[var(--color-text)]">Add Agent</h2>
+          <button
+            onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M3 3l8 8M11 3l-8 8" />
+            </svg>
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Agent Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value.toLowerCase())}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } }}
+              placeholder="agent-1"
+              className="w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
+              style={{ outline: "none", boxShadow: "none" }}
+              autoFocus
+            />
+            <p className="text-xs text-[var(--color-text-tertiary)] mt-1.5">3–40 lowercase letters, digits, or hyphens.</p>
+          </div>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              onClick={onClose}
+              disabled={submitting}
+              className="px-4 py-2 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] disabled:opacity-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={submit}
+              disabled={submitting}
+              className="px-4 py-2 text-sm font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+            >
+              {submitting ? "Creating…" : "Create"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 import { WorkspaceEditor, type OpenFile } from "@/components/workspace-editor";
 import { useWorkspaceAgent } from "@/hooks/use-workspace-agent";
 import { useWorkspaceFiles, type FsTreeNode } from "@/hooks/use-workspace-files";
 
+interface WorkspaceAgent {
+  id: string;
+  type: "local" | "cloud";
+  harness: string;
+  model: string;
+  avatar_seed: string | null;
+  sdk_session_id: string | null;
+  sdk_base_url: string | null;
+  last_seen_at: string | null;
+}
+
 interface Workspace {
   id: number;
   name: string;
-  agent_name: string;
   type: "local" | "cloud";
+  agents: WorkspaceAgent[];
   created_at: string;
 }
 
@@ -97,6 +269,15 @@ export default function WorkspacePage() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [wsError, setWsError] = useState<string | null>(null);
   const [wsLoading, setWsLoading] = useState(true);
+  const [addingAgent, setAddingAgent] = useState(false);
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+
+  const refetchWorkspace = useCallback(async () => {
+    try {
+      const data = await apiFetch<Workspace>(`/workspaces/${workspaceId}`);
+      setWorkspace(data);
+    } catch { /* ignore */ }
+  }, [workspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,10 +288,33 @@ export default function WorkspacePage() {
     return () => { cancelled = true; };
   }, [workspaceId]);
 
+  const handleAddAgent = useCallback(async (name?: string) => {
+    setAddingAgent(true);
+    try {
+      const agent = await apiPostJson<{ id: string }>(`/workspaces/${workspaceId}/agents`, {
+        name: name ?? "",
+        harness: "claude-code",
+        model: "claude-sonnet-4-6",
+      });
+      await refetchWorkspace();
+      setActiveAgentId(agent.id);
+      return agent;
+    } finally {
+      setAddingAgent(false);
+    }
+  }, [workspaceId, refetchWorkspace]);
+
   const workspaceName = workspace?.name ?? "";
-  const agentName = workspace?.agent_name ?? "";
-  const color = getAgentColor(agentName || workspaceId);
-  const initials = (agentName || workspaceId).split("-").map(w => w[0]?.toUpperCase() ?? "").join("").slice(0, 2) || (agentName || workspaceId).slice(0, 2).toUpperCase();
+  const agents = workspace?.agents ?? [];
+  const activeAgent = activeAgentId ? agents.find((a) => a.id === activeAgentId) ?? null : (agents[0] ?? null);
+  const agentName = activeAgent?.id ?? "";
+
+  // Auto-select first agent when workspace loads or agents change and no selection
+  useEffect(() => {
+    if (!activeAgentId && agents.length > 0) {
+      setActiveAgentId(agents[0].id);
+    }
+  }, [activeAgentId, agents]);
 
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [leftWidth, setLeftWidth] = useState(20);
@@ -301,7 +505,12 @@ export default function WorkspacePage() {
         >
           <LuArrowLeft size={14} />
         </button>
-        <span className="text-[14px] font-semibold text-[var(--color-text)]">{workspaceName}</span>
+        <div className="flex flex-col leading-tight">
+          <span className="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)] font-semibold">
+            {workspace?.type === "cloud" ? "Cloud" : "Local"}
+          </span>
+          <span className="text-[14px] font-semibold text-[var(--color-text)]">{workspaceName}</span>
+        </div>
       </div>
 
       {/* Split view */}
@@ -373,17 +582,19 @@ export default function WorkspacePage() {
           className={`min-w-0 flex flex-col ${openFiles.length === 0 ? "flex-1" : "shrink-0"}`}
           style={openFiles.length === 0 ? { height: "100%" } : { width: `${chatWidth}%`, height: "100%" }}
         >
-          {/* Agent indicator */}
-          <div className="shrink-0 px-4 py-3 flex items-center gap-2">
-            <div
-              className="w-5 h-5 rounded flex items-center justify-center text-white font-bold text-[8px]"
-              style={{ backgroundColor: color }}
-            >
-              {initials}
-            </div>
-            <span className="text-sm font-medium text-[var(--color-text)]">{agentName}</span>
-          </div>
+          {/* Agent tabs */}
+          <AgentTabs
+            agents={agents}
+            activeAgentId={activeAgent?.id ?? null}
+            onSelect={setActiveAgentId}
+            onCreate={handleAddAgent}
+            adding={addingAgent}
+          />
 
+          {!activeAgent ? (
+            <div className="flex-1" />
+          ) : (
+            <>
           {/* Messages */}
           <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3">
             {connecting && (
@@ -476,6 +687,8 @@ export default function WorkspacePage() {
               </div>
             </div>
           </form>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -88,7 +88,7 @@ export default function LeaderboardPage() {
                 }`}
               >
                 <RankBadge rank={ranks[i]} highlight={isTop} />
-                <Avatar id={entry.agent_id} size="md" />
+                <Avatar id={entry.agent_id} kind="agent" size="md" />
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-semibold text-[var(--color-text)] truncate block">
                     {entry.agent_id}

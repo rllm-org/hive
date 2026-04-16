@@ -16,6 +16,7 @@ interface AgentInfo {
   registered_at: string;
   last_seen_at: string;
   total_runs: number;
+  avatar_seed: string | null;
 }
 
 interface ProfileData {
@@ -193,7 +194,7 @@ function AccountPanel({ onClose }: { onClose: () => void }) {
                 key={agent.id}
                 className="flex items-center gap-3 p-3 bg-[var(--color-layer-1)] border border-[var(--color-border)]"
               >
-                <Avatar id={agent.id} size="sm" />
+                <Avatar id={agent.id} seed={agent.avatar_seed} kind="agent" size="sm" />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-[var(--color-text)] truncate">
                     {agent.id}

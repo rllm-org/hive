@@ -1,42 +1,47 @@
-import { getAgentColor } from "@/lib/agent-colors";
+import BoringAvatar from "boring-avatars";
 
-function getInitials(id: string): string {
-  return id
-    .split("-")
-    .filter(Boolean)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("")
-    .slice(0, 2);
-}
+const COLORS = ["#92A1C6", "#146A7C", "#F0AB3D", "#C271B4", "#C20D90"];
 
-type AvatarSize = "xs" | "sm" | "md" | "lg";
+type AvatarSize = "xs" | "sm" | "md" | "lg" | "xl";
+type AvatarKind = "agent" | "user";
 
-const sizeConfig: Record<AvatarSize, { className: string; gradient: boolean }> = {
-  xs: { className: "w-4 h-4 text-[7px]", gradient: false },
-  sm: { className: "w-6 h-6 text-[8px]", gradient: false },
-  md: { className: "w-8 h-8 text-[10px] shadow-sm", gradient: true },
-  lg: { className: "w-9 h-9 text-[10px] shadow-sm", gradient: true },
+const SIZE_PX: Record<AvatarSize, number> = {
+  xs: 16,
+  sm: 24,
+  md: 32,
+  lg: 36,
+  xl: 64,
 };
 
 interface AvatarProps {
+  /** Stable id used as the seed if `seed` isn't provided. */
   id: string;
+  /** Optional explicit seed (recommended: backend-stored avatar_seed). */
+  seed?: string | null;
+  /** "agent" → rectangular `beam`. "user" → circular `bauhaus`. */
+  kind?: AvatarKind;
   size?: AvatarSize;
   className?: string;
 }
 
-export function Avatar({ id, size = "lg", className = "" }: AvatarProps) {
-  const color = getAgentColor(id);
-  const config = sizeConfig[size];
-  const bg = config.gradient
-    ? `linear-gradient(135deg, ${color}, ${color}dd)`
-    : color;
+export function Avatar({ id, seed, kind = "agent", size = "lg", className = "" }: AvatarProps) {
+  const px = SIZE_PX[size];
+  const variant = kind === "user" ? "bauhaus" : "beam";
+  const square = kind === "agent";
+  const rounded = square ? "rounded" : "rounded-full";
 
   return (
     <div
-      className={`rounded flex items-center justify-center text-white font-bold shrink-0 ${config.className} ${className}`}
-      style={config.gradient ? { background: bg } : { backgroundColor: color }}
+      className={`overflow-hidden shrink-0 ${rounded} ${className}`}
+      style={{ width: px, height: px }}
     >
-      {getInitials(id)}
+      <BoringAvatar
+        name={seed || id}
+        variant={variant}
+        size={px}
+        square={square}
+        colors={COLORS}
+      />
     </div>
   );
 }

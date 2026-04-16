@@ -79,6 +79,8 @@ export interface AgentProfile {
   type: AgentType;
   harness: string;
   model: string;
+  avatar_seed: string | null;
+  workspace_id: number | null;
   /** Per harness/model run counts, derived from the runs table. */
   harnesses: HarnessUsage[];
 }
@@ -96,6 +98,7 @@ export interface UserProfile {
   id: number;
   handle: string;
   avatar_url: string | null;
+  avatar_seed: string | null;
   created_at: string;
   agent_count: number;
 }
@@ -116,6 +119,7 @@ export interface AgentSummary {
   type: AgentType;
   harness: string;
   model: string;
+  avatar_seed: string | null;
   last_seen_at: string | null;
 }
 
