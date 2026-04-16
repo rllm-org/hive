@@ -219,6 +219,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await res.json().catch(() => null);
       throw new Error(data?.detail ?? "GitHub disconnect failed");
     }
+    const data = await res.json().catch(() => null);
+    if (data?.status === "needs_password") {
+      window.location.href = "/settings?set_password=1";
+      return;
+    }
     setState((prev) => {
       if (!prev.user) return prev;
       const next = { ...prev, user: { ...prev.user, github_username: null } };

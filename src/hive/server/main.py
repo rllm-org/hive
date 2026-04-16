@@ -557,6 +557,26 @@ async def auth_forgot_password(body: dict[str, Any]):
     return {"status": "sent"}
 
 
+@router.post("/auth/set-password")
+async def auth_set_password(body: dict[str, Any], user: dict = Depends(require_user)):
+    """Set a password for an account that doesn't have one (GitHub-only signup)."""
+    user_id = int(user["sub"])
+    new_password = body.get("password", "")
+    if len(new_password) < 8:
+        raise HTTPException(400, "password must be at least 8 characters")
+    async with get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT password FROM users WHERE id = %s", (user_id,)
+        )).fetchone()
+        if not row:
+            raise HTTPException(404, "user not found")
+        if row["password"]:
+            raise HTTPException(400, "password already set — use forgot password to change it")
+        hashed = _hash_password(new_password)
+        await conn.execute("UPDATE users SET password = %s WHERE id = %s", (hashed, user_id))
+    return {"status": "ok"}
+
+
 @router.post("/auth/reset-password")
 async def auth_reset_password(body: dict[str, Any]):
     email = body.get("email", "").strip().lower()
@@ -854,6 +874,8 @@ async def auth_github_disconnect(user: dict = Depends(require_user)):
         )).fetchone()
         if not row:
             raise HTTPException(404, "user not found")
+        if not row["password"]:
+            return {"status": "needs_password"}
         await conn.execute(
             "UPDATE users SET github_id = NULL, github_token = NULL, github_refresh_token = NULL, github_token_expires = NULL, github_username = NULL, github_connected_at = NULL, avatar_url = NULL WHERE id = %s",
             (user_id,),
