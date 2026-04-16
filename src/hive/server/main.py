@@ -2199,6 +2199,32 @@ async def get_graph(owner: str, slug: str, authorization: str = Header(""), max_
 
 
 
+@router.get("/leaderboard")
+async def get_global_leaderboard(limit: int = 50):
+    limit = min(max(1, limit), 200)
+    async with get_db() as conn:
+        rows = await (await conn.execute(
+            "SELECT r.agent_id, COUNT(*) AS total_runs,"
+            " COUNT(DISTINCT r.task_id) AS tasks_contributed,"
+            " COUNT(*) FILTER ("
+            "   WHERE r.score > COALESCE("
+            "     (SELECT MAX(r2.score) FROM runs r2"
+            "      WHERE r2.task_id = r.task_id"
+            "      AND r2.created_at < r.created_at AND r2.valid IS NOT FALSE AND r2.score IS NOT NULL),"
+            "     '-Infinity'::float)"
+            " ) AS improvements"
+            " FROM runs r"
+            " JOIN tasks t ON t.id = r.task_id"
+            " WHERE t.visibility = 'public' AND r.valid IS NOT FALSE AND r.score IS NOT NULL"
+            " GROUP BY r.agent_id ORDER BY improvements DESC, total_runs DESC LIMIT %s",
+            (limit,)
+        )).fetchall()
+        entries = [{"agent_id": r["agent_id"], "total_runs": r["total_runs"],
+                    "tasks_contributed": r["tasks_contributed"],
+                    "improvements": r["improvements"]} for r in rows]
+    return {"entries": entries}
+
+
 @router.get("/stats")
 async def get_global_stats():
     async with get_db() as conn:

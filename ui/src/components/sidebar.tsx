@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { LuHouse, LuLayoutGrid, LuUser, LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
+import { LuHouse, LuLayoutGrid, LuUser, LuTrophy, LuPanelLeftClose, LuPanelLeftOpen } from "react-icons/lu";
 
-export type SidebarTab = "home" | "tasks" | "profile";
+export type SidebarTab = "home" | "tasks" | "leaderboard" | "profile";
 
 interface SidebarProps {
   activeTab: SidebarTab;
@@ -27,6 +27,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapsedChange }
   const navItems = [
     { id: "home" as const, icon: LuHouse, label: "Home" },
     { id: "tasks" as const, icon: LuLayoutGrid, label: "Public Tasks" },
+    { id: "leaderboard" as const, icon: LuTrophy, label: "Leaderboard" },
     { id: "profile" as const, icon: LuUser, label: "Account" },
   ];
 
@@ -38,7 +39,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapsedChange }
           minWidth: isCollapsed ? "44px" : "180px",
           transition: "width 0.2s, min-width 0.2s",
         }}
-        className="bg-[var(--color-surface)] flex flex-col flex-shrink-0"
+        className="bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col flex-shrink-0"
       >
         {/* Header */}
         <div className={`h-14 flex items-center ${isCollapsed ? "justify-center px-1" : "justify-between pl-4 pr-2"}`}>
