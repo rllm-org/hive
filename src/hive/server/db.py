@@ -222,6 +222,8 @@ _PG_SCHEMA = [
         name            TEXT NOT NULL,
         agent_name      TEXT NOT NULL,
         type            TEXT NOT NULL DEFAULT 'local',
+        sdk_session_id  TEXT,
+        sdk_base_url    TEXT,
         created_at      TIMESTAMPTZ NOT NULL,
         UNIQUE(user_id, name)
     )""",
@@ -606,6 +608,11 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
             error_message       TEXT,
             UNIQUE(task_id, user_id)
         )""")
+    # sdk_session_id on workspaces (agent-sdk session binding)
+    if _table_exists(conn, "workspaces") and not _column_exists(conn, "workspaces", "sdk_session_id"):
+        conn.execute("ALTER TABLE workspaces ADD COLUMN sdk_session_id TEXT")
+        conn.execute("ALTER TABLE workspaces ADD COLUMN sdk_base_url TEXT")
+
     # agent-sdk chat session mapping (user, task) → sdk session id
     if not _table_exists(conn, "agent_chat_sessions"):
         conn.execute("""CREATE TABLE agent_chat_sessions (

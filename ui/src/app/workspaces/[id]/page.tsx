@@ -6,9 +6,10 @@ import { useParams, useRouter } from "next/navigation";
 import { LuArrowLeft, LuPlus, LuFile, LuFolder, LuUpload } from "react-icons/lu";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiPostJson } from "@/lib/api";
 import { getAgentColor } from "@/lib/agent-colors";
 import { WorkspaceEditor, type OpenFile } from "@/components/workspace-editor";
+import { useWorkspaceAgent } from "@/hooks/use-workspace-agent";
 
 interface Workspace {
   id: number;
@@ -18,10 +19,7 @@ interface Workspace {
   created_at: string;
 }
 
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
+import type { ChatMessage } from "@/hooks/use-workspace-agent";
 
 const MAX_TEXTAREA_HEIGHT = 200;
 
@@ -273,10 +271,9 @@ export default function WorkspacePage() {
     setOpenFiles((prev) => prev.map((f) => f.path === path ? { ...f, content } : f));
   }, []);
 
-  // Chat state
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Chat state — wired to agent-sdk via workspace connect
+  const { messages, isLoading, connecting, error: agentError, sendMessage, cancel } = useWorkspaceAgent(workspace ? workspaceId : null);
   const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
@@ -318,17 +315,9 @@ export default function WorkspacePage() {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
     userScrolledUpRef.current = false;
-    const userMsg: ChatMessage = { role: "user", content: input.trim() };
-    setMessages((prev) => [...prev, userMsg]);
+    sendMessage(input.trim());
     setInput("");
-    setIsLoading(true);
-
-    // Simulate assistant response (placeholder until backend is wired)
-    setTimeout(() => {
-      setMessages((prev) => [...prev, { role: "assistant", content: "This is a placeholder response. The chat backend is not connected yet." }]);
-      setIsLoading(false);
-    }, 1000);
-  }, [input, isLoading]);
+  }, [input, isLoading, sendMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -511,7 +500,18 @@ export default function WorkspacePage() {
 
           {/* Messages */}
           <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3">
-            {messages.length === 0 && (
+            {connecting && (
+              <div className="flex flex-col items-center justify-center h-full">
+                <div className="w-6 h-6 border-2 border-[var(--color-border)] border-t-[var(--color-accent)] rounded-full animate-spin mb-3" />
+                <p className="text-sm text-[var(--color-text-tertiary)]">Connecting to agent…</p>
+              </div>
+            )}
+            {agentError && (
+              <div className="px-3 py-2 text-sm text-red-500 border border-red-500/30 bg-red-500/5 rounded">
+                {agentError}
+              </div>
+            )}
+            {!connecting && messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full">
                 <svg className="w-8 h-8 text-[var(--color-text-tertiary)] mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -526,11 +526,23 @@ export default function WorkspacePage() {
                   <div className="max-w-[85%] px-3 py-2 rounded-lg bg-[var(--color-accent)] text-white">
                     <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                   </div>
+                ) : msg.role === "error" ? (
+                  <div className="w-[90%] px-3 py-2 text-sm text-red-500 border border-red-500/30 bg-red-500/5 rounded whitespace-pre-wrap">
+                    {msg.content}
+                  </div>
                 ) : (
                   <div className="w-[90%] prose prose-sm max-w-none text-[var(--color-text)]">
+                    {msg.toolName && (
+                      <div className="text-xs text-[var(--color-text-tertiary)] mb-1">
+                        ● {msg.toolName}
+                      </div>
+                    )}
                     {msg.content ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                    ) : isLoading && i === messages.length - 1 ? (
+                      <>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                        {msg.streaming && <span className="inline-block w-2 h-4 ml-0.5 bg-[var(--color-text)] animate-pulse" />}
+                      </>
+                    ) : msg.streaming ? (
                       <div className="flex items-center gap-2 text-[var(--color-text-tertiary)]">
                         <div className="w-1.5 h-1.5 bg-[var(--color-text-tertiary)] rounded-full animate-pulse" />
                         <span>Thinking...</span>

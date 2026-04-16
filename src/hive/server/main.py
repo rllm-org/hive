@@ -2200,13 +2200,16 @@ async def get_graph(owner: str, slug: str, authorization: str = Header(""), max_
 
 
 def _serialize_workspace(row: dict) -> dict:
-    return {
+    d: dict[str, Any] = {
         "id": row["id"],
         "name": row["name"],
         "agent_name": row["agent_name"],
         "type": row["type"],
+        "sdk_session_id": row.get("sdk_session_id"),
+        "sdk_base_url": row.get("sdk_base_url"),
         "created_at": row["created_at"],
     }
+    return d
 
 
 @router.get("/workspaces")
@@ -2214,7 +2217,7 @@ async def list_workspaces(user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         rows = await (await conn.execute(
-            "SELECT id, name, agent_name, type, created_at FROM workspaces"
+            "SELECT id, name, agent_name, type, sdk_session_id, sdk_base_url, created_at FROM workspaces"
             " WHERE user_id = %s ORDER BY created_at DESC",
             (user_id,)
         )).fetchall()
@@ -2242,7 +2245,7 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
         row = await (await conn.execute(
             "INSERT INTO workspaces (user_id, name, agent_name, type, created_at)"
             " VALUES (%s, %s, %s, %s, %s)"
-            " RETURNING id, name, agent_name, type, created_at",
+            " RETURNING id, name, agent_name, type, sdk_session_id, sdk_base_url, created_at",
             (user_id, name, agent_name, ws_type, now())
         )).fetchone()
     return _serialize_workspace(row)
@@ -2253,13 +2256,50 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await (await conn.execute(
-            "SELECT id, name, agent_name, type, created_at FROM workspaces"
+            "SELECT id, name, agent_name, type, sdk_session_id, sdk_base_url, created_at FROM workspaces"
             " WHERE id = %s AND user_id = %s",
             (workspace_id, user_id)
         )).fetchone()
         if not row:
             raise HTTPException(404, "workspace not found")
     return _serialize_workspace(row)
+
+
+@router.post("/workspaces/{workspace_id}/connect")
+async def connect_workspace(workspace_id: int, body: dict[str, Any] = {}, user: dict = Depends(require_user)):
+    """Create an agent-sdk session for this workspace (idempotent)."""
+    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT * FROM workspaces WHERE id = %s AND user_id = %s",
+            (workspace_id, user_id)
+        )).fetchone()
+        if not row:
+            raise HTTPException(404, "workspace not found")
+        if row.get("sdk_session_id"):
+            return {
+                "sdk_session_id": row["sdk_session_id"],
+                "sdk_base_url": row["sdk_base_url"] or AGENT_SDK_BASE_URL,
+            }
+    client = get_client()
+    config = {
+        "name": f"workspace-{workspace_id}",
+        "provider": body.get("provider", "daytona"),
+        "agent_type": body.get("agent_type", "claude"),
+        "model": body.get("model", "claude-sonnet-4-6"),
+        "cwd": body.get("cwd", "/home/daytona"),
+    }
+    upstream = await client.create_quick_session(**config)
+    sdk_session_id = upstream.get("session_id")
+    if not sdk_session_id:
+        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
+    async with get_db() as conn:
+        await conn.execute(
+            "UPDATE workspaces SET sdk_session_id = %s, sdk_base_url = %s WHERE id = %s",
+            (sdk_session_id, AGENT_SDK_BASE_URL, workspace_id)
+        )
+    return {"sdk_session_id": sdk_session_id, "sdk_base_url": AGENT_SDK_BASE_URL}
 
 
 @router.delete("/workspaces/{workspace_id}")
