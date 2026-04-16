@@ -168,5 +168,5 @@ export function useWorkspaceAgent(workspaceId: string | number | null) {
     }
   }, []);
 
-  return { messages, isLoading, connecting, error, sendMessage, cancel };
+  return { messages, isLoading, connecting, error, sendMessage, cancel, sdkBaseUrl: sdkRef.current?.baseUrl ?? null, sdkSessionId: sdkRef.current?.sessionId ?? null };
 }

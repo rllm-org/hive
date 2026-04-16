@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
 import { useParams, useRouter } from "next/navigation";
-import { LuArrowLeft, LuPlus, LuFile, LuFolder, LuUpload } from "react-icons/lu";
+import { LuArrowLeft } from "react-icons/lu";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { apiFetch, apiPostJson } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { getAgentColor } from "@/lib/agent-colors";
 import { WorkspaceEditor, type OpenFile } from "@/components/workspace-editor";
 import { useWorkspaceAgent } from "@/hooks/use-workspace-agent";
+import { useWorkspaceFiles, type FsTreeNode } from "@/hooks/use-workspace-files";
 
 interface Workspace {
   id: number;
@@ -23,166 +23,44 @@ import type { ChatMessage } from "@/hooks/use-workspace-agent";
 
 const MAX_TEXTAREA_HEIGHT = 200;
 
-interface TreeNode {
-  name: string;
-  path: string;
-  children: TreeNode[];
-  isFile: boolean;
-}
-
-type PendingCreate = { parentPath: string; kind: "file" | "folder" };
-
-function FolderAddMenu({ pos, onSelect, onClose }: { pos: { x: number; y: number }; onSelect: (kind: "file" | "folder" | "upload") => void; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [onClose]);
-
-  if (typeof window === "undefined") return null;
-  return createPortal(
-    <div
-      ref={ref}
-      className="fixed z-[10000] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-lg py-1.5 min-w-[150px]"
-      style={{ left: pos.x, top: pos.y }}
-    >
-      <button onClick={() => { onSelect("file"); onClose(); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors text-left">
-        <LuFile size={12} /> New File
-      </button>
-      <button onClick={() => { onSelect("folder"); onClose(); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors text-left">
-        <LuFolder size={12} /> New Folder
-      </button>
-      <button onClick={() => { onSelect("upload"); onClose(); }} className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors text-left">
-        <LuUpload size={12} /> Upload File
-      </button>
-    </div>,
-    document.body,
-  );
-}
-
-function InlineNameInput({ kind, depth, onSubmit, onCancel }: { kind: "file" | "folder"; depth: number; onSubmit: (name: string) => void; onCancel: () => void }) {
-  const [value, setValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => { inputRef.current?.focus(); }, []);
-
-  return (
-    <div className="flex items-center gap-1.5 py-0.5" style={{ paddingLeft: `${depth * 14}px` }}>
-      {kind === "folder" ? (
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-50 text-[var(--color-text)]">
-          <path fillRule="evenodd" d="M1.75 1A1.75 1.75 0 000 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0016 13.25v-8.5A1.75 1.75 0 0014.25 3H7.5a.25.25 0 01-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75z" />
-        </svg>
-      ) : (
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-50 text-[var(--color-text)]">
-          <path fillRule="evenodd" d="M3.75 1.5a.25.25 0 00-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25V4.664a.25.25 0 00-.073-.177l-2.914-2.914a.25.25 0 00-.177-.073H3.75zM2 1.75C2 .784 2.784 0 3.75 0h5.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0112.25 16h-8.5A1.75 1.75 0 012 14.25V1.75z" />
-        </svg>
-      )}
-      <input
-        ref={inputRef}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && value.trim()) onSubmit(value.trim());
-          if (e.key === "Escape") onCancel();
-        }}
-        onBlur={() => { if (value.trim()) onSubmit(value.trim()); else onCancel(); }}
-        placeholder={kind === "folder" ? "folder-name" : "filename.ext"}
-        className="flex-1 min-w-0 text-xs font-[family-name:var(--font-ibm-plex-mono)] bg-[var(--color-bg)] border border-[var(--color-accent)] px-1.5 py-0.5 text-[var(--color-text)]"
-        style={{ outline: "none", boxShadow: "none" }}
-      />
-    </div>
-  );
-}
-
-function FileTreeNode({
+function SandboxTreeNode({
   node,
   expandedDirs,
   onToggleDir,
-  onAddNode,
   onFileClick,
-  pendingCreate,
-  onPendingCreate,
-  onCancelCreate,
   depth = 0,
 }: {
-  node: TreeNode;
+  node: FsTreeNode;
   expandedDirs: Set<string>;
   onToggleDir: (path: string) => void;
-  onAddNode: (parentPath: string, name: string, isFile: boolean) => void;
-  onFileClick: (node: TreeNode) => void;
-  pendingCreate: PendingCreate | null;
-  onPendingCreate: (p: PendingCreate) => void;
-  onCancelCreate: () => void;
+  onFileClick: (node: FsTreeNode) => void;
   depth?: number;
 }) {
+  const isDir = node.type === "directory";
   const isExpanded = expandedDirs.has(node.path);
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
-  const hasPending = pendingCreate?.parentPath === node.path;
 
-  if (!node.isFile) {
+  if (isDir) {
     return (
       <div>
-        <div
-          className="group flex items-center py-0.5"
+        <button
+          onClick={() => onToggleDir(node.path)}
+          className="group flex items-center gap-1.5 py-0.5 text-xs text-[var(--color-text)] hover:text-[var(--color-accent)] transition-colors text-left w-full min-w-0"
           style={{ paddingLeft: `${depth * 14}px` }}
         >
-          <button
-            onClick={() => onToggleDir(node.path)}
-            className="flex items-center gap-1.5 text-xs text-[var(--color-text)] hover:text-[var(--color-accent)] transition-colors text-left min-w-0"
-          >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-50">
-              <path fillRule="evenodd" d="M1.75 1A1.75 1.75 0 000 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0016 13.25v-8.5A1.75 1.75 0 0014.25 3H7.5a.25.25 0 01-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75z" />
-            </svg>
-            <span className="font-[family-name:var(--font-ibm-plex-mono)] truncate font-medium">{node.name}</span>
-          </button>
-          <div className="ml-1">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (menuPos) { setMenuPos(null); return; }
-                const rect = e.currentTarget.getBoundingClientRect();
-                setMenuPos({ x: rect.right + 4, y: rect.top });
-              }}
-              className="w-4 h-4 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-              <LuPlus size={11} />
-            </button>
-            {menuPos && (
-              <FolderAddMenu
-                pos={menuPos}
-                onSelect={(kind) => {
-                  if (kind === "upload") return;
-                  if (!isExpanded) onToggleDir(node.path);
-                  onPendingCreate({ parentPath: node.path, kind });
-                }}
-                onClose={() => setMenuPos(null)}
-              />
-            )}
-          </div>
-        </div>
-        {isExpanded && (
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-50">
+            <path fillRule="evenodd" d="M1.75 1A1.75 1.75 0 000 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0016 13.25v-8.5A1.75 1.75 0 0014.25 3H7.5a.25.25 0 01-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75z" />
+          </svg>
+          <span className="font-[family-name:var(--font-ibm-plex-mono)] truncate font-medium">{node.name}</span>
+        </button>
+        {isExpanded && node.children && (
           <div>
-            {hasPending && pendingCreate && (
-              <InlineNameInput
-                kind={pendingCreate.kind}
-                depth={depth + 1}
-                onSubmit={(name) => { onAddNode(node.path, name, pendingCreate.kind === "file"); onCancelCreate(); }}
-                onCancel={onCancelCreate}
-              />
-            )}
             {node.children.map((child) => (
-              <FileTreeNode
+              <SandboxTreeNode
                 key={child.path}
                 node={child}
                 expandedDirs={expandedDirs}
                 onToggleDir={onToggleDir}
-                onAddNode={onAddNode}
                 onFileClick={onFileClick}
-                pendingCreate={pendingCreate}
-                onPendingCreate={onPendingCreate}
-                onCancelCreate={onCancelCreate}
                 depth={depth + 1}
               />
             ))}
@@ -202,6 +80,11 @@ function FileTreeNode({
         <path fillRule="evenodd" d="M3.75 1.5a.25.25 0 00-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25V4.664a.25.25 0 00-.073-.177l-2.914-2.914a.25.25 0 00-.177-.073H3.75zM2 1.75C2 .784 2.784 0 3.75 0h5.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0112.25 16h-8.5A1.75 1.75 0 012 14.25V1.75z" />
       </svg>
       <span className="font-[family-name:var(--font-ibm-plex-mono)] truncate">{node.name}</span>
+      {node.size != null && node.size > 0 && (
+        <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)] shrink-0">
+          {node.size < 1024 ? `${node.size} B` : node.size < 1024 * 1024 ? `${(node.size / 1024).toFixed(1)} KB` : `${(node.size / (1024 * 1024)).toFixed(1)} MB`}
+        </span>
+      )}
     </button>
   );
 }
@@ -232,30 +115,13 @@ export default function WorkspacePage() {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [leftWidth, setLeftWidth] = useState(20);
   const [chatWidth, setChatWidth] = useState(35);
-  const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(null);
-  const [fileTree, setFileTree] = useState<TreeNode[]>([]);
   const [isDragging, setIsDragging] = useState<"left" | "right" | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  // Initialize file tree once workspace loads
-  useEffect(() => {
-    if (workspace && fileTree.length === 0) {
-      setFileTree([{ name: workspace.name, path: workspace.name, isFile: false, children: [] }]);
-      setExpandedDirs(new Set([workspace.name]));
-    }
-  }, [workspace, fileTree.length]);
 
   // Editor state
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
 
-  const handleFileClick = useCallback((node: TreeNode) => {
-    setOpenFiles((prev) => {
-      if (prev.some((f) => f.path === node.path)) return prev;
-      return [...prev, { path: node.path, name: node.name, content: "" }];
-    });
-    setActivePath(node.path);
-  }, []);
 
   const handleCloseTab = useCallback((path: string) => {
     setOpenFiles((prev) => {
@@ -272,7 +138,40 @@ export default function WorkspacePage() {
   }, []);
 
   // Chat state — wired to agent-sdk via workspace connect
-  const { messages, isLoading, connecting, error: agentError, sendMessage, cancel } = useWorkspaceAgent(workspace ? workspaceId : null);
+  const { messages, isLoading, connecting, error: agentError, sendMessage, cancel, sdkBaseUrl, sdkSessionId } = useWorkspaceAgent(workspace ? workspaceId : null);
+
+  // Live sandbox filesystem
+  const { tree: fsTree, loading: fsLoading, error: fsError, readFile } = useWorkspaceFiles(sdkBaseUrl, sdkSessionId);
+
+  // Auto-expand root directories on first tree load
+  const fsInitRef = useRef(false);
+  useEffect(() => {
+    if (fsTree.length > 0 && !fsInitRef.current) {
+      fsInitRef.current = true;
+      setExpandedDirs(new Set(fsTree.filter(n => n.type === "directory").map(n => n.path)));
+    }
+  }, [fsTree]);
+
+  const handleFileClick = useCallback(async (node: FsTreeNode) => {
+    if (node.type === "directory") return;
+    // Activate tab immediately with loading placeholder
+    setOpenFiles((prev) => {
+      if (prev.some((f) => f.path === node.path)) return prev;
+      return [...prev, { path: node.path, name: node.name, content: "Loading…" }];
+    });
+    setActivePath(node.path);
+    // Fetch real content
+    try {
+      const data = await readFile(node.path);
+      if (data && !data.binary) {
+        setOpenFiles((prev) => prev.map((f) => f.path === node.path ? { ...f, content: data.content } : f));
+      } else if (data?.binary) {
+        setOpenFiles((prev) => prev.map((f) => f.path === node.path ? { ...f, content: `[binary file — ${data.size} bytes]` } : f));
+      }
+    } catch {
+      setOpenFiles((prev) => prev.map((f) => f.path === node.path ? { ...f, content: "Error loading file" } : f));
+    }
+  }, [readFile]);
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -334,26 +233,6 @@ export default function WorkspacePage() {
       return next;
     });
   };
-
-  const handleAddNode = useCallback((parentPath: string, name: string, isFile: boolean) => {
-    setFileTree((prev) => {
-      const addToTree = (nodes: TreeNode[]): TreeNode[] =>
-        nodes.map((n) => {
-          if (n.path === parentPath && !n.isFile) {
-            const newPath = `${n.path}/${name}`;
-            if (n.children.some((c) => c.path === newPath)) return n;
-            const newNode: TreeNode = { name, path: newPath, isFile, children: [] };
-            const updated = [...n.children, newNode].sort((a, b) => {
-              if (a.isFile !== b.isFile) return a.isFile ? 1 : -1;
-              return a.name.localeCompare(b.name);
-            });
-            return { ...n, children: updated };
-          }
-          return { ...n, children: addToTree(n.children) };
-        });
-      return addToTree(prev);
-    });
-  }, []);
 
   const handleMouseDown = useCallback((side: "left" | "right") => {
     setIsDragging(side);
@@ -431,18 +310,25 @@ export default function WorkspacePage() {
         <div className="shrink-0 flex flex-col" style={{ width: `${leftWidth}%` }}>
           {/* File tree */}
           <div className="flex-1 overflow-y-auto min-h-0 px-5 pt-4 pb-5">
+            {fsLoading && (
+              <div className="flex items-center justify-center py-8">
+                <div className="w-5 h-5 border-2 border-[var(--color-border)] border-t-[var(--color-accent)] rounded-full animate-spin" />
+              </div>
+            )}
+            {fsError && (
+              <p className="text-xs text-[var(--color-text-tertiary)] px-1 py-4">{fsError}</p>
+            )}
+            {!fsLoading && !fsError && fsTree.length === 0 && (
+              <p className="text-xs text-[var(--color-text-tertiary)] px-1 py-4">No files yet</p>
+            )}
             <div className="space-y-0.5">
-              {fileTree.map((node) => (
-                <FileTreeNode
+              {fsTree.map((node) => (
+                <SandboxTreeNode
                   key={node.path}
                   node={node}
                   expandedDirs={expandedDirs}
                   onToggleDir={handleToggleDir}
-                  onAddNode={handleAddNode}
                   onFileClick={handleFileClick}
-                  pendingCreate={pendingCreate}
-                  onPendingCreate={setPendingCreate}
-                  onCancelCreate={() => setPendingCreate(null)}
                 />
               ))}
             </div>
