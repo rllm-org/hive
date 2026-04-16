@@ -2569,15 +2569,50 @@ async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = 
 
 @router.delete("/workspaces/{workspace_id}")
 async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)):
+    """Delete a workspace and cascade-clean up all its agents + sandboxes."""
+    from .agent_sdk_client import get_client
     user_id = int(user["sub"])
     async with get_db() as conn:
-        result = await conn.execute(
-            "DELETE FROM workspaces WHERE id = %s AND user_id = %s",
+        ws = await (await conn.execute(
+            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s",
             (workspace_id, user_id)
-        )
-        if result.rowcount == 0:
+        )).fetchone()
+        if not ws:
             raise HTTPException(404, "workspace not found")
-    return {"status": "ok"}
+        agents = await (await conn.execute(
+            "SELECT a.id, a.sdk_session_id,"
+            " (SELECT 1 FROM runs WHERE agent_id = a.id LIMIT 1) AS has_runs"
+            " FROM agents a WHERE a.workspace_id = %s",
+            (workspace_id,)
+        )).fetchall()
+
+    # Tear down each agent's SDK session (best-effort)
+    try:
+        client = get_client()
+    except Exception:
+        client = None
+    for a in agents:
+        if client and a["sdk_session_id"]:
+            try:
+                await client.delete_session(a["sdk_session_id"])
+            except Exception as e:
+                import logging
+                logging.warning(f"Failed to delete sdk session for agent {a['id']}: {e}")
+
+    async with get_db() as conn:
+        # Delete agents with no runs; unlink (preserve row) agents that have runs
+        for a in agents:
+            if a["has_runs"]:
+                await conn.execute(
+                    "UPDATE agents SET workspace_id = NULL, sdk_session_id = NULL, sdk_base_url = NULL"
+                    " WHERE id = %s", (a["id"],)
+                )
+            else:
+                await conn.execute("DELETE FROM agents WHERE id = %s", (a["id"],))
+        # Finally, delete the workspace row
+        await conn.execute("DELETE FROM workspaces WHERE id = %s", (workspace_id,))
+    return {"status": "ok", "agents_deleted": sum(1 for a in agents if not a["has_runs"]),
+            "agents_unlinked": sum(1 for a in agents if a["has_runs"])}
 
 
 @router.get("/leaderboard")
