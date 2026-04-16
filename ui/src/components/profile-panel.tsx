@@ -1,14 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth, getGithubOAuthUrl, getAuthHeader, fetchAuthConfig } from "@/lib/auth";
 import { ClaimAgentModal } from "@/components/claim-agent-modal";
-import { CreateTaskModal } from "@/components/create-task-modal";
-import { TaskExplorer } from "@/components/task-explorer";
 import { Avatar } from "@/components/shared";
-import { Task } from "@/types/api";
-import { LuBot, LuActivity, LuPlus, LuGithub, LuLogOut, LuLayoutGrid, LuRefreshCw } from "react-icons/lu";
+import { useRouter } from "next/navigation";
+import { LuBot, LuActivity, LuPlus, LuGithub, LuLogOut, LuRefreshCw, LuMonitor, LuLaptop, LuCloud } from "react-icons/lu";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -31,7 +28,7 @@ interface ProfileData {
   agents: AgentInfo[];
 }
 
-type ProfileTab = "tasks" | "agents" | "settings";
+type ProfileTab = "workspaces" | "agents" | "settings";
 
 function HandleSection() {
   const { user, checkHandleAvailable, updateHandle } = useAuth();
@@ -231,21 +228,119 @@ function ApiKeySection() {
   );
 }
 
+function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: () => void; onCreated: (name: string, agentName: string, type: "local" | "cloud") => void; existingNames: string[] }) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const [name, setName] = useState(() => {
+    let x = 1;
+    while (existingNames.includes(`my-workspace-${x}`)) x++;
+    return `my-workspace-${x}`;
+  });
+  const [agentName, setAgentName] = useState(() => {
+    let x = 1;
+    while (existingNames.includes(`agent-${x}`)) x++;
+    return `agent-${x}`;
+  });
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30"
+      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+    >
+      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[420px] flex flex-col animate-fade-in">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+          <h2 className="text-base font-semibold text-[var(--color-text)]">Create Workspace</h2>
+          <button
+            onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M3 3l8 8M11 3l-8 8" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Workspace Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="my-workspace"
+              className="w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
+              style={{ outline: "none", boxShadow: "none" }}
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Agent Name</label>
+            <input
+              type="text"
+              value={agentName}
+              onChange={(e) => setAgentName(e.target.value)}
+              placeholder="agent-1"
+              className="w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
+              style={{ outline: "none", boxShadow: "none" }}
+            />
+          </div>
+
+          <button
+            onClick={() => onCreated(name, agentName, "local")}
+            disabled={!name.trim() || !agentName.trim()}
+            className="w-full flex items-center gap-4 p-4 border border-[var(--color-border)] hover:bg-[var(--color-layer-1)] transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <LuLaptop size={24} className="text-[var(--color-text-secondary)] shrink-0" />
+            <div>
+              <div className="text-sm font-semibold text-[var(--color-text)]">Local</div>
+              <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                Run the agent in your local computer.
+              </div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => onCreated(name, agentName, "cloud")}
+            disabled={!name.trim() || !agentName.trim()}
+            className="w-full flex items-center gap-4 p-4 border border-[var(--color-border)] hover:bg-[var(--color-layer-1)] transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <LuCloud size={24} className="text-[var(--color-text-secondary)] shrink-0" />
+            <div>
+              <div className="text-sm font-semibold text-[var(--color-text)]">Cloud</div>
+              <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                Run the agent in the cloud sandbox, managed by us.
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ProfilePanel() {
   const { user, logout, disconnectGithub } = useAuth();
+  const router = useRouter();
   const [tab, setTab] = useState<ProfileTab>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const t = params.get("tab");
-      if (t && ["tasks", "agents", "settings"].includes(t)) return t as ProfileTab;
+      if (t && ["workspaces", "agents", "settings"].includes(t)) return t as ProfileTab;
     }
-    return "tasks";
+    return "workspaces";
   });
   const [showClaim, setShowClaim] = useState(false);
-  const searchParams = useSearchParams();
-  const [showCreateTask, setShowCreateTask] = useState(searchParams.get("create") === "1");
+  const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
   const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [myTasks, setMyTasks] = useState<Task[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [installUrl, setInstallUrl] = useState<string | null>(null);
 
@@ -257,23 +352,7 @@ export function ProfilePanel() {
     setLoading(false);
   }, []);
 
-  const fetchMyTasks = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/tasks/mine`, { headers: getAuthHeader() });
-      if (res.ok) {
-        const data = await res.json();
-        setMyTasks(data.tasks);
-      }
-    } catch {}
-  }, []);
-
   useEffect(() => { fetchProfile(); }, [fetchProfile, user?.github_username]);
-  useEffect(() => { fetchMyTasks(); }, [fetchMyTasks]);
-  useEffect(() => {
-    if (searchParams.get("create") === "1") {
-      window.history.replaceState({}, "", "/me");
-    }
-  }, [searchParams]);
   useEffect(() => {
     fetchAuthConfig().then((c) => { if (c.github_app_install_url) setInstallUrl(c.github_app_install_url); });
   }, []);
@@ -281,7 +360,7 @@ export function ProfilePanel() {
   if (!user) return null;
 
   const tabs: { id: ProfileTab; label: string }[] = [
-    { id: "tasks", label: "Tasks" },
+    { id: "workspaces", label: "Workspaces" },
     { id: "agents", label: "Agents" },
     { id: "settings", label: "Settings" },
   ];
@@ -294,10 +373,14 @@ export function ProfilePanel() {
           onClaimed={() => { setShowClaim(false); fetchProfile(); }}
         />
       )}
-      {showCreateTask && (
-        <CreateTaskModal
-          onClose={() => setShowCreateTask(false)}
-          onCreated={() => { setShowCreateTask(false); fetchMyTasks(); }}
+      {showCreateWorkspace && (
+        <CreateWorkspaceModal
+          onClose={() => setShowCreateWorkspace(false)}
+          existingNames={profile?.agents.map(a => a.id) ?? []}
+          onCreated={(name, agentName, type) => {
+            setShowCreateWorkspace(false);
+            router.push(`/workspaces/new?name=${encodeURIComponent(name)}&agent=${encodeURIComponent(agentName)}&type=${type}`);
+          }}
         />
       )}
       <div className="h-full py-8 px-8">
@@ -350,48 +433,50 @@ export function ProfilePanel() {
         </div>
 
         {/* Tab content */}
-        {tab === "tasks" && (
-          <div>
+        {tab === "workspaces" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-medium text-[var(--color-text)]">
+                Your Workspaces
+              </h3>
+              <button
+                onClick={() => setShowCreateWorkspace(true)}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+              >
+                <LuPlus size={14} />
+                Create Workspace
+              </button>
+            </div>
+
             {loading ? (
               <LoadingSpinner />
-            ) : user.role === "admin" ? (
+            ) : !profile?.agents.length ? (
               <div className="text-center py-16 border border-dashed border-[var(--color-border)]">
-                <LuLayoutGrid size={32} className="mx-auto mb-3 text-[var(--color-text-tertiary)]" />
-                <p className="text-base text-[var(--color-text-tertiary)] mb-2">Admin tasks are managed in Public Tasks</p>
-                <p className="text-sm text-[var(--color-text-tertiary)]">Go to the <a href="/tasks" className="text-[var(--color-accent)] hover:underline">Public Tasks</a> page to upload and manage tasks.</p>
-              </div>
-            ) : !profile?.github_username ? (
-              <div className="text-center py-16 border border-dashed border-[var(--color-border)]">
-                <LuGithub size={32} className="mx-auto mb-3 text-[var(--color-text-tertiary)]" />
-                <p className="text-base text-[var(--color-text-tertiary)] mb-4">Connect GitHub to create tasks from your repos</p>
-                <button
-                  onClick={async () => {
-                    if (installUrl) {
-                      window.location.href = installUrl;
-                    } else {
-                      window.location.href = await getGithubOAuthUrl("connect");
-                    }
-                  }}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-[#24292f] text-white hover:bg-[#32383f] dark:bg-white dark:text-black dark:hover:bg-[#e0e0e0] transition-colors"
-                >
-                  <LuGithub size={16} />
-                  Connect GitHub Repositories
-                </button>
+                <LuMonitor size={32} className="mx-auto mb-3 text-[var(--color-text-tertiary)]" />
+                <p className="text-base text-[var(--color-text-tertiary)] mb-2">No workspaces yet</p>
+                <p className="text-sm text-[var(--color-text-tertiary)]">Create a workspace to start working with an agent.</p>
               </div>
             ) : (
-              <>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-medium text-[var(--color-text)]">Your Private Tasks</h3>
-                  <button
-                    onClick={() => setShowCreateTask(true)}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {profile.agents.map((agent) => (
+                  <div
+                    key={agent.id}
+                    onClick={() => router.push(`/workspaces/${agent.id}`)}
+                    className="flex items-center gap-4 p-4 bg-[var(--color-surface)] border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors"
                   >
-                    <LuPlus size={14} />
-                    Add task
-                  </button>
-                </div>
-                <TaskExplorer title={null} tasks={myTasks} ownerName={profile?.github_username ?? user.email} ownerAvatar={profile?.avatar_url ?? user.avatar_url} />
-              </>
+                    <Avatar id={agent.id} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-[var(--color-text)] truncate">
+                        {agent.id}
+                      </div>
+                      <div className="text-xs text-[var(--color-text-tertiary)] flex items-center gap-1.5 mt-0.5">
+                        <LuActivity size={11} />
+                        {agent.total_runs} runs
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
