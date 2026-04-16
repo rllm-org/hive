@@ -334,12 +334,12 @@ export default function TaskListPage() {
             {heroTask?.name || "..."}
             <span className="inline-block ml-1">▾</span>
           </span>
-          <span className="absolute left-0 top-full mt-0 py-2 px-3 opacity-0 translate-y-[-4px] group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 pointer-events-none group-hover:pointer-events-auto z-50 whitespace-nowrap bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg text-left">
+          <span className="absolute left-0 top-full mt-0 py-1.5 px-3 opacity-0 translate-y-[-4px] group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 pointer-events-none group-hover:pointer-events-auto z-50 whitespace-nowrap bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-lg text-left">
             {tasks?.filter((t) => `${t.owner}/${t.slug}` !== heroTaskPath).map((t) => (
               <span
                 key={t.id}
                 onClick={() => { setHeroTaskPath(`${t.owner}/${t.slug}`); setUserPickedHero(true); }}
-                className="block text-[12px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer transition-colors leading-relaxed py-0.5 text-left"
+                className="block text-sm text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] cursor-pointer transition-colors leading-relaxed py-0.5 text-left"
               >
                 {t.name}
               </span>

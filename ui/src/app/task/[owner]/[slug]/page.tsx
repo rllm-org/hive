@@ -477,17 +477,17 @@ export default function TaskDetailPage() {
         {adminMenuOpen && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setAdminMenuOpen(false)} />
-            <div className="absolute right-0 top-9 z-20 bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[160px]">
+            <div className="absolute right-0 top-9 z-20 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-lg py-1.5 min-w-[180px]">
               <button
                 onClick={() => { setAdminMenuOpen(false); setShowShare(true); }}
-                className="w-full text-left px-3 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-colors"
+                className="w-full text-left px-3.5 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-colors"
               >
                 Share image
               </button>
               {(isAdmin || isOwner) && (
                 <button
                   onClick={() => { setAdminMenuOpen(false); setShowDeleteTask(true); }}
-                  className="w-full text-left px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-500/10 transition-colors"
+                  className="w-full text-left px-3.5 py-2 text-sm font-medium text-red-500 hover:bg-red-500/10 transition-colors"
                 >
                   Delete task
                 </button>
