@@ -8,7 +8,10 @@ from datetime import datetime, timedelta, timezone
 import psycopg
 
 from hive.server.db import DATABASE_URL, now
-from hive.server.channels import _generate_ts, _MENTION_RE
+import re
+from hive.server.channels import _generate_ts
+
+_MENTION_RE = re.compile(r"@(\w[\w-]*)")
 
 
 SLUG = "demo-chat"
