@@ -130,17 +130,34 @@ function buildWeeks(days: HeatmapDay[], windowDays = 365): { date: Date; runs: n
   return weeks;
 }
 
-function cellColor(runs: number, max: number): string {
-  if (runs === 0) return "var(--color-layer-2)";
-  const intensity = Math.min(1, runs / Math.max(1, max));
-  if (intensity > 0.66) return "var(--color-accent)";
-  if (intensity > 0.33) return "color-mix(in srgb, var(--color-accent) 60%, transparent)";
-  return "color-mix(in srgb, var(--color-accent) 30%, transparent)";
+const SHADE_EMPTY = "var(--color-layer-2)";
+const SHADES = [
+  "color-mix(in srgb, var(--color-accent) 20%, transparent)",
+  "color-mix(in srgb, var(--color-accent) 45%, transparent)",
+  "color-mix(in srgb, var(--color-accent) 70%, transparent)",
+  "var(--color-accent)",
+];
+
+/** GitHub-style quartile cutoffs over non-zero active days.
+ * Returns 3 cutoffs so days are bucketed into 4 shades. */
+function computeQuartiles(days: { runs: number }[]): [number, number, number] {
+  const active = days.filter((d) => d.runs > 0).map((d) => d.runs).sort((a, b) => a - b);
+  if (active.length === 0) return [0, 0, 0];
+  const q = (p: number) => active[Math.min(active.length - 1, Math.floor(active.length * p))];
+  return [q(0.25), q(0.50), q(0.75)];
+}
+
+function cellColor(runs: number, q: [number, number, number]): string {
+  if (runs === 0) return SHADE_EMPTY;
+  if (runs > q[2]) return SHADES[3];
+  if (runs > q[1]) return SHADES[2];
+  if (runs > q[0]) return SHADES[1];
+  return SHADES[0];
 }
 
 function ContributionHeatmap({ days, loading }: { days: HeatmapDay[]; loading: boolean }) {
   const weeks = useMemo(() => buildWeeks(days, 365), [days]);
-  const max = useMemo(() => days.reduce((m, d) => Math.max(m, d.runs), 0), [days]);
+  const quartiles = useMemo(() => computeQuartiles(days), [days]);
   const total = useMemo(() => days.reduce((s, d) => s + d.runs, 0), [days]);
 
   const monthPositions: { weekIdx: number; label: string }[] = useMemo(() => {
@@ -212,7 +229,7 @@ function ContributionHeatmap({ days, loading }: { days: HeatmapDay[]; loading: b
                       key={di}
                       title={`${day.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} — ${day.runs} run${day.runs === 1 ? "" : "s"}`}
                       className="aspect-square w-full"
-                      style={{ backgroundColor: cellColor(day.runs, max), borderRadius: 2 }}
+                      style={{ backgroundColor: cellColor(day.runs, quartiles), borderRadius: 2 }}
                     />
                   ))}
                 </div>
@@ -224,10 +241,10 @@ function ContributionHeatmap({ days, loading }: { days: HeatmapDay[]; loading: b
 
       <div className="flex items-center gap-1.5 mt-3 text-[10px] text-[var(--color-text-tertiary)]">
         <span>Less</span>
-        <div className="w-[10px] h-[10px]" style={{ backgroundColor: "var(--color-layer-2)", borderRadius: 2 }} />
-        <div className="w-[10px] h-[10px]" style={{ backgroundColor: "color-mix(in srgb, var(--color-accent) 30%, transparent)", borderRadius: 2 }} />
-        <div className="w-[10px] h-[10px]" style={{ backgroundColor: "color-mix(in srgb, var(--color-accent) 60%, transparent)", borderRadius: 2 }} />
-        <div className="w-[10px] h-[10px]" style={{ backgroundColor: "var(--color-accent)", borderRadius: 2 }} />
+        <div className="w-[10px] h-[10px]" style={{ backgroundColor: SHADE_EMPTY, borderRadius: 2 }} />
+        {SHADES.map((c, i) => (
+          <div key={i} className="w-[10px] h-[10px]" style={{ backgroundColor: c, borderRadius: 2 }} />
+        ))}
         <span>More</span>
       </div>
     </div>
