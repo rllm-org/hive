@@ -19,9 +19,12 @@ interface Repo {
 interface GitHubRepoPickerProps {
   onSelect: (repo: Repo) => void;
   selected?: string | null;
+  /** "app" (default) lists repos visible to the GitHub App installation.
+   *  "user" lists repos owned by the user via their OAuth token. */
+  source?: "app" | "user";
 }
 
-export function GitHubRepoPicker({ onSelect, selected }: GitHubRepoPickerProps) {
+export function GitHubRepoPicker({ onSelect, selected, source = "app" }: GitHubRepoPickerProps) {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -35,7 +38,8 @@ export function GitHubRepoPicker({ onSelect, selected }: GitHubRepoPickerProps) 
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/auth/github/repos?page=${p}&per_page=50`, {
+      const endpoint = source === "user" ? "/auth/github/user-repos" : "/auth/github/repos";
+      const res = await fetch(`${API_BASE}${endpoint}?page=${p}&per_page=50`, {
         headers: getAuthHeader(),
       });
       if (!res.ok) {
@@ -43,7 +47,7 @@ export function GitHubRepoPicker({ onSelect, selected }: GitHubRepoPickerProps) 
         throw new Error(data?.detail ?? "Failed to fetch repos");
       }
       const data = await res.json();
-      setInstalled(data.installed !== false);
+      setInstalled(source === "user" ? true : data.installed !== false);
       if (p === 1) setRepos(data.repos);
       else setRepos((prev) => [...prev, ...data.repos]);
     } catch (err) {
@@ -51,7 +55,7 @@ export function GitHubRepoPicker({ onSelect, selected }: GitHubRepoPickerProps) 
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [source]);
 
   useEffect(() => { fetchRepos(1); }, [fetchRepos]);
 

@@ -898,6 +898,49 @@ async def auth_github_repos(user: dict = Depends(require_user), page: int = 1, p
     return {"repos": result["repos"], "installed": result["installed"], "page": page}
 
 
+@router.get("/auth/github/user-repos")
+async def auth_github_user_repos(user: dict = Depends(require_user), page: int = 1, per_page: int = 30):
+    """List repos owned by the authenticated user via their OAuth token.
+
+    Unlike /auth/github/repos (which lists repos visible to the GitHub App
+    installation), this endpoint calls GET /user/repos — the user's own
+    repos regardless of any App install. Used by the private-task creation
+    flow where the user picks one of their own repos.
+    """
+    user_id = int(user["sub"])
+    gh_token = await _get_valid_github_token(user_id)
+
+    def _fetch():
+        headers = _gh_user_headers(gh_token)
+        resp = httpx.get(
+            "https://api.github.com/user/repos",
+            params={
+                "per_page": min(per_page, 100),
+                "page": page,
+                "sort": "updated",
+                "affiliation": "owner",
+            },
+            headers=headers,
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return {"repos": [], "page": page}
+        repos = []
+        for repo in resp.json():
+            repos.append({
+                "full_name": repo["full_name"],
+                "name": repo["name"],
+                "private": repo["private"],
+                "description": repo.get("description"),
+                "url": repo["html_url"],
+                "default_branch": repo["default_branch"],
+                "updated_at": repo["updated_at"],
+            })
+        return {"repos": repos, "page": page}
+
+    return await asyncio.to_thread(_fetch)
+
+
 def _resolve_agent_token(token: str = "", x_agent_token: str = "") -> str:
     """Get agent token from query param or header."""
     return x_agent_token or token

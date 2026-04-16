@@ -335,6 +335,7 @@ export function CreateTaskModal({ onClose, onCreated, defaultMode }: CreateTaskM
                 <div>
                   <label className={labelCls}>Repository</label>
                   <GitHubRepoPicker
+                    source="user"
                     selected={selectedRepo?.full_name}
                     onSelect={(repo) => {
                       setSelectedRepo(repo);
