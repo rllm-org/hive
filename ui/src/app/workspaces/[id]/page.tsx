@@ -2,12 +2,21 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { LuArrowLeft, LuPlus, LuFile, LuFolder, LuUpload } from "react-icons/lu";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { apiFetch } from "@/lib/api";
 import { getAgentColor } from "@/lib/agent-colors";
 import { WorkspaceEditor, type OpenFile } from "@/components/workspace-editor";
+
+interface Workspace {
+  id: number;
+  name: string;
+  agent_name: string;
+  type: "local" | "cloud";
+  created_at: string;
+}
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -202,22 +211,41 @@ function FileTreeNode({
 export default function WorkspacePage() {
   const params = useParams();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const agentId = params.id as string;
-  const workspaceName = searchParams.get("name") ?? agentId;
-  const agentName = searchParams.get("agent") ?? agentId;
-  const color = getAgentColor(agentName);
-  const initials = agentName.split("-").map(w => w[0]?.toUpperCase() ?? "").join("").slice(0, 2) || agentName.slice(0, 2).toUpperCase();
+  const workspaceId = params.id as string;
 
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set([workspaceName]));
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [wsError, setWsError] = useState<string | null>(null);
+  const [wsLoading, setWsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<Workspace>(`/workspaces/${workspaceId}`)
+      .then((data) => { if (!cancelled) setWorkspace(data); })
+      .catch(() => { if (!cancelled) setWsError("Workspace not found"); })
+      .finally(() => { if (!cancelled) setWsLoading(false); });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+
+  const workspaceName = workspace?.name ?? "";
+  const agentName = workspace?.agent_name ?? "";
+  const color = getAgentColor(agentName || workspaceId);
+  const initials = (agentName || workspaceId).split("-").map(w => w[0]?.toUpperCase() ?? "").join("").slice(0, 2) || (agentName || workspaceId).slice(0, 2).toUpperCase();
+
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [leftWidth, setLeftWidth] = useState(20);
   const [chatWidth, setChatWidth] = useState(35);
   const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(null);
-  const [fileTree, setFileTree] = useState<TreeNode[]>([
-    { name: workspaceName, path: workspaceName, isFile: false, children: [] },
-  ]);
+  const [fileTree, setFileTree] = useState<TreeNode[]>([]);
   const [isDragging, setIsDragging] = useState<"left" | "right" | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Initialize file tree once workspace loads
+  useEffect(() => {
+    if (workspace && fileTree.length === 0) {
+      setFileTree([{ name: workspace.name, path: workspace.name, isFile: false, children: [] }]);
+      setExpandedDirs(new Set([workspace.name]));
+    }
+  }, [workspace, fileTree.length]);
 
   // Editor state
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
@@ -372,6 +400,28 @@ export default function WorkspacePage() {
       document.body.style.userSelect = "";
     };
   }, [isDragging, handleMouseMove, handleMouseUp]);
+
+  if (wsLoading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-[var(--color-border)] border-t-[var(--color-accent)] rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (wsError || !workspace) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-3">
+        <p className="text-sm text-[var(--color-text-tertiary)]">{wsError ?? "Workspace not found"}</p>
+        <button
+          onClick={() => router.push("/me?tab=workspaces")}
+          className="text-sm text-[var(--color-accent)] hover:underline"
+        >
+          Back to Workspaces
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col">

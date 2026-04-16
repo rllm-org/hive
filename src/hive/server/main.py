@@ -2199,6 +2199,82 @@ async def get_graph(owner: str, slug: str, authorization: str = Header(""), max_
 
 
 
+def _serialize_workspace(row: dict) -> dict:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "agent_name": row["agent_name"],
+        "type": row["type"],
+        "created_at": row["created_at"],
+    }
+
+
+@router.get("/workspaces")
+async def list_workspaces(user: dict = Depends(require_user)):
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        rows = await (await conn.execute(
+            "SELECT id, name, agent_name, type, created_at FROM workspaces"
+            " WHERE user_id = %s ORDER BY created_at DESC",
+            (user_id,)
+        )).fetchall()
+    return {"workspaces": [_serialize_workspace(r) for r in rows]}
+
+
+@router.post("/workspaces")
+async def create_workspace(body: dict[str, Any], user: dict = Depends(require_user)):
+    user_id = int(user["sub"])
+    name = (body.get("name") or "").strip()
+    agent_name = (body.get("agent_name") or "").strip()
+    ws_type = (body.get("type") or "local").strip()
+    if not name:
+        raise HTTPException(400, "name is required")
+    if not agent_name:
+        raise HTTPException(400, "agent_name is required")
+    if ws_type not in ("local", "cloud"):
+        raise HTTPException(400, "type must be 'local' or 'cloud'")
+    async with get_db() as conn:
+        existing = await (await conn.execute(
+            "SELECT 1 FROM workspaces WHERE user_id = %s AND name = %s", (user_id, name)
+        )).fetchone()
+        if existing:
+            raise HTTPException(409, "workspace name already exists")
+        row = await (await conn.execute(
+            "INSERT INTO workspaces (user_id, name, agent_name, type, created_at)"
+            " VALUES (%s, %s, %s, %s, %s)"
+            " RETURNING id, name, agent_name, type, created_at",
+            (user_id, name, agent_name, ws_type, now())
+        )).fetchone()
+    return _serialize_workspace(row)
+
+
+@router.get("/workspaces/{workspace_id}")
+async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT id, name, agent_name, type, created_at FROM workspaces"
+            " WHERE id = %s AND user_id = %s",
+            (workspace_id, user_id)
+        )).fetchone()
+        if not row:
+            raise HTTPException(404, "workspace not found")
+    return _serialize_workspace(row)
+
+
+@router.delete("/workspaces/{workspace_id}")
+async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)):
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        result = await conn.execute(
+            "DELETE FROM workspaces WHERE id = %s AND user_id = %s",
+            (workspace_id, user_id)
+        )
+        if result.rowcount == 0:
+            raise HTTPException(404, "workspace not found")
+    return {"status": "ok"}
+
+
 @router.get("/leaderboard")
 async def get_global_leaderboard(limit: int = 50):
     limit = min(max(1, limit), 200)

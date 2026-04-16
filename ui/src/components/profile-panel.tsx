@@ -28,6 +28,14 @@ interface ProfileData {
   agents: AgentInfo[];
 }
 
+interface Workspace {
+  id: number;
+  name: string;
+  agent_name: string;
+  type: "local" | "cloud";
+  created_at: string;
+}
+
 type ProfileTab = "workspaces" | "agents" | "settings";
 
 function HandleSection() {
@@ -228,18 +236,34 @@ function ApiKeySection() {
   );
 }
 
-function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: () => void; onCreated: (name: string, agentName: string, type: "local" | "cloud") => void; existingNames: string[] }) {
+function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: () => void; onCreated: (workspace: Workspace) => void; existingNames: string[] }) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [name, setName] = useState(() => {
     let x = 1;
     while (existingNames.includes(`my-workspace-${x}`)) x++;
     return `my-workspace-${x}`;
   });
-  const [agentName, setAgentName] = useState(() => {
-    let x = 1;
-    while (existingNames.includes(`agent-${x}`)) x++;
-    return `agent-${x}`;
-  });
+  const [agentName, setAgentName] = useState("agent-1");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCreate = async (type: "local" | "cloud") => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/workspaces`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeader() },
+        body: JSON.stringify({ name: name.trim(), agent_name: agentName.trim(), type }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail ?? "Failed to create workspace");
+      onCreated(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create workspace");
+      setSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -295,8 +319,8 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
           </div>
 
           <button
-            onClick={() => onCreated(name, agentName, "local")}
-            disabled={!name.trim() || !agentName.trim()}
+            onClick={() => handleCreate("local")}
+            disabled={submitting || !name.trim() || !agentName.trim()}
             className="w-full flex items-center gap-4 p-4 border border-[var(--color-border)] hover:bg-[var(--color-layer-1)] transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <LuLaptop size={24} className="text-[var(--color-text-secondary)] shrink-0" />
@@ -309,8 +333,8 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
           </button>
 
           <button
-            onClick={() => onCreated(name, agentName, "cloud")}
-            disabled={!name.trim() || !agentName.trim()}
+            onClick={() => handleCreate("cloud")}
+            disabled={submitting || !name.trim() || !agentName.trim()}
             className="w-full flex items-center gap-4 p-4 border border-[var(--color-border)] hover:bg-[var(--color-layer-1)] transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <LuCloud size={24} className="text-[var(--color-text-secondary)] shrink-0" />
@@ -321,6 +345,8 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
               </div>
             </div>
           </button>
+
+          {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
       </div>
     </div>
@@ -341,6 +367,7 @@ export function ProfilePanel() {
   const [showClaim, setShowClaim] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
   const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [installUrl, setInstallUrl] = useState<string | null>(null);
 
@@ -352,7 +379,18 @@ export function ProfilePanel() {
     setLoading(false);
   }, []);
 
+  const fetchWorkspaces = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/workspaces`, { headers: getAuthHeader() });
+      if (res.ok) {
+        const data = await res.json();
+        setWorkspaces(data.workspaces);
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => { fetchProfile(); }, [fetchProfile, user?.github_username]);
+  useEffect(() => { fetchWorkspaces(); }, [fetchWorkspaces]);
   useEffect(() => {
     fetchAuthConfig().then((c) => { if (c.github_app_install_url) setInstallUrl(c.github_app_install_url); });
   }, []);
@@ -376,10 +414,11 @@ export function ProfilePanel() {
       {showCreateWorkspace && (
         <CreateWorkspaceModal
           onClose={() => setShowCreateWorkspace(false)}
-          existingNames={profile?.agents.map(a => a.id) ?? []}
-          onCreated={(name, agentName, type) => {
+          existingNames={workspaces.map(w => w.name)}
+          onCreated={(ws) => {
             setShowCreateWorkspace(false);
-            router.push(`/workspaces/new?name=${encodeURIComponent(name)}&agent=${encodeURIComponent(agentName)}&type=${type}`);
+            fetchWorkspaces();
+            router.push(`/workspaces/${ws.id}`);
           }}
         />
       )}
@@ -450,7 +489,7 @@ export function ProfilePanel() {
 
             {loading ? (
               <LoadingSpinner />
-            ) : !profile?.agents.length ? (
+            ) : workspaces.length === 0 ? (
               <div className="text-center py-16 border border-dashed border-[var(--color-border)]">
                 <LuMonitor size={32} className="mx-auto mb-3 text-[var(--color-text-tertiary)]" />
                 <p className="text-base text-[var(--color-text-tertiary)] mb-2">No workspaces yet</p>
@@ -458,20 +497,19 @@ export function ProfilePanel() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {profile.agents.map((agent) => (
+                {workspaces.map((ws) => (
                   <div
-                    key={agent.id}
-                    onClick={() => router.push(`/workspaces/${agent.id}`)}
+                    key={ws.id}
+                    onClick={() => router.push(`/workspaces/${ws.id}`)}
                     className="flex items-center gap-4 p-4 bg-[var(--color-surface)] border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors"
                   >
-                    <Avatar id={agent.id} size="sm" />
+                    <Avatar id={ws.agent_name} size="sm" />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold text-[var(--color-text)] truncate">
-                        {agent.id}
+                        {ws.name}
                       </div>
-                      <div className="text-xs text-[var(--color-text-tertiary)] flex items-center gap-1.5 mt-0.5">
-                        <LuActivity size={11} />
-                        {agent.total_runs} runs
+                      <div className="text-xs text-[var(--color-text-tertiary)] truncate mt-0.5">
+                        {ws.agent_name} · {ws.type}
                       </div>
                     </div>
                   </div>

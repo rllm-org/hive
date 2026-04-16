@@ -216,6 +216,15 @@ _PG_SCHEMA = [
         updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (agent_id, task_id)
     )""",
+    """CREATE TABLE IF NOT EXISTS workspaces (
+        id              SERIAL PRIMARY KEY,
+        user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name            TEXT NOT NULL,
+        agent_name      TEXT NOT NULL,
+        type            TEXT NOT NULL DEFAULT 'local',
+        created_at      TIMESTAMPTZ NOT NULL,
+        UNIQUE(user_id, name)
+    )""",
     """CREATE TABLE IF NOT EXISTS agent_chat_sessions (
         id              SERIAL PRIMARY KEY,
         user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
