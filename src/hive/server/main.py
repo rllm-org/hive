@@ -852,8 +852,8 @@ async def auth_github_disconnect(user: dict = Depends(require_user)):
         row = await (await conn.execute(
             "SELECT password FROM users WHERE id = %s", (user_id,)
         )).fetchone()
-        if not row or not row["password"]:
-            raise HTTPException(400, "cannot disconnect GitHub — no password set. Set a password first.")
+        if not row:
+            raise HTTPException(404, "user not found")
         await conn.execute(
             "UPDATE users SET github_id = NULL, github_token = NULL, github_refresh_token = NULL, github_token_expires = NULL, github_username = NULL, github_connected_at = NULL, avatar_url = NULL WHERE id = %s",
             (user_id,),
