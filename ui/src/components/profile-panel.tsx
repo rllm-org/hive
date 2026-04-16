@@ -246,88 +246,6 @@ function ApiKeySection() {
   );
 }
 
-function DeleteWorkspaceModal({ workspace, onClose, onDeleted }: { workspace: Workspace; onClose: () => void; onDeleted: () => void }) {
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
-  }, [onClose]);
-
-  const submit = async () => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/workspaces/${workspace.id}`, {
-        method: "DELETE",
-        headers: getAuthHeader(),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.detail ?? "Delete failed");
-      }
-      onDeleted();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed");
-      setSubmitting(false);
-    }
-  };
-
-  const agentCount = workspace.agent_count ?? (workspace.agents?.length ?? 0);
-
-  return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30"
-      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
-    >
-      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[420px] flex flex-col animate-fade-in" style={{ borderRadius: 6 }}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
-          <h2 className="text-base font-semibold text-[var(--color-text)]">Delete Workspace</h2>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M3 3l8 8M11 3l-8 8" />
-            </svg>
-          </button>
-        </div>
-        <div className="px-6 py-5 space-y-3">
-          <p className="text-sm text-[var(--color-text-secondary)]">
-            Delete workspace <span className="font-semibold text-[var(--color-text)]">{workspace.name}</span>?
-          </p>
-          {agentCount > 0 && (
-            <p className="text-xs text-[var(--color-text-tertiary)]">
-              This will also tear down {agentCount} {agentCount === 1 ? "agent" : "agents"} and their sandboxes. Agents with public runs will be preserved but unlinked.
-            </p>
-          )}
-          {error && <p className="text-xs text-red-500">{error}</p>}
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <button
-              onClick={onClose}
-              disabled={submitting}
-              className="px-4 py-2 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] disabled:opacity-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={submit}
-              disabled={submitting}
-              className="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 transition-colors"
-            >
-              {submitting ? "Deleting…" : "Delete"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: () => void; onCreated: (workspace: Workspace) => void; existingNames: string[] }) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [name, setName] = useState(() => {
@@ -450,7 +368,6 @@ export function ProfilePanel() {
   });
   const [showClaim, setShowClaim] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
-  const [pendingDeleteWs, setPendingDeleteWs] = useState<Workspace | null>(null);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
@@ -505,16 +422,6 @@ export function ProfilePanel() {
             setShowCreateWorkspace(false);
             fetchWorkspaces();
             router.push(`/workspaces/${ws.id}`);
-          }}
-        />
-      )}
-      {pendingDeleteWs && (
-        <DeleteWorkspaceModal
-          workspace={pendingDeleteWs}
-          onClose={() => setPendingDeleteWs(null)}
-          onDeleted={() => {
-            setPendingDeleteWs(null);
-            fetchWorkspaces();
           }}
         />
       )}
@@ -602,18 +509,8 @@ export function ProfilePanel() {
                     <div
                       key={ws.id}
                       onClick={() => router.push(`/workspaces/${ws.id}`)}
-                      className="group relative flex items-center gap-3 p-4 bg-[var(--color-surface)] border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors"
+                      className="flex items-center gap-3 p-4 bg-[var(--color-surface)] border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors"
                     >
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setPendingDeleteWs(ws); }}
-                        className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-red-500 hover:bg-[var(--color-layer-2)] opacity-0 group-hover:opacity-100 transition-all"
-                        style={{ borderRadius: 4 }}
-                        aria-label={`Delete ${ws.name}`}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
-                          <path d="M3 3l6 6M9 3l-6 6" />
-                        </svg>
-                      </button>
                       <div className="flex-1 min-w-0">
                         <div className="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)] font-semibold">
                           {ws.type}

@@ -6,6 +6,9 @@ import { LuArrowLeft, LuPlus } from "react-icons/lu";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiFetch, apiPostJson, apiDelete } from "@/lib/api";
+import { getAuthHeader } from "@/lib/auth";
+
+const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
 import BoringAvatar from "boring-avatars";
 
 const AVATAR_COLORS = ["#92A1C6", "#146A7C", "#F0AB3D", "#C271B4", "#C20D90"];
@@ -357,6 +360,105 @@ function SandboxTreeNode({
   );
 }
 
+function DeleteWorkspaceModal({ workspace, onClose, onDeleted }: { workspace: Workspace; onClose: () => void; onDeleted: () => void }) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const [confirm, setConfirm] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [onClose]);
+
+  const matches = confirm === workspace.name;
+  const agentCount = workspace.agents?.length ?? 0;
+
+  const submit = async () => {
+    if (!matches) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/workspaces/${workspace.id}`, {
+        method: "DELETE",
+        headers: getAuthHeader(),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.detail ?? "Delete failed");
+      }
+      onDeleted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30"
+      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+    >
+      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[440px] flex flex-col animate-fade-in" style={{ borderRadius: 6 }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+          <h2 className="text-base font-semibold text-[var(--color-text)]">Delete Workspace</h2>
+          <button
+            onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M3 3l8 8M11 3l-8 8" />
+            </svg>
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div className="px-3 py-2.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900" style={{ borderRadius: 4 }}>
+            <p className="text-xs text-red-700 dark:text-red-300">
+              This action cannot be undone.
+              {agentCount > 0 && (
+                <> {agentCount} {agentCount === 1 ? "agent" : "agents"} and {agentCount === 1 ? "its sandbox" : "their sandboxes"} will be torn down. Agents with public runs will be preserved but unlinked.</>
+              )}
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs text-[var(--color-text-secondary)] mb-1.5">
+              Type <span className="font-semibold text-[var(--color-text)]">{workspace.name}</span> to confirm.
+            </label>
+            <input
+              type="text"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && matches) { e.preventDefault(); submit(); } }}
+              className="w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] font-[family-name:var(--font-ibm-plex-mono)]"
+              style={{ outline: "none", boxShadow: "none" }}
+              autoFocus
+            />
+          </div>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={onClose}
+              disabled={submitting}
+              className="px-4 py-2 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] disabled:opacity-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={submit}
+              disabled={submitting || !matches}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {submitting ? "Deleting…" : "I understand, delete this workspace"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function WorkspacePage() {
   const params = useParams();
   const router = useRouter();
@@ -367,6 +469,9 @@ export default function WorkspacePage() {
   const [wsLoading, setWsLoading] = useState(true);
   const [addingAgent, setAddingAgent] = useState(false);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+  const [wsMenuOpen, setWsMenuOpen] = useState(false);
+  const [showDeleteWs, setShowDeleteWs] = useState(false);
+  const wsMenuRef = useRef<HTMLDivElement>(null);
 
   const refetchWorkspace = useCallback(async () => {
     try {
@@ -420,6 +525,16 @@ export default function WorkspacePage() {
       setActiveAgentId(agents[0].id);
     }
   }, [activeAgentId, agents]);
+
+  // Close workspace menu on outside click
+  useEffect(() => {
+    if (!wsMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (wsMenuRef.current && !wsMenuRef.current.contains(e.target as Node)) setWsMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [wsMenuOpen]);
 
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [leftWidth, setLeftWidth] = useState(20);
@@ -619,7 +734,47 @@ export default function WorkspacePage() {
           </span>
           <span className="text-[14px] font-semibold text-[var(--color-text)]">{workspaceName}</span>
         </div>
+
+        {/* Workspace menu (right side) */}
+        <div ref={wsMenuRef} className="ml-auto relative">
+          <button
+            onClick={() => setWsMenuOpen((o) => !o)}
+            className="w-7 h-7 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-colors"
+            style={{ borderRadius: 4 }}
+            aria-label="Workspace menu"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <circle cx="7" cy="3" r="1.3" />
+              <circle cx="7" cy="7" r="1.3" />
+              <circle cx="7" cy="11" r="1.3" />
+            </svg>
+          </button>
+          {wsMenuOpen && (
+            <div
+              className="absolute right-0 mt-1 bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[160px] z-50"
+              style={{ borderRadius: 6 }}
+            >
+              <button
+                onClick={() => { setWsMenuOpen(false); setShowDeleteWs(true); }}
+                className="w-full text-left px-3 py-2 text-sm font-medium text-red-500 hover:bg-red-500/10 transition-colors"
+              >
+                Delete workspace
+              </button>
+            </div>
+          )}
+        </div>
       </div>
+
+      {showDeleteWs && workspace && (
+        <DeleteWorkspaceModal
+          workspace={workspace}
+          onClose={() => setShowDeleteWs(false)}
+          onDeleted={() => {
+            setShowDeleteWs(false);
+            router.push("/me?tab=workspaces");
+          }}
+        />
+      )}
 
       {/* Split view */}
       <div ref={containerRef} className="flex-1 flex min-h-0">
