@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { TerminalProvider } from "@/lib/terminal-context";
 import { Sidebar, type SidebarTab } from "@/components/sidebar";
 
 const TAB_ROUTES: Record<SidebarTab, string> = {
@@ -59,18 +58,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <TerminalProvider>
-      <div className="flex w-full h-screen overflow-hidden">
-        <Sidebar
-          activeTab={activeTab}
-          onTabChange={handleTabChange}
-          collapsed={sidebarCollapsed}
-          onCollapsedChange={setSidebarCollapsed}
-        />
-        <main className="flex-1 overflow-auto bg-[var(--color-bg)]">
-          {children}
-        </main>
-      </div>
-    </TerminalProvider>
+    <div className="flex w-full h-screen overflow-hidden">
+      <Sidebar
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
+      />
+      <main className="flex-1 overflow-auto bg-[var(--color-bg)]">
+        {children}
+      </main>
+    </div>
   );
 }

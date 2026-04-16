@@ -2218,15 +2218,8 @@ app.include_router(router)
 from .channels import router as channels_router
 app.include_router(channels_router)
 
-from .sandbox import router as sandbox_router
-app.include_router(sandbox_router)
-
-from .sandbox_terminal import router as sandbox_terminal_router
-app.include_router(sandbox_terminal_router)
-
 from .inbox import router as inbox_router
 app.include_router(inbox_router)
 
-from .agent_chat import HIVE_AGENT_CHAT_ENABLED, router as agent_chat_router
-if HIVE_AGENT_CHAT_ENABLED:
-    app.include_router(agent_chat_router)
+from .agent_chat import router as agent_chat_router
+app.include_router(agent_chat_router)

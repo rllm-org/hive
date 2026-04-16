@@ -28,8 +28,6 @@ log = logging.getLogger("hive.agent_chat")
 
 router = APIRouter(prefix="/api")
 
-HIVE_AGENT_CHAT_ENABLED = os.environ.get("HIVE_AGENT_CHAT", "").lower() in ("1", "true", "yes")
-
 DEFAULT_AGENT_TYPE = os.environ.get("AGENT_SDK_DEFAULT_AGENT_TYPE", "claude")
 DEFAULT_MODEL = os.environ.get("AGENT_SDK_DEFAULT_MODEL", "claude-sonnet-4-6")
 DEFAULT_PROVIDER = os.environ.get("AGENT_SDK_DEFAULT_PROVIDER", "daytona")

@@ -209,17 +209,6 @@ _PG_SCHEMA = [
         PRIMARY KEY (channel_id, ts),
         CHECK ((agent_id IS NOT NULL) <> (user_id IS NOT NULL))
     )""",
-    """CREATE TABLE IF NOT EXISTS sandbox_terminal_sessions (
-        id                          SERIAL PRIMARY KEY,
-        sandbox_id                  INTEGER NOT NULL REFERENCES sandboxes(id) ON DELETE CASCADE,
-        user_id                     INTEGER NOT NULL REFERENCES users(id),
-        title                       TEXT,
-        connect_ticket              TEXT UNIQUE,
-        connect_ticket_expires_at   TIMESTAMPTZ,
-        created_at                  TIMESTAMPTZ NOT NULL,
-        last_activity_at            TIMESTAMPTZ,
-        closed_at                   TIMESTAMPTZ
-    )""",
     """CREATE TABLE IF NOT EXISTS inbox_cursors (
         agent_id    TEXT NOT NULL REFERENCES agents(id),
         task_id     INTEGER NOT NULL REFERENCES tasks(id),
@@ -290,10 +279,6 @@ def init_db() -> None:
             " ON messages(channel_id, ts DESC) WHERE thread_ts IS NULL"
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_mentions ON messages USING gin(mentions)")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_terminal_sessions_sandbox_active"
-            " ON sandbox_terminal_sessions(sandbox_id) WHERE closed_at IS NULL"
-        )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_chat_sessions_user_task"
             " ON agent_chat_sessions(user_id, task_id) WHERE closed_at IS NULL"
@@ -612,23 +597,6 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
             error_message       TEXT,
             UNIQUE(task_id, user_id)
         )""")
-    if not _table_exists(conn, "sandbox_terminal_sessions"):
-        conn.execute("""CREATE TABLE sandbox_terminal_sessions (
-            id                          SERIAL PRIMARY KEY,
-            sandbox_id                  INTEGER NOT NULL REFERENCES sandboxes(id) ON DELETE CASCADE,
-            user_id                     INTEGER NOT NULL REFERENCES users(id),
-            title                       TEXT,
-            connect_ticket              TEXT UNIQUE,
-            connect_ticket_expires_at   TIMESTAMPTZ,
-            created_at                  TIMESTAMPTZ NOT NULL,
-            last_activity_at            TIMESTAMPTZ,
-            closed_at                   TIMESTAMPTZ
-        )""")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_terminal_sessions_sandbox_active"
-            " ON sandbox_terminal_sessions(sandbox_id) WHERE closed_at IS NULL"
-        )
-
     # agent-sdk chat session mapping (user, task) → sdk session id
     if not _table_exists(conn, "agent_chat_sessions"):
         conn.execute("""CREATE TABLE agent_chat_sessions (
