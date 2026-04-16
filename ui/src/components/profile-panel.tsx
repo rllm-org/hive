@@ -478,10 +478,10 @@ export function ProfilePanel() {
                     {profile?.github_username ? (
                       <button
                         onClick={async () => {
-                          if (confirm("Disconnect GitHub? You won't be able to manage private tasks until you reconnect.")) {
+                          try {
                             await disconnectGithub();
                             fetchProfile();
-                          }
+                          } catch {}
                         }}
                         className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-500 border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
                       >
