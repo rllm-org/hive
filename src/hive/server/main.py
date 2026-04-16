@@ -144,7 +144,10 @@ def _hash_password(password: str) -> str:
 def _check_password(password: str, hashed: str | None) -> bool:
     if not hashed:
         return False
-    return bcrypt.checkpw(password.encode(), hashed.encode())
+    try:
+        return bcrypt.checkpw(password.encode(), hashed.encode())
+    except ValueError:
+        return False
 
 
 def _create_jwt(user_id: int, email: str, role: str, handle: str | None = None) -> str:
@@ -559,9 +562,15 @@ async def auth_forgot_password(body: dict[str, Any]):
 
 @router.post("/auth/set-password")
 async def auth_set_password(body: dict[str, Any], user: dict = Depends(require_user)):
-    """Set a password for an account that doesn't have one (GitHub-only signup)."""
+    """Set or change the user's password.
+
+    If the user has no password (e.g. GitHub-only signup), set it.
+    If the user already has a password, require `current_password` and
+    verify it before updating.
+    """
     user_id = int(user["sub"])
     new_password = body.get("password", "")
+    current_password = body.get("current_password", "")
     if len(new_password) < 8:
         raise HTTPException(400, "password must be at least 8 characters")
     async with get_db() as conn:
@@ -571,7 +580,10 @@ async def auth_set_password(body: dict[str, Any], user: dict = Depends(require_u
         if not row:
             raise HTTPException(404, "user not found")
         if row["password"]:
-            raise HTTPException(400, "password already set — use forgot password to change it")
+            if not current_password:
+                raise HTTPException(400, "current password required")
+            if not _check_password(current_password, row["password"]):
+                raise HTTPException(400, "current password is incorrect")
         hashed = _hash_password(new_password)
         await conn.execute("UPDATE users SET password = %s WHERE id = %s", (hashed, user_id))
     return {"status": "ok"}
@@ -616,7 +628,7 @@ async def auth_me(user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await (await conn.execute(
-            "SELECT id, email, handle, role, github_username, avatar_url, uuid, created_at FROM users WHERE id = %s", (user_id,)
+            "SELECT id, email, handle, role, github_username, avatar_url, uuid, created_at, password FROM users WHERE id = %s", (user_id,)
         )).fetchone()
         if not row:
             raise HTTPException(404, "user not found")
@@ -627,6 +639,7 @@ async def auth_me(user: dict = Depends(require_user)):
     return {
         "id": row["id"], "email": row["email"], "handle": row["handle"], "role": row["role"],
         "github_username": row["github_username"], "avatar_url": row["avatar_url"], "uuid": row["uuid"], "created_at": row["created_at"],
+        "has_password": bool(row["password"]),
         "agents": [{"id": a["id"], "registered_at": a["registered_at"], "last_seen_at": a["last_seen_at"], "total_runs": a["total_runs"]} for a in agents],
     }
 
