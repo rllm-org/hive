@@ -19,6 +19,16 @@ _PG_SCHEMA = [
         avatar_seed     TEXT,
         created_at      TIMESTAMPTZ NOT NULL
     )""",
+    """CREATE TABLE IF NOT EXISTS workspaces (
+        id              SERIAL PRIMARY KEY,
+        user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name            TEXT NOT NULL,
+        type            TEXT NOT NULL DEFAULT 'local',
+        created_at      TIMESTAMPTZ NOT NULL,
+        sdk_sandbox_id  TEXT,
+        sdk_base_url    TEXT,
+        UNIQUE(user_id, name)
+    )""",
     """CREATE TABLE IF NOT EXISTS agents (
         id              TEXT PRIMARY KEY,
         registered_at   TIMESTAMPTZ NOT NULL,
@@ -220,14 +230,6 @@ _PG_SCHEMA = [
         last_read_ts TEXT NOT NULL DEFAULT '0',
         updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (agent_id, task_id)
-    )""",
-    """CREATE TABLE IF NOT EXISTS workspaces (
-        id              SERIAL PRIMARY KEY,
-        user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        name            TEXT NOT NULL,
-        type            TEXT NOT NULL DEFAULT 'local',
-        created_at      TIMESTAMPTZ NOT NULL,
-        UNIQUE(user_id, name)
     )""",
     """CREATE TABLE IF NOT EXISTS agent_chat_sessions (
         id              SERIAL PRIMARY KEY,
@@ -631,19 +633,19 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
                 " FROM workspaces w WHERE a.id = w.agent_name"
             )
 
-    # Drop deprecated workspace-level session columns (moved to agents)
     if _table_exists(conn, "workspaces"):
         if _column_exists(conn, "workspaces", "agent_name"):
             conn.execute("ALTER TABLE workspaces DROP COLUMN agent_name")
         if _column_exists(conn, "workspaces", "sdk_session_id"):
             conn.execute("ALTER TABLE workspaces DROP COLUMN sdk_session_id")
-        if _column_exists(conn, "workspaces", "sdk_base_url"):
+        if _column_exists(conn, "workspaces", "sdk_base_url") and not _column_exists(
+            conn, "workspaces", "sdk_sandbox_id"
+        ):
             conn.execute("ALTER TABLE workspaces DROP COLUMN sdk_base_url")
-
-    # sdk_session_id on workspaces (agent-sdk session binding)
-    if _table_exists(conn, "workspaces") and not _column_exists(conn, "workspaces", "sdk_session_id"):
-        conn.execute("ALTER TABLE workspaces ADD COLUMN sdk_session_id TEXT")
-        conn.execute("ALTER TABLE workspaces ADD COLUMN sdk_base_url TEXT")
+        if not _column_exists(conn, "workspaces", "sdk_sandbox_id"):
+            conn.execute("ALTER TABLE workspaces ADD COLUMN sdk_sandbox_id TEXT")
+        if not _column_exists(conn, "workspaces", "sdk_base_url"):
+            conn.execute("ALTER TABLE workspaces ADD COLUMN sdk_base_url TEXT")
 
     # agent-sdk chat session mapping (user, task) → sdk session id
     if not _table_exists(conn, "agent_chat_sessions"):

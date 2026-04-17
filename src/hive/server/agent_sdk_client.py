@@ -53,6 +53,9 @@ class AgentSdkClient:
     async def create_quick_session(self, **config: Any) -> dict[str, Any]:
         return await self._json("POST", "/sessions/quick", json=config)
 
+    async def create_session(self, sandbox_id: str, **config: Any) -> dict[str, Any]:
+        return await self._json("POST", "/sessions", json={"sandbox_id": sandbox_id, **config})
+
     async def get_status(self, sid: str) -> dict[str, Any]:
         return await self._json("GET", f"/sessions/{sid}/status")
 

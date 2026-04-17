@@ -2408,16 +2408,71 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
     return _serialize_workspace(row, agents=agents)
 
 
+async def _workspace_sdk_connect(
+    workspace_id: int, agent_id: str, body: dict[str, Any]
+) -> tuple[str, str]:
+    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
+
+    client = get_client()
+    base = AGENT_SDK_BASE_URL or ""
+    kw: dict[str, Any] = dict(
+        name=f"agent-{agent_id}",
+        provider=body.get("provider", "daytona"),
+        agent_type=body.get("agent_type", "claude"),
+        model=body.get("model", "claude-sonnet-4-6"),
+        cwd=body.get("cwd", "/home/daytona"),
+    )
+    async with get_db() as conn:
+        wrow = await (await conn.execute(
+            "SELECT sdk_sandbox_id, sdk_base_url FROM workspaces WHERE id = %s",
+            (workspace_id,),
+        )).fetchone()
+    if wrow and wrow.get("sdk_sandbox_id"):
+        upstream = await client.create_session(wrow["sdk_sandbox_id"], **kw)
+        sid = upstream.get("session_id")
+        if not sid:
+            raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
+        return sid, wrow.get("sdk_base_url") or base
+
+    upstream = await client.create_quick_session(**kw)
+    new_sandbox = upstream.get("sandbox_id")
+    session_from_quick = upstream.get("session_id")
+    if not new_sandbox or not session_from_quick:
+        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
+
+    async with get_db() as conn:
+        r = await (await conn.execute(
+            "UPDATE workspaces SET sdk_sandbox_id = %s, sdk_base_url = %s"
+            " WHERE id = %s AND sdk_sandbox_id IS NULL RETURNING id",
+            (new_sandbox, base, workspace_id),
+        )).fetchone()
+        if r:
+            return session_from_quick, base
+        exist = await (await conn.execute(
+            "SELECT sdk_sandbox_id, sdk_base_url FROM workspaces WHERE id = %s",
+            (workspace_id,),
+        )).fetchone()
+
+    await client.destroy_sandbox(new_sandbox)
+    upstream2 = await client.create_session(exist["sdk_sandbox_id"], **kw)
+    sid = upstream2.get("session_id")
+    if not sid:
+        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream2}")
+    return sid, exist.get("sdk_base_url") or base
+
+
 @router.post("/workspaces/{workspace_id}/agents")
 async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user: dict = Depends(require_user)):
-    """Create a new agent inside this workspace and auto-connect a dedicated agent-sdk session.
+    """Create a new agent inside this workspace and auto-connect an agent-sdk session.
 
     Body:
       name (optional) — custom agent id; otherwise auto-generated
       harness (optional), model (optional)
       provider (optional, default "daytona"), agent_type (optional, default "claude")
+
+    All agents in the workspace share one agent-sdk sandbox; each agent has its own session.
     """
-    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
+    from .agent_sdk_client import AGENT_SDK_BASE_URL
     user_id = int(user["sub"])
     requested_name = (body.get("name") or "").strip().lower()
     async with get_db() as conn:
@@ -2446,30 +2501,19 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             (agent_id, agent_token, ts, ts, user_id, "local", harness, model, str(uuid.uuid4()), workspace_id)
         )
 
-    # Auto-connect: create a dedicated agent-sdk session (its own container)
     sdk_session_id = None
     sdk_base_url = None
     try:
-        client = get_client()
-        upstream = await client.create_quick_session(
-            name=f"agent-{agent_id}",
-            provider=body.get("provider", "daytona"),
-            agent_type=body.get("agent_type", "claude"),
-            model=body.get("model", "claude-sonnet-4-6"),
-            cwd=body.get("cwd", "/home/daytona"),
-        )
-        sdk_session_id = upstream.get("session_id")
-        if sdk_session_id:
-            sdk_base_url = AGENT_SDK_BASE_URL
-            async with get_db() as conn:
-                await conn.execute(
-                    "UPDATE agents SET sdk_session_id = %s, sdk_base_url = %s WHERE id = %s",
-                    (sdk_session_id, sdk_base_url, agent_id)
-                )
+        sdk_session_id, sdk_base_url = await _workspace_sdk_connect(workspace_id, agent_id, body)
+        async with get_db() as conn:
+            await conn.execute(
+                "UPDATE agents SET sdk_session_id = %s, sdk_base_url = %s WHERE id = %s",
+                (sdk_session_id, sdk_base_url or AGENT_SDK_BASE_URL, agent_id),
+            )
     except Exception as e:
-        # Agent still exists in DB even if SDK connection fails — client can retry via /connect
         import logging
-        logging.warning(f"Failed to auto-connect agent {agent_id}: {e}")
+
+        logging.warning("Failed to auto-connect agent %s: %s", agent_id, e)
 
     return {
         "id": agent_id,
@@ -2499,23 +2543,13 @@ async def connect_workspace_agent(workspace_id: int, agent_id: str, body: dict[s
                 "sdk_session_id": row["sdk_session_id"],
                 "sdk_base_url": row["sdk_base_url"] or AGENT_SDK_BASE_URL,
             }
-    client = get_client()
-    upstream = await client.create_quick_session(
-        name=f"agent-{agent_id}",
-        provider=body.get("provider", "daytona"),
-        agent_type=body.get("agent_type", "claude"),
-        model=body.get("model", "claude-sonnet-4-6"),
-        cwd=body.get("cwd", "/home/daytona"),
-    )
-    sdk_session_id = upstream.get("session_id")
-    if not sdk_session_id:
-        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
+    sdk_session_id, sdk_base_url = await _workspace_sdk_connect(workspace_id, agent_id, body)
     async with get_db() as conn:
         await conn.execute(
             "UPDATE agents SET sdk_session_id = %s, sdk_base_url = %s WHERE id = %s",
-            (sdk_session_id, AGENT_SDK_BASE_URL, agent_id)
+            (sdk_session_id, sdk_base_url or AGENT_SDK_BASE_URL, agent_id),
         )
-    return {"sdk_session_id": sdk_session_id, "sdk_base_url": AGENT_SDK_BASE_URL}
+    return {"sdk_session_id": sdk_session_id, "sdk_base_url": sdk_base_url or AGENT_SDK_BASE_URL}
 
 
 @router.delete("/workspaces/{workspace_id}/agents/{agent_id}")
@@ -2569,16 +2603,17 @@ async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = 
 
 @router.delete("/workspaces/{workspace_id}")
 async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)):
-    """Delete a workspace and cascade-clean up all its agents + sandboxes."""
+    """Delete a workspace and cascade-clean up all its agents + shared agent-sdk sandbox."""
     from .agent_sdk_client import get_client
     user_id = int(user["sub"])
     async with get_db() as conn:
         ws = await (await conn.execute(
-            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s",
+            "SELECT id, sdk_sandbox_id FROM workspaces WHERE id = %s AND user_id = %s",
             (workspace_id, user_id)
         )).fetchone()
         if not ws:
             raise HTTPException(404, "workspace not found")
+        shared_sandbox_id = ws.get("sdk_sandbox_id")
         agents = await (await conn.execute(
             "SELECT a.id, a.sdk_session_id,"
             " (SELECT 1 FROM runs WHERE agent_id = a.id LIMIT 1) AS has_runs"
@@ -2586,7 +2621,6 @@ async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)
             (workspace_id,)
         )).fetchall()
 
-    # Tear down each agent's SDK session (best-effort)
     try:
         client = get_client()
     except Exception:
@@ -2598,6 +2632,13 @@ async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)
             except Exception as e:
                 import logging
                 logging.warning(f"Failed to delete sdk session for agent {a['id']}: {e}")
+
+    if client and shared_sandbox_id:
+        try:
+            await client.destroy_sandbox(shared_sandbox_id)
+        except Exception as e:
+            import logging
+            logging.warning("Failed to destroy workspace sandbox %s: %s", shared_sandbox_id, e)
 
     async with get_db() as conn:
         # Delete agents with no runs; unlink (preserve row) agents that have runs
