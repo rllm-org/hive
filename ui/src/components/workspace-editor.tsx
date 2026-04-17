@@ -32,10 +32,12 @@ interface WorkspaceEditorProps {
   onSelectTab: (path: string) => void;
   onCloseTab: (path: string) => void;
   onChangeContent: (path: string, content: string) => void;
+  onSave?: (path: string, content: string) => Promise<void>;
 }
 
-export function WorkspaceEditor({ openFiles, activePath, onSelectTab, onCloseTab, onChangeContent }: WorkspaceEditorProps) {
+export function WorkspaceEditor({ openFiles, activePath, onSelectTab, onCloseTab, onChangeContent, onSave }: WorkspaceEditorProps) {
   const [isDark, setIsDark] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const check = () => setIsDark(document.documentElement.classList.contains("dark"));
@@ -44,6 +46,23 @@ export function WorkspaceEditor({ openFiles, activePath, onSelectTab, onCloseTab
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
   }, []);
+
+  // Cmd+S / Ctrl+S save handler
+  useEffect(() => {
+    if (!onSave) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        const file = openFiles.find((f) => f.path === activePath);
+        if (file && !saving) {
+          setSaving(true);
+          onSave(file.path, file.content).finally(() => setSaving(false));
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onSave, openFiles, activePath, saving]);
 
   const activeFile = openFiles.find((f) => f.path === activePath) ?? null;
 
@@ -62,6 +81,9 @@ export function WorkspaceEditor({ openFiles, activePath, onSelectTab, onCloseTab
     <div className="h-full flex flex-col">
       {/* Tab bar */}
       <div className="shrink-0 flex items-stretch border-b border-[var(--color-border)] bg-[var(--color-layer-1)] overflow-x-auto">
+        {saving && (
+          <div className="flex items-center px-2 text-[10px] text-[var(--color-text-tertiary)]">Saving…</div>
+        )}
         {openFiles.map((f) => {
           const isActive = f.path === activePath;
           return (

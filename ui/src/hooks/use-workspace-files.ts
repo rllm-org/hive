@@ -115,6 +115,37 @@ export function useWorkspaceFiles(
     [sdkBaseUrl],
   );
 
+  /* Edit a file (string replacement or write) */
+  const editFile = useCallback(
+    async (
+      path: string,
+      oldString: string,
+      newString: string,
+      replaceAll?: boolean,
+    ): Promise<{ ok: boolean; error?: string }> => {
+      const sbxId = sandboxIdRef.current;
+      if (!sdkBaseUrl || !sbxId) return { ok: false, error: "not connected" };
+      const body: Record<string, unknown> = {
+        path,
+        old_string: oldString,
+        new_string: newString,
+      };
+      if (replaceAll) body.replace_all = true;
+      const resp = await fetch(
+        `${sdkBaseUrl}/sandboxes/${sbxId}/files/edit`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      const data = await resp.json();
+      if (!resp.ok) return { ok: false, error: data.error ?? `HTTP ${resp.status}` };
+      return { ok: true };
+    },
+    [sdkBaseUrl],
+  );
+
   /* Force-refresh tree now */
   const refresh = useCallback(async () => {
     const sbxId = sandboxIdRef.current;
@@ -122,5 +153,5 @@ export function useWorkspaceFiles(
     await fetchTree(sdkBaseUrl, sbxId);
   }, [sdkBaseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { tree, loading, error, readFile, refresh };
+  return { tree, loading, error, readFile, editFile, refresh };
 }

@@ -568,7 +568,14 @@ export default function WorkspacePage() {
   );
 
   // Live sandbox filesystem
-  const { tree: fsTree, loading: fsLoading, error: fsError, readFile } = useWorkspaceFiles(sdkBaseUrl, sdkSessionId);
+  const { tree: fsTree, loading: fsLoading, error: fsError, readFile, editFile } = useWorkspaceFiles(sdkBaseUrl, sdkSessionId);
+
+  const handleSaveFile = useCallback(async (path: string, content: string) => {
+    const result = await editFile(path, "", content);
+    if (!result.ok) {
+      alert("Save failed: " + (result.error ?? "unknown error"));
+    }
+  }, [editFile]);
 
   // Auto-expand root directories on first tree load
   const fsInitRef = useRef(false);
@@ -826,6 +833,7 @@ export default function WorkspacePage() {
                 onSelectTab={setActivePath}
                 onCloseTab={handleCloseTab}
                 onChangeContent={handleChangeContent}
+                onSave={handleSaveFile}
               />
             </div>
           </>
