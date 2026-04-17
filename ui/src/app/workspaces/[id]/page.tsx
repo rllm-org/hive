@@ -288,6 +288,8 @@ interface Workspace {
   type: "local" | "cloud";
   agents: WorkspaceAgent[];
   created_at: string;
+  sdk_sandbox_id: string | null;
+  sdk_base_url: string | null;
 }
 
 import type { ChatMessage } from "@/hooks/use-workspace-agent";
@@ -562,13 +564,17 @@ export default function WorkspacePage() {
   }, []);
 
   // Chat state — wired to agent-sdk via workspace connect
-  const { messages, isLoading, connecting, error: agentError, sendMessage, cancel, sdkBaseUrl, sdkSessionId } = useWorkspaceAgent(
+  const { messages, isLoading, connecting, error: agentError, sendMessage, cancel } = useWorkspaceAgent(
     workspace ? workspaceId : null,
     activeAgent?.id ?? null,
   );
 
-  // Live sandbox filesystem
-  const { tree: fsTree, loading: fsLoading, error: fsError, readFile, editFile } = useWorkspaceFiles(sdkBaseUrl, sdkSessionId);
+  // Live sandbox filesystem — keyed on workspace sandbox, not per-agent session,
+  // so switching agents does not trigger a reload.
+  const { tree: fsTree, loading: fsLoading, error: fsError, readFile, editFile } = useWorkspaceFiles(
+    workspace?.sdk_base_url ?? null,
+    workspace?.sdk_sandbox_id ?? null,
+  );
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
     const result = await editFile(path, "", content);

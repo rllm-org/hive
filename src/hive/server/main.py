@@ -2326,6 +2326,8 @@ def _serialize_workspace(row: dict, agents: list | None = None) -> dict:
         "name": row["name"],
         "type": row["type"],
         "created_at": row["created_at"],
+        "sdk_sandbox_id": row.get("sdk_sandbox_id"),
+        "sdk_base_url": row.get("sdk_base_url"),
         "agents": agents or [],
     }
     return d
@@ -2350,7 +2352,7 @@ async def list_workspaces(user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         rows = await (await conn.execute(
-            "SELECT w.id, w.name, w.type, w.created_at,"
+            "SELECT w.id, w.name, w.type, w.created_at, w.sdk_sandbox_id, w.sdk_base_url,"
             " COUNT(a.id) AS agent_count,"
             " COALESCE("
             "   json_agg(json_build_object('id', a.id, 'avatar_seed', a.avatar_seed) ORDER BY a.registered_at ASC)"
@@ -2398,7 +2400,7 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await (await conn.execute(
-            "SELECT id, name, type, created_at FROM workspaces"
+            "SELECT id, name, type, created_at, sdk_sandbox_id, sdk_base_url FROM workspaces"
             " WHERE id = %s AND user_id = %s",
             (workspace_id, user_id)
         )).fetchone()

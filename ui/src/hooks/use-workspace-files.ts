@@ -28,7 +28,7 @@ const TREE_POLL_MS = 15_000;
 
 export function useWorkspaceFiles(
   sdkBaseUrl: string | null,
-  sessionId: string | null,
+  sandboxId: string | null,
 ) {
   const [tree, setTree] = useState<FsTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
@@ -37,9 +37,11 @@ export function useWorkspaceFiles(
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  /* Resolve sandbox_id from session status, then load tree */
+  /* Load tree for the workspace-scoped sandbox. Keyed on sandboxId so
+     switching agents (which share the sandbox) is a no-op. */
   useEffect(() => {
-    if (!sdkBaseUrl || !sessionId) return;
+    if (!sdkBaseUrl || !sandboxId) return;
+    sandboxIdRef.current = sandboxId;
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -48,22 +50,8 @@ export function useWorkspaceFiles(
       setLoading(true);
       setError(null);
       try {
-        // 1. Get sandbox_id from session status
-        const statusResp = await fetch(
-          `${sdkBaseUrl}/sessions/${sessionId}/status`,
-          { signal: ctrl.signal },
-        );
-        if (!statusResp.ok)
-          throw new Error(`status ${statusResp.status}`);
-        const status = await statusResp.json();
-        const sbxId = status.sandbox_id as string | undefined;
-        if (!sbxId) throw new Error("no sandbox_id in session status");
-        sandboxIdRef.current = sbxId;
+        await fetchTree(sdkBaseUrl, sandboxId, ctrl.signal);
 
-        // 2. Load tree
-        await fetchTree(sdkBaseUrl, sbxId, ctrl.signal);
-
-        // 3. Start polling
         if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = setInterval(() => {
           if (sandboxIdRef.current) {
@@ -86,7 +74,7 @@ export function useWorkspaceFiles(
         pollRef.current = null;
       }
     };
-  }, [sdkBaseUrl, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sdkBaseUrl, sandboxId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchTree(
     base: string,
