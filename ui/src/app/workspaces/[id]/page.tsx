@@ -615,10 +615,9 @@ export default function WorkspacePage() {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const userScrolledUpRef = useRef(false);
-  const lastScrollTopRef = useRef(0);
-  const programmaticScrollRef = useRef(false);
-
+  const latestUserRef = useRef<HTMLDivElement>(null);
+  const spacerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const resizeTextarea = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -629,34 +628,53 @@ export default function WorkspacePage() {
 
   useEffect(() => { resizeTextarea(); }, [input, resizeTextarea]);
 
-  // Auto-scroll to bottom
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el || programmaticScrollRef.current) return;
-    const scrollTop = el.scrollTop;
-    if (scrollTop < lastScrollTopRef.current) userScrolledUpRef.current = true;
-    lastScrollTopRef.current = scrollTop;
-    if (el.scrollHeight - scrollTop - el.clientHeight < 40) userScrolledUpRef.current = false;
+  const lastUserIdx = messages.reduce((acc, msg, i) => msg.role === "user" ? i : acc, -1);
+
+  const updateSpacer = useCallback(() => {
+    const container = scrollRef.current;
+    const userEl = latestUserRef.current;
+    const spacer = spacerRef.current;
+    const contentEl = contentRef.current;
+    if (!container || !userEl || !spacer || !contentEl) return;
+    spacer.style.height = "0px";
+    const contentHeight = contentEl.scrollHeight;
+    const userOffset = userEl.offsetTop - contentEl.offsetTop;
+    const contentFromUser = contentHeight - userOffset;
+    const containerPadding = parseFloat(getComputedStyle(container).paddingTop) + parseFloat(getComputedStyle(container).paddingBottom);
+    const needed = Math.max(0, container.clientHeight - contentFromUser - containerPadding);
+    spacer.style.height = needed + "px";
   }, []);
 
   useEffect(() => {
-    if (!userScrolledUpRef.current && scrollRef.current) {
-      programmaticScrollRef.current = true;
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      requestAnimationFrame(() => {
-        programmaticScrollRef.current = false;
-        if (scrollRef.current) lastScrollTopRef.current = scrollRef.current.scrollTop;
-      });
-    }
-  }, [messages]);
+    updateSpacer();
+    requestAnimationFrame(() => {
+      updateSpacer();
+      if (latestUserRef.current) {
+        latestUserRef.current.scrollIntoView({ block: "start" });
+      }
+    });
+  }, [messages, lastUserIdx, updateSpacer]);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const observer = new ResizeObserver(() => updateSpacer());
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [updateSpacer]);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-    userScrolledUpRef.current = false;
     sendMessage(input.trim());
     setInput("");
-  }, [input, isLoading, sendMessage]);
+    setTimeout(() => {
+      updateSpacer();
+      if (latestUserRef.current) {
+        latestUserRef.current.scrollIntoView({ block: "start" });
+      }
+    }, 0);
+  }, [input, isLoading, sendMessage, updateSpacer]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -874,7 +892,7 @@ export default function WorkspacePage() {
           ) : (
             <>
           {/* Messages */}
-          <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto min-h-0 py-4 space-y-3">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 py-4 space-y-3">
             {connecting && (
               <div className="flex flex-col items-center justify-center h-full">
                 <div className="w-6 h-6 border-2 border-[var(--color-border)] border-t-[var(--color-accent)] rounded-full animate-spin mb-3" />
@@ -895,9 +913,9 @@ export default function WorkspacePage() {
               </div>
             )}
 
-            <div className="max-w-4xl mx-auto px-6 space-y-3">
+            <div ref={contentRef} className="max-w-4xl mx-auto px-6 space-y-3">
             {messages.map((msg, i) => (
-              <div key={i} className="flex justify-start">
+              <div key={i} className={`flex justify-start ${i === lastUserIdx ? "pt-4" : ""}`} ref={i === lastUserIdx ? latestUserRef : undefined}>
                 {msg.role === "user" ? (
                   <div className="w-full px-3 py-2 bg-white dark:bg-[var(--color-layer-2)] shadow-sm text-[var(--color-text)]" style={{ borderRadius: 10 }}>
                     <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
@@ -937,6 +955,7 @@ export default function WorkspacePage() {
                 </div>
               </div>
             )}
+            <div ref={spacerRef} />
             </div>
           </div>
 

@@ -14,11 +14,31 @@ const MOCK_MESSAGES = [
   { role: "user", content: "Sounds good, go ahead" },
 ];
 
+function MessageBubble({ msg }: { msg: { role: string; content: string } }) {
+  if (msg.role === "user") {
+    return (
+      <div className="w-full px-3 py-2 bg-white dark:bg-[var(--color-layer-2)] shadow-sm text-[var(--color-text)]" style={{ borderRadius: 10 }}>
+        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="w-full pl-4 prose prose-sm max-w-none text-[var(--color-text)]">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+    </div>
+  );
+}
+
 export default function ChatPreview() {
   const [messages, setMessages] = useState(MOCK_MESSAGES);
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const latestUserRef = useRef<HTMLDivElement>(null);
+  const spacerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const prevCountRef = useRef(messages.length);
+  const hasAnimatedInitial = useRef(false);
 
   const resizeTextarea = useCallback(() => {
     const ta = textareaRef.current;
@@ -30,15 +50,72 @@ export default function ChatPreview() {
 
   useEffect(() => { resizeTextarea(); }, [input, resizeTextarea]);
 
+  const lastUserIdx = messages.reduce((acc, msg, i) => msg.role === "user" ? i : acc, -1);
+
+  const updateSpacer = useCallback(() => {
+    const container = scrollRef.current;
+    const userEl = latestUserRef.current;
+    const spacer = spacerRef.current;
+    const contentEl = contentRef.current;
+    if (!container || !userEl || !spacer || !contentEl) return;
+    spacer.style.height = "0px";
+    const contentHeight = contentEl.scrollHeight;
+    const userOffset = userEl.offsetTop - contentEl.offsetTop;
+    const contentFromUser = contentHeight - userOffset;
+    const containerPadding = parseFloat(getComputedStyle(container).paddingTop) + parseFloat(getComputedStyle(container).paddingBottom);
+    const needed = Math.max(0, container.clientHeight - contentFromUser - containerPadding);
+    spacer.style.height = needed + "px";
+  }, []);
+
+
+  const scrollToUser = useCallback(() => {
+    updateSpacer();
+    if (latestUserRef.current) {
+      latestUserRef.current.scrollIntoView({ block: "start" });
+    }
+  }, [updateSpacer]);
+
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages]);
+    // Triple RAF to ensure spacer + layout + animation are all settled
+    const run = () => { updateSpacer(); scrollToUser(); };
+    run();
+    requestAnimationFrame(() => {
+      run();
+      requestAnimationFrame(run);
+    });
+  }, [messages, lastUserIdx, scrollToUser, updateSpacer]);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const observer = new ResizeObserver(() => updateSpacer());
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [updateSpacer]);
 
   const handleSubmit = () => {
     if (!input.trim()) return;
     setMessages((prev) => [...prev, { role: "user", content: input.trim() }]);
     setInput("");
+    setTimeout(() => {
+      scrollToUser();
+      requestAnimationFrame(scrollToUser);
+    }, 0);
   };
+
+  // Simulate agent response
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg?.role === "user" && !MOCK_MESSAGES.some(m => m === lastMsg)) {
+      const timer = setTimeout(() => {
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          content: "Got it! I'll work on that. Here's what I'm thinking:\n\n1. First, I'll set up the project structure\n2. Then add the core functionality\n3. Finally, write some tests\n\nLet me get started...",
+        }]);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [messages]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -53,20 +130,18 @@ export default function ChatPreview() {
         <span className="text-sm font-semibold text-[var(--color-text)]">Chat Preview</span>
       </div>
       <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
-        <div className="max-w-4xl mx-auto px-6 space-y-3">
+        <div ref={contentRef} className="max-w-4xl mx-auto px-6 space-y-3">
           {messages.map((msg, i) => (
-            <div key={i} className="flex justify-start">
-              {msg.role === "user" ? (
-                <div className="w-full px-3 py-2 bg-white dark:bg-[var(--color-layer-2)] shadow-sm text-[var(--color-text)]" style={{ borderRadius: 10 }}>
-                  <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                </div>
-              ) : (
-                <div className="w-full pl-4 prose prose-sm max-w-none text-[var(--color-text)]">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                </div>
-              )}
+            <div
+              key={i}
+              data-msg
+              className="flex justify-start"
+              ref={i === lastUserIdx ? latestUserRef : undefined}
+            >
+              <MessageBubble msg={msg} />
             </div>
           ))}
+          <div ref={spacerRef} />
         </div>
       </div>
       <div className="shrink-0 px-3 pb-3 pt-2">
