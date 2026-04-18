@@ -941,24 +941,25 @@ export default function WorkspacePage() {
           </div>
 
           {/* Input */}
-          <form onSubmit={handleSubmit} className="shrink-0 px-3 pb-3 pt-2">
-            <div className="border border-[var(--color-border)] rounded-xl bg-[var(--color-surface)]">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={`Ask ${agentName} something...`}
-                rows={1}
-                disabled={isLoading}
-                className="w-full resize-none px-3 pt-2.5 pb-1 text-sm bg-transparent text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
-                style={{ overflowY: "hidden", outline: "none", boxShadow: "none" }}
-              />
-              <div className="flex items-center justify-end px-2 pb-2">
+          <div className="shrink-0 px-3 pb-3 pt-2">
+            <div className="max-w-4xl mx-auto">
+              <div className="flex items-end gap-2 bg-white dark:bg-[var(--color-surface)] shadow-sm px-4 py-2" style={{ borderRadius: 16 }}>
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={`Ask ${agentName} something...`}
+                  rows={1}
+                  disabled={isLoading}
+                  className="flex-1 resize-none text-sm bg-transparent text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] py-1"
+                  style={{ overflowY: "hidden", outline: "none", boxShadow: "none" }}
+                />
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={(e) => handleSubmit(e as unknown as React.FormEvent)}
                   disabled={isLoading || !input.trim()}
-                  className="p-1.5 rounded-lg bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:bg-[var(--color-layer-2)] disabled:text-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors"
+                  className="shrink-0 p-1.5 rounded-full bg-[var(--color-text)] text-white disabled:bg-[var(--color-layer-2)] disabled:text-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
@@ -966,7 +967,7 @@ export default function WorkspacePage() {
                 </button>
               </div>
             </div>
-          </form>
+          </div>
             </>
           )}
         </div>
