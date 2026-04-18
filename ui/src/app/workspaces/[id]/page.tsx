@@ -857,7 +857,7 @@ export default function WorkspacePage() {
         {/* Right: Chat */}
         <div
           className={`min-w-0 flex flex-col ${openFiles.length === 0 ? "flex-1" : "shrink-0"}`}
-          style={openFiles.length === 0 ? { height: "100%" } : { width: `${chatWidth}%`, height: "100%" }}
+          style={{ ...(openFiles.length === 0 ? { height: "100%" } : { width: `${chatWidth}%`, height: "100%" }), fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
         >
           {/* Agent tabs */}
           <AgentTabs
@@ -874,7 +874,7 @@ export default function WorkspacePage() {
           ) : (
             <>
           {/* Messages */}
-          <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3">
+          <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto min-h-0 py-4 space-y-3">
             {connecting && (
               <div className="flex flex-col items-center justify-center h-full">
                 <div className="w-6 h-6 border-2 border-[var(--color-border)] border-t-[var(--color-accent)] rounded-full animate-spin mb-3" />
@@ -895,18 +895,19 @@ export default function WorkspacePage() {
               </div>
             )}
 
+            <div className="max-w-4xl mx-auto px-6 space-y-3">
             {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div key={i} className="flex justify-start">
                 {msg.role === "user" ? (
-                  <div className="max-w-[85%] px-3 py-2 rounded-lg bg-[var(--color-accent)] text-white">
+                  <div className="w-full px-3 py-2 bg-white dark:bg-[var(--color-layer-2)] shadow-sm text-[var(--color-text)]" style={{ borderRadius: 10 }}>
                     <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                   </div>
                 ) : msg.role === "error" ? (
-                  <div className="w-[90%] px-3 py-2 text-sm text-red-500 border border-red-500/30 bg-red-500/5 rounded whitespace-pre-wrap">
+                  <div className="w-full pl-4 px-3 py-2 text-sm text-red-500 border border-red-500/30 bg-red-500/5 rounded whitespace-pre-wrap">
                     {msg.content}
                   </div>
                 ) : (
-                  <div className="w-[90%] prose prose-sm max-w-none text-[var(--color-text)]">
+                  <div className="w-full pl-4 prose prose-sm max-w-none text-[var(--color-text)]">
                     {msg.toolName && (
                       <div className="text-xs text-[var(--color-text-tertiary)] mb-1">
                         ● {msg.toolName}
@@ -930,12 +931,13 @@ export default function WorkspacePage() {
 
             {isLoading && messages.length > 0 && messages[messages.length - 1].role === "user" && (
               <div className="flex justify-start">
-                <div className="flex items-center gap-2 text-[var(--color-text-tertiary)]">
+                <div className="pl-4 flex items-center gap-2 text-[var(--color-text-tertiary)]">
                   <div className="w-1.5 h-1.5 bg-[var(--color-text-tertiary)] rounded-full animate-pulse" />
                   <span className="text-sm">Thinking...</span>
                 </div>
               </div>
             )}
+            </div>
           </div>
 
           {/* Input */}

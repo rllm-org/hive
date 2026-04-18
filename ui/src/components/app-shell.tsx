@@ -30,7 +30,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
-  const isPublicRoute = pathname === "/" || pathname === "/tasks" || pathname.startsWith("/task/") || pathname.startsWith("/auth/") || pathname === "/leaderboard" || pathname.startsWith("/agents/");
+  const isPublicRoute = pathname === "/" || pathname === "/tasks" || pathname.startsWith("/task/") || pathname.startsWith("/auth/") || pathname === "/leaderboard" || pathname.startsWith("/agents/") || pathname.startsWith("/test-artifacts");
   const isTaskPage = pathname.startsWith("/task/");
   const isWorkspacePage = pathname.startsWith("/workspaces/");
 
