@@ -14,6 +14,12 @@ import {
   parseSseData,
 } from "@/lib/sse";
 
+export interface SlashCommand {
+  name: string;
+  description: string;
+  input?: { hint: string } | null;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant" | "error";
   content: string;
@@ -24,6 +30,7 @@ export interface ChatMessage {
 
 export function useWorkspaceAgent(workspaceId: string | number | null, agentId: string | null) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +126,9 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
                   return [...prev, { role: "assistant", content: cls.value, streaming: true }];
                 });
               }
+            } else if (su === "available_commands_update") {
+              const cmds = classified.data.availableCommands as SlashCommand[] | undefined;
+              if (Array.isArray(cmds)) setCommands(cmds);
             } else if (su === "tool_call" || su === "execute_tool_started") {
               const name = extractToolName(classified.data);
               setMessages((prev) => {
@@ -177,5 +187,5 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
     }
   }, []);
 
-  return { messages, isLoading, connecting, error, sendMessage, cancel, sdkBaseUrl: sdkRef.current?.baseUrl ?? null, sdkSessionId: sdkRef.current?.sessionId ?? null };
+  return { messages, commands, isLoading, connecting, error, sendMessage, cancel, sdkBaseUrl: sdkRef.current?.baseUrl ?? null, sdkSessionId: sdkRef.current?.sessionId ?? null };
 }

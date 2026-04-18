@@ -13,6 +13,18 @@ import BoringAvatar from "boring-avatars";
 
 const AVATAR_COLORS = ["#92A1C6", "#146A7C", "#F0AB3D", "#C271B4", "#C20D90"];
 
+function HighlightSlash({ text, validCommands }: { text: string; validCommands: Set<string> }) {
+  return (
+    <>
+      {text.split(/(\/[\w:-]+)/).map((part, i) =>
+        /^\/[\w:-]+$/.test(part) && validCommands.has(part.slice(1))
+          ? <span key={i} className="text-[var(--color-accent)]">{part}</span>
+          : <span key={i}>{part}</span>
+      )}
+    </>
+  );
+}
+
 function AgentAvatar({ seed, id, size = 20 }: { seed: string | null; id: string; size?: number }) {
   return (
     <div className="overflow-hidden shrink-0" style={{ width: size, height: size, borderRadius: 4 }}>
@@ -564,10 +576,13 @@ export default function WorkspacePage() {
   }, []);
 
   // Chat state — wired to agent-sdk via workspace connect
-  const { messages, isLoading, connecting, error: agentError, sendMessage, cancel } = useWorkspaceAgent(
+  const { messages, commands: rawCommands, isLoading, connecting, error: agentError, sendMessage, cancel } = useWorkspaceAgent(
     workspace ? workspaceId : null,
     activeAgent?.id ?? null,
   );
+
+  const commands = rawCommands;
+  const validCommandNames = useMemo(() => new Set(commands.map((c) => c.name)), [commands]);
 
   // Live sandbox filesystem — keyed on workspace sandbox, not per-agent session,
   // so switching agents does not trigger a reload.
@@ -628,6 +643,23 @@ export default function WorkspacePage() {
 
   useEffect(() => { resizeTextarea(); }, [input, resizeTextarea]);
 
+  // Slash command autocomplete — detect /word at cursor position
+  const [cmdIndex, setCmdIndex] = useState(0);
+  const getSlashWord = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return "";
+    const pos = ta.selectionStart ?? input.length;
+    const before = input.slice(0, pos);
+    const match = before.match(/\/([^\s]*)$/);
+    return match ? match[0] : "";
+  }, [input]);
+  const slashWord = getSlashWord();
+  const showCommands = slashWord.length > 0 && commands.length > 0;
+  const filteredCommands = showCommands
+    ? commands.filter((c) => `/${c.name}`.startsWith(slashWord.toLowerCase()))
+    : [];
+  useEffect(() => { setCmdIndex(0); }, [input]);
+
   const lastUserIdx = messages.reduce((acc, msg, i) => msg.role === "user" ? i : acc, -1);
 
   const updateSpacer = useCallback(() => {
@@ -676,12 +708,49 @@ export default function WorkspacePage() {
     }, 0);
   }, [input, isLoading, sendMessage, updateSpacer]);
 
+  const selectCommand = useCallback((cmd: string) => {
+    const ta = textareaRef.current;
+    if (!ta) { setInput(`/${cmd} `); return; }
+    const pos = ta.selectionStart ?? input.length;
+    const before = input.slice(0, pos);
+    const after = input.slice(pos);
+    const match = before.match(/\/([^\s]*)$/);
+    if (match) {
+      const start = before.length - match[0].length;
+      setInput(before.slice(0, start) + `/${cmd} ` + after);
+    } else {
+      setInput(`/${cmd} `);
+    }
+    ta.focus();
+  }, [input]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (filteredCommands.length > 0 && showCommands) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setCmdIndex((i) => Math.min(i + 1, filteredCommands.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setCmdIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        selectCommand(filteredCommands[cmdIndex].name);
+        return;
+      }
+      if (e.key === "Escape") {
+        setInput("");
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
     }
-  }, [handleSubmit]);
+  }, [handleSubmit, filteredCommands, showCommands, cmdIndex, selectCommand]);
 
   const handleToggleDir = (path: string) => {
     setExpandedDirs((prev) => {
@@ -918,7 +987,7 @@ export default function WorkspacePage() {
               <div key={i} className={`flex justify-start ${i === lastUserIdx ? "pt-4" : ""}`} ref={i === lastUserIdx ? latestUserRef : undefined}>
                 {msg.role === "user" ? (
                   <div className="w-full px-3 py-2 bg-white dark:bg-[var(--color-layer-2)] shadow-sm text-[var(--color-text)]" style={{ borderRadius: 10 }}>
-                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                    <p className="text-sm whitespace-pre-wrap"><HighlightSlash text={msg.content} validCommands={validCommandNames} /></p>
                   </div>
                 ) : msg.role === "error" ? (
                   <div className="w-full pl-4 px-3 py-2 text-sm text-red-500 border border-red-500/30 bg-red-500/5 rounded whitespace-pre-wrap">
@@ -960,9 +1029,45 @@ export default function WorkspacePage() {
           </div>
 
           {/* Input */}
-          <div className="shrink-0 px-3 pb-3 pt-2">
-            <div className="max-w-4xl mx-auto">
-              <div className="flex items-end gap-2 bg-white dark:bg-[var(--color-surface)] shadow-sm px-4 py-2" style={{ borderRadius: 16 }}>
+          <div className="shrink-0 px-3 pb-5 pt-2">
+            <div className="max-w-4xl mx-auto relative">
+              {/* Slash command dropdown */}
+              {showCommands && filteredCommands.length > 0 && (
+                <div className="absolute bottom-full left-0 mb-1 flex items-start gap-1 z-50">
+                  <div className="bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 overflow-y-auto max-h-52 w-[300px]" style={{ borderRadius: 6 }}>
+                    <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)] font-medium">Skills</div>
+                    {filteredCommands.map((cmd, i) => (
+                      <button
+                        key={cmd.name}
+                        onMouseDown={(e) => { e.preventDefault(); selectCommand(cmd.name); }}
+                        onMouseEnter={() => setCmdIndex(i)}
+                        className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors ${
+                          i === cmdIndex
+                            ? "bg-[var(--color-layer-2)]"
+                            : "hover:bg-[var(--color-layer-2)]"
+                        }`}
+                      >
+                        <span className="font-medium text-[var(--color-text)] font-[family-name:var(--font-ibm-plex-mono)]">{cmd.name}</span>
+                        <span className="text-[var(--color-text-tertiary)] truncate flex-1">{cmd.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {filteredCommands[cmdIndex]?.description.length > 40 && (
+                    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg px-3 py-2.5 w-[220px] text-xs text-[var(--color-text-secondary)] leading-relaxed" style={{ borderRadius: 6 }}>
+                      {filteredCommands[cmdIndex].description}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="relative bg-white dark:bg-[var(--color-surface)] shadow-sm px-4 flex items-center gap-2" style={{ borderRadius: 16, height: 40 }}>
+                {/* Highlight overlay */}
+                <div
+                  aria-hidden
+                  className="absolute top-0 left-4 right-12 text-sm whitespace-pre-wrap break-words pointer-events-none flex items-center"
+                  style={{ height: 40 }}
+                >
+                  <span className="text-[var(--color-text)]"><HighlightSlash text={input} validCommands={validCommandNames} /></span>
+                </div>
                 <textarea
                   ref={textareaRef}
                   value={input}
@@ -971,16 +1076,22 @@ export default function WorkspacePage() {
                   placeholder={`Ask ${agentName} something...`}
                   rows={1}
                   disabled={isLoading}
-                  className="flex-1 resize-none text-sm bg-transparent text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] py-1"
-                  style={{ overflowY: "hidden", outline: "none", boxShadow: "none" }}
+                  className="flex-1 resize-none text-sm bg-transparent placeholder:text-[var(--color-text-tertiary)]"
+                  style={{
+                    overflowY: "hidden", outline: "none", boxShadow: "none",
+                    color: "transparent",
+                    caretColor: "var(--color-text)",
+                    padding: 0, margin: 0, border: "none",
+                    height: 20, lineHeight: "20px",
+                  }}
                 />
                 <button
                   type="button"
                   onClick={(e) => handleSubmit(e as unknown as React.FormEvent)}
                   disabled={isLoading || !input.trim()}
-                  className="shrink-0 p-1.5 rounded-full bg-[var(--color-text)] text-white disabled:bg-[var(--color-layer-2)] disabled:text-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors"
+                  className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-text)] text-white disabled:bg-[var(--color-layer-2)] disabled:text-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
                   </svg>
                 </button>

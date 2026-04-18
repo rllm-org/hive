@@ -14,11 +14,26 @@ const MOCK_MESSAGES = [
   { role: "user", content: "Sounds good, go ahead" },
 ];
 
+const VALID_COMMAND_NAMES = new Set(["hive", "commit", "debug", "compact", "review-pr", "simplify", "help"]);
+
+function HighlightSlash({ text, validCommands }: { text: string; validCommands?: Set<string> }) {
+  const valid = validCommands ?? VALID_COMMAND_NAMES;
+  return (
+    <>
+      {text.split(/(\/[\w:-]+)/).map((part, i) =>
+        /^\/[\w:-]+$/.test(part) && valid.has(part.slice(1))
+          ? <span key={i} className="text-[var(--color-accent)]">{part}</span>
+          : <span key={i}>{part}</span>
+      )}
+    </>
+  );
+}
+
 function MessageBubble({ msg }: { msg: { role: string; content: string } }) {
   if (msg.role === "user") {
     return (
       <div className="w-full px-3 py-2 bg-white dark:bg-[var(--color-layer-2)] shadow-sm text-[var(--color-text)]" style={{ borderRadius: 10 }}>
-        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+        <p className="text-sm whitespace-pre-wrap"><HighlightSlash text={msg.content} /></p>
       </div>
     );
   }
@@ -32,6 +47,7 @@ function MessageBubble({ msg }: { msg: { role: string; content: string } }) {
 export default function ChatPreview() {
   const [messages, setMessages] = useState(MOCK_MESSAGES);
   const [input, setInput] = useState("");
+  const [cmdIndex, setCmdIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const latestUserRef = useRef<HTMLDivElement>(null);
@@ -39,6 +55,31 @@ export default function ChatPreview() {
   const contentRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(messages.length);
   const hasAnimatedInitial = useRef(false);
+
+  const MOCK_COMMANDS = [
+    { name: "hive", description: "Run the hive experiment loop — autonomous iteration on a shared task, with continuous chat-based collaboration and leaderboard tracking" },
+    { name: "commit", description: "Stage and commit changes" },
+    { name: "debug", description: "Run failing command and diagnose" },
+    { name: "compact", description: "Compact conversation history" },
+    { name: "review-pr", description: "Review a pull request" },
+    { name: "simplify", description: "Review code for quality" },
+    { name: "help", description: "Get help with commands" },
+  ];
+
+  // Detect "/" trigger anywhere in text — use the word being typed at cursor
+  const getSlashWord = () => {
+    const ta = textareaRef.current;
+    if (!ta) return "";
+    const pos = ta.selectionStart ?? input.length;
+    const before = input.slice(0, pos);
+    const match = before.match(/\/([^\s]*)$/);
+    return match ? match[0] : "";
+  };
+  const slashWord = getSlashWord();
+  const showCommands = slashWord.length > 0 && MOCK_COMMANDS.length > 0;
+  const filteredCommands = showCommands
+    ? MOCK_COMMANDS.filter((c) => `/${c.name}`.startsWith(slashWord.toLowerCase()))
+    : [];
 
   const resizeTextarea = useCallback(() => {
     const ta = textareaRef.current;
@@ -117,7 +158,31 @@ export default function ChatPreview() {
     }
   }, [messages]);
 
+  useEffect(() => { setCmdIndex(0); }, [input]);
+
+  const selectCommand = useCallback((cmd: string) => {
+    const ta = textareaRef.current;
+    if (!ta) { setInput(`/${cmd} `); return; }
+    const pos = ta.selectionStart ?? input.length;
+    const before = input.slice(0, pos);
+    const after = input.slice(pos);
+    const match = before.match(/\/([^\s]*)$/);
+    if (match) {
+      const start = before.length - match[0].length;
+      setInput(before.slice(0, start) + `/${cmd} ` + after);
+    } else {
+      setInput(`/${cmd} `);
+    }
+    ta.focus();
+  }, [input]);
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (filteredCommands.length > 0 && showCommands) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setCmdIndex((i) => Math.min(i + 1, filteredCommands.length - 1)); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setCmdIndex((i) => Math.max(i - 1, 0)); return; }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) { e.preventDefault(); selectCommand(filteredCommands[cmdIndex].name); return; }
+      if (e.key === "Escape") { setInput(""); return; }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -144,9 +209,44 @@ export default function ChatPreview() {
           <div ref={spacerRef} />
         </div>
       </div>
-      <div className="shrink-0 px-3 pb-3 pt-2">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-end gap-2 bg-white dark:bg-[var(--color-surface)] shadow-sm px-4 py-2" style={{ borderRadius: 16 }}>
+      <div className="shrink-0 px-3 pb-5 pt-2">
+        <div className="max-w-4xl mx-auto relative">
+          {showCommands && filteredCommands.length > 0 && (
+            <div className="absolute bottom-full left-0 mb-1 flex items-start gap-1 z-50">
+              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 overflow-y-auto max-h-52 w-[300px]" style={{ borderRadius: 6 }}>
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)] font-medium">Skills</div>
+                {filteredCommands.map((cmd, i) => (
+                  <button
+                    key={cmd.name}
+                    onMouseDown={(e) => { e.preventDefault(); selectCommand(cmd.name); }}
+                    onMouseEnter={() => setCmdIndex(i)}
+                    className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors ${
+                      i === cmdIndex
+                        ? "bg-[var(--color-layer-2)]"
+                        : "hover:bg-[var(--color-layer-2)]"
+                    }`}
+                  >
+                    <span className="font-medium text-[var(--color-text)] font-[family-name:var(--font-ibm-plex-mono)]">{cmd.name}</span>
+                    <span className="text-[var(--color-text-tertiary)] truncate flex-1">{cmd.description}</span>
+                  </button>
+                ))}
+              </div>
+              {filteredCommands[cmdIndex]?.description.length > 40 && (
+                <div className="bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg px-3 py-2.5 w-[220px] text-xs text-[var(--color-text-secondary)] leading-relaxed" style={{ borderRadius: 6 }}>
+                  {filteredCommands[cmdIndex].description}
+                </div>
+              )}
+            </div>
+          )}
+          <div className="relative bg-white dark:bg-[var(--color-surface)] shadow-sm px-4 flex items-center gap-2" style={{ borderRadius: 16, height: 40 }}>
+            {/* Highlight overlay */}
+            <div
+              aria-hidden
+              className="absolute top-0 left-4 right-12 text-sm whitespace-pre-wrap break-words pointer-events-none flex items-center"
+              style={{ height: 40 }}
+            >
+              <span className="text-[var(--color-text)]"><HighlightSlash text={input} /></span>
+            </div>
             <textarea
               ref={textareaRef}
               value={input}
@@ -154,16 +254,22 @@ export default function ChatPreview() {
               onKeyDown={handleKeyDown}
               placeholder="Ask something..."
               rows={1}
-              className="flex-1 resize-none text-sm bg-transparent text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] py-1"
-              style={{ overflowY: "hidden", outline: "none", boxShadow: "none" }}
+              className="flex-1 resize-none text-sm bg-transparent placeholder:text-[var(--color-text-tertiary)]"
+              style={{
+                overflowY: "hidden", outline: "none", boxShadow: "none",
+                color: "transparent",
+                caretColor: "var(--color-text)",
+                padding: 0, margin: 0, border: "none",
+                height: 20, lineHeight: "20px",
+              }}
             />
             <button
               type="button"
               onClick={handleSubmit}
               disabled={!input.trim()}
-              className="shrink-0 p-1.5 rounded-full bg-[var(--color-text)] text-white disabled:bg-[var(--color-layer-2)] disabled:text-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors"
+              className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-text)] text-white disabled:bg-[var(--color-layer-2)] disabled:text-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </button>
