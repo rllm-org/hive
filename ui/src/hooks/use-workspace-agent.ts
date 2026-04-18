@@ -14,33 +14,12 @@ import {
   parseSseData,
 } from "@/lib/sse";
 
-export interface AskUserData {
-  questionId: string;
-  question: string;
-  options?: string[];
-  mode: "select" | "confirm" | "multi_select" | "text";
-  answered?: boolean;
-  answer?: string | string[];
-}
-
 export interface ChatMessage {
   role: "user" | "assistant" | "error";
   content: string;
   toolName?: string;
   reasoning?: string;
   streaming?: boolean;
-  askUser?: AskUserData;
-}
-
-function _extractAskUser(data: Record<string, unknown>): AskUserData | undefined {
-  const raw = data.rawInput as Record<string, unknown> | undefined;
-  if (!raw?.question) return undefined;
-  return {
-    questionId: "",  // resolved lazily when user submits answer
-    question: (raw.question as string) ?? "",
-    options: Array.isArray(raw.options) ? raw.options as string[] : undefined,
-    mode: (raw.mode as AskUserData["mode"]) ?? "select",
-  };
 }
 
 export function useWorkspaceAgent(workspaceId: string | number | null, agentId: string | null) {
@@ -140,17 +119,12 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
                   return [...prev, { role: "assistant", content: cls.value, streaming: true }];
                 });
               }
-            } else if (su === "tool_call" || su === "execute_tool_started" || su === "tool_call_update") {
+            } else if (su === "tool_call" || su === "execute_tool_started") {
               const name = extractToolName(classified.data);
-              const askUser = name.includes("ask_user") ? _extractAskUser(classified.data) : undefined;
               setMessages((prev) => {
                 const last = prev[prev.length - 1];
                 if (last?.role === "assistant" && last.streaming) {
-                  return [...prev.slice(0, -1), {
-                    ...last,
-                    toolName: name,
-                    ...(askUser && !last.askUser ? { askUser } : {}),
-                  }];
+                  return [...prev.slice(0, -1), { ...last, toolName: name }];
                 }
                 return prev;
               });
