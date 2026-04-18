@@ -26,14 +26,12 @@ export function AskUserWidget({ data, onAnswered }: Props) {
   const submit = async (answer: string | string[]) => {
     setSubmitting(true);
     try {
-      // Resolve question ID if not available (SSE provides question data but not the server-side ID)
-      let qid = data.questionId;
-      if (!qid) {
-        const pending = await apiFetch<{ questions: PendingQuestion[] }>("/mcp/questions");
-        const match = pending.questions.find((q) => q.question === data.question);
-        if (!match) throw new Error("Question not found — it may have timed out");
-        qid = match.id;
-      }
+      // Resolve question ID — SSE doesn't carry the server-generated UUID,
+      // so we fetch it from the pending questions endpoint
+      const pending = await apiFetch<{ questions: PendingQuestion[] }>("/mcp/questions");
+      const qid = pending.questions.find((q) => q.question === data.question)?.id
+        ?? pending.questions[0]?.id;
+      if (!qid) throw new Error("Question not found — it may have timed out");
       await apiPostJson(`/mcp/questions/${qid}/answer`, { answer });
       setAnswered(true);
       setDisplayAnswer(answer);
