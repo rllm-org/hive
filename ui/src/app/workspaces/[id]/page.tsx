@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiFetch, apiPostJson, apiDelete } from "@/lib/api";
 import { getAuthHeader } from "@/lib/auth";
+import { AskUserWidget } from "@/components/chat/ask-user-widget";
 
 const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
 import BoringAvatar from "boring-avatars";
@@ -907,9 +908,14 @@ export default function WorkspacePage() {
                   </div>
                 ) : (
                   <div className="w-[90%] prose prose-sm max-w-none text-[var(--color-text)]">
-                    {msg.toolName && (
+                    {msg.toolName && !msg.askUser && (
                       <div className="text-xs text-[var(--color-text-tertiary)] mb-1">
                         ● {msg.toolName}
+                      </div>
+                    )}
+                    {msg.askUser && (
+                      <div className="not-prose mb-2">
+                        <AskUserWidget data={msg.askUser} />
                       </div>
                     )}
                     {msg.content ? (

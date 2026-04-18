@@ -14,12 +14,22 @@ import {
   parseSseData,
 } from "@/lib/sse";
 
+export interface AskUserData {
+  questionId: string;
+  question: string;
+  options?: string[];
+  mode: "select" | "confirm" | "multi_select" | "text";
+  answered?: boolean;
+  answer?: string | string[];
+}
+
 export interface ChatMessage {
   role: "user" | "assistant" | "error";
   content: string;
   toolName?: string;
   reasoning?: string;
   streaming?: boolean;
+  askUser?: AskUserData;
 }
 
 export function useWorkspaceAgent(workspaceId: string | number | null, agentId: string | null) {
@@ -121,10 +131,25 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
               }
             } else if (su === "tool_call" || su === "execute_tool_started") {
               const name = extractToolName(classified.data);
+              // Detect ask_user MCP tool calls
+              const isAskUser = name === "ask_user" || name.endsWith("_ask_user") || name.includes("ask_user");
+              let askUser: AskUserData | undefined;
+              if (isAskUser) {
+                const raw = classified.data.rawInput as Record<string, unknown> | undefined;
+                if (raw) {
+                  const tcId = (classified.data.toolCallId as string) ?? (classified.data as Record<string, unknown>).toolCallId as string ?? "";
+                  askUser = {
+                    questionId: (raw.question_id as string) ?? tcId,
+                    question: (raw.question as string) ?? "",
+                    options: Array.isArray(raw.options) ? raw.options as string[] : undefined,
+                    mode: (raw.mode as AskUserData["mode"]) ?? "select",
+                  };
+                }
+              }
               setMessages((prev) => {
                 const last = prev[prev.length - 1];
                 if (last?.role === "assistant" && last.streaming) {
-                  return [...prev.slice(0, -1), { ...last, toolName: name }];
+                  return [...prev.slice(0, -1), { ...last, toolName: name, ...(askUser ? { askUser } : {}) }];
                 }
                 return prev;
               });
