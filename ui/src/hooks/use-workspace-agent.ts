@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { apiFetch, apiPostJson } from "@/lib/api";
+import { apiPostJson } from "@/lib/api";
 import {
   classifyMessageContent,
   extractSseTag,
@@ -32,42 +32,15 @@ export interface ChatMessage {
   askUser?: AskUserData;
 }
 
-interface PendingQuestion {
-  id: string;
-  question: string;
-  options?: string[];
-  mode: string;
-}
-
-async function _pollForPendingQuestion(
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
-) {
-  // Retry a few times — the MCP server may not have stored the question yet
-  for (let i = 0; i < 10; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    try {
-      const data = await apiFetch<{ questions: PendingQuestion[] }>("/mcp/questions");
-      if (data.questions.length > 0) {
-        const q = data.questions[0];
-        const askUser: AskUserData = {
-          questionId: q.id,
-          question: q.question,
-          options: q.options,
-          mode: (q.mode as AskUserData["mode"]) ?? "select",
-        };
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === "assistant" && last.streaming && !last.askUser) {
-            return [...prev.slice(0, -1), { ...last, askUser }];
-          }
-          return prev;
-        });
-        return;
-      }
-    } catch {
-      // ignore fetch errors, keep polling
-    }
-  }
+function _extractAskUser(data: Record<string, unknown>): AskUserData | undefined {
+  const raw = data.rawInput as Record<string, unknown> | undefined;
+  if (!raw?.question) return undefined;
+  return {
+    questionId: "",  // resolved lazily when user submits answer
+    question: (raw.question as string) ?? "",
+    options: Array.isArray(raw.options) ? raw.options as string[] : undefined,
+    mode: (raw.mode as AskUserData["mode"]) ?? "select",
+  };
 }
 
 export function useWorkspaceAgent(workspaceId: string | number | null, agentId: string | null) {
@@ -167,24 +140,20 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
                   return [...prev, { role: "assistant", content: cls.value, streaming: true }];
                 });
               }
-            } else if (su === "tool_call" || su === "execute_tool_started") {
+            } else if (su === "tool_call" || su === "execute_tool_started" || su === "tool_call_update") {
               const name = extractToolName(classified.data);
+              const askUser = name.includes("ask_user") ? _extractAskUser(classified.data) : undefined;
               setMessages((prev) => {
                 const last = prev[prev.length - 1];
                 if (last?.role === "assistant" && last.streaming) {
-                  return [...prev.slice(0, -1), { ...last, toolName: name }];
+                  return [...prev.slice(0, -1), {
+                    ...last,
+                    toolName: name,
+                    ...(askUser && !last.askUser ? { askUser } : {}),
+                  }];
                 }
                 return prev;
               });
-              // Detect ask_user MCP tool calls — fetch pending question from server
-              if (name.includes("ask_user")) {
-                _pollForPendingQuestion(setMessages);
-              }
-            } else if (su === "tool_call_update" || su === "execute_tool_completed") {
-              const name = extractToolName(classified.data);
-              if (name.includes("ask_user")) {
-                _pollForPendingQuestion(setMessages);
-              }
             }
             setIsLoading(true);
           } else if (classified.kind === "done_result") {

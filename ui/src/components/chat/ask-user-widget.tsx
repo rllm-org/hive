@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { apiPostJson } from "@/lib/api";
+import { apiFetch, apiPostJson } from "@/lib/api";
 import type { AskUserData } from "@/hooks/use-workspace-agent";
 
 interface Props {
   data: AskUserData;
   onAnswered?: (answer: string | string[]) => void;
+}
+
+interface PendingQuestion {
+  id: string;
+  question: string;
 }
 
 export function AskUserWidget({ data, onAnswered }: Props) {
@@ -21,7 +26,15 @@ export function AskUserWidget({ data, onAnswered }: Props) {
   const submit = async (answer: string | string[]) => {
     setSubmitting(true);
     try {
-      await apiPostJson(`/mcp/questions/${data.questionId}/answer`, { answer });
+      // Resolve question ID if not available (SSE provides question data but not the server-side ID)
+      let qid = data.questionId;
+      if (!qid) {
+        const pending = await apiFetch<{ questions: PendingQuestion[] }>("/mcp/questions");
+        const match = pending.questions.find((q) => q.question === data.question);
+        if (!match) throw new Error("Question not found — it may have timed out");
+        qid = match.id;
+      }
+      await apiPostJson(`/mcp/questions/${qid}/answer`, { answer });
       setAnswered(true);
       setDisplayAnswer(answer);
       onAnswered?.(answer);
