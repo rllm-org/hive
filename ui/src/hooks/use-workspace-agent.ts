@@ -105,6 +105,13 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
         });
         if (!sseResp.ok) throw new Error(`events HTTP ${sseResp.status}`);
 
+        // Nudge agent to re-send available_commands_update now that SSE is connected
+        fetch(`${sdkBase}/sessions/${sdkSid}/config`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "bypassPermissions" }),
+        }).catch(() => {});
+
         for await (const block of iterSseBlocks(sseResp, ctrl.signal)) {
           if (ctrl.signal.aborted) break;
           const payload = parseSseData(block);
