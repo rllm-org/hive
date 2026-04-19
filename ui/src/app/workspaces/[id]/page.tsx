@@ -71,7 +71,7 @@ function ThinkingBlock({ content, active }: { content: string; active: boolean }
         onClick={() => setManualToggle(isOpen ? false : true)}
         className="flex items-center gap-1.5 text-sm text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)]"
       >
-        {active ? <TextShimmer className="text-sm [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-accent)]" duration={2} spread={2}>{label}</TextShimmer> : <span>{label}</span>}
+        {active ? <TextShimmer className="text-sm [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-text)]" duration={2}>{label}</TextShimmer> : <span>{label}</span>}
         <svg className={`w-3 h-3 transition-all opacity-0 group-hover/th:opacity-100 ${isOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
@@ -110,8 +110,11 @@ function ToolCallCard({ part }: { part: Extract<MessagePart, { type: "tool" }> }
             <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
           )}
         </svg>
-        <span className="truncate text-[var(--color-text-secondary)]">{part.title || part.name}</span>
-        {part.status === "pending" && <span className="inline-block w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse shrink-0" />}
+        {part.status === "pending" ? (
+          <TextShimmer className="text-xs truncate [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-text)]" duration={1.5} spread={3}>{part.title || part.name}</TextShimmer>
+        ) : (
+          <span className="truncate text-[var(--color-text-secondary)]">{part.title || part.name}</span>
+        )}
         {part.status === "error" && <span className="text-red-500 shrink-0">failed</span>}
         {hasDetails && (
           <svg className={`ml-auto w-3 h-3 shrink-0 text-[var(--color-text-tertiary)] transition-all ${open ? "rotate-180 opacity-100" : "opacity-0 group-hover/tc:opacity-100"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -1141,7 +1144,7 @@ export default function WorkspacePage() {
                       </div>
                     ) : msg.streaming ? (
                       <div>
-                        <TextShimmer className="text-sm [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-accent)]" duration={2} spread={2}>Working on it</TextShimmer>
+                        <TextShimmer className="text-sm [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-text)]" duration={2}>Working on it</TextShimmer>
                       </div>
                     ) : null}
                   </div>
@@ -1152,7 +1155,7 @@ export default function WorkspacePage() {
             {isLoading && messages.length > 0 && messages[messages.length - 1].role === "user" && (
               <div className="flex justify-start">
                 <div className="pl-4">
-                  <TextShimmer className="text-sm [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-accent)]" duration={2} spread={2}>Working on it</TextShimmer>
+                  <TextShimmer className="text-sm [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-text)]" duration={2}>Working on it</TextShimmer>
                 </div>
               </div>
             )}
