@@ -92,6 +92,7 @@ function buildMessagesFromLog(events: Array<{ event_type: string; payload: Recor
         id: (ev.payload.tool_call_id as string) ?? `tc-${msgs.length}`,
         name: (ev.payload.tool as string) ?? "tool",
         status: "pending",
+        title: (ev.payload.title as string) ?? undefined,
         input: ev.payload.args ?? undefined,
       });
     } else if (ev.event_type === "tool_result") {
