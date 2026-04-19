@@ -29,8 +29,32 @@ import type { MessagePart } from "@/hooks/use-workspace-agent";
 
 function ThinkingBlock({ content, active }: { content: string; active: boolean }) {
   const [manualToggle, setManualToggle] = useState<boolean | null>(null);
-  // Show content while actively thinking, collapse when done
+  const startRef = useRef<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Start timer when thinking begins
+  useEffect(() => {
+    if (active && startRef.current === null) {
+      startRef.current = Date.now();
+    }
+    if (!active && startRef.current !== null) {
+      setElapsed(Math.round((Date.now() - startRef.current) / 1000));
+      startRef.current = null;
+    }
+  }, [active]);
+
+  // Live counter while active
+  useEffect(() => {
+    if (!active) return;
+    const interval = setInterval(() => {
+      if (startRef.current) setElapsed(Math.round((Date.now() - startRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [active]);
+
   const isOpen = manualToggle ?? active;
+  const label = active ? "Thinking" : `Thought for ${elapsed}s`;
+
   return (
     <div className="group/th">
       <button
@@ -38,7 +62,7 @@ function ThinkingBlock({ content, active }: { content: string; active: boolean }
         onClick={() => setManualToggle(isOpen ? false : true)}
         className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)]"
       >
-        <span>Thought</span>
+        <span>{label}</span>
         {active && <span className="inline-block w-1 h-1 bg-[var(--color-text-tertiary)] rounded-full animate-pulse" />}
         <svg className={`w-3 h-3 transition-all ${isOpen ? "rotate-180 opacity-100" : "opacity-0 group-hover/th:opacity-100"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
