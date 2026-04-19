@@ -105,13 +105,15 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
         });
         if (!sseResp.ok) throw new Error(`events HTTP ${sseResp.status}`);
 
-        // Nudge agent to re-send available_commands_update now that SSE is connected
-        console.log("[hive] nudging config to re-trigger commands", `${sdkBase}/sessions/${sdkSid}/config`);
-        fetch(`${sdkBase}/sessions/${sdkSid}/config`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "bypassPermissions" }),
-        }).catch(() => {});
+        // Fetch available commands from session status (cached by agent-sdk)
+        fetch(`${sdkBase}/sessions/${sdkSid}/status`, { signal: ctrl.signal })
+          .then((r) => r.ok ? r.json() : null)
+          .then((data) => {
+            if (data?.available_commands && !ctrl.signal.aborted) {
+              setCommands(data.available_commands);
+            }
+          })
+          .catch(() => {});
 
         for await (const block of iterSseBlocks(sseResp, ctrl.signal)) {
           if (ctrl.signal.aborted) break;
@@ -136,7 +138,6 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
               }
             } else if (su === "available_commands_update") {
               const cmds = classified.data.availableCommands as SlashCommand[] | undefined;
-              console.log("[hive] available_commands_update", cmds);
               if (Array.isArray(cmds)) setCommands(cmds);
             } else if (su === "tool_call" || su === "execute_tool_started") {
               const name = extractToolName(classified.data);
