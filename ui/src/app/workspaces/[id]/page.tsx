@@ -697,7 +697,7 @@ export default function WorkspacePage() {
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if (!input.trim()) return;
     sendMessage(input.trim());
     setInput("");
     setTimeout(() => {
@@ -1075,7 +1075,6 @@ export default function WorkspacePage() {
                   onKeyDown={handleKeyDown}
                   placeholder={`Ask ${agentName} something...`}
                   rows={1}
-                  disabled={isLoading}
                   className="flex-1 resize-none text-sm bg-transparent placeholder:text-[var(--color-text-tertiary)]"
                   style={{
                     overflowY: "hidden", outline: "none", boxShadow: "none",
@@ -1085,16 +1084,29 @@ export default function WorkspacePage() {
                     height: 20, lineHeight: "20px",
                   }}
                 />
-                <button
-                  type="button"
-                  onClick={(e) => handleSubmit(e as unknown as React.FormEvent)}
-                  disabled={isLoading || !input.trim()}
-                  className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-text)] text-white disabled:bg-[var(--color-layer-2)] disabled:text-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors"
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
-                  </svg>
-                </button>
+                {isLoading ? (
+                  <button
+                    type="button"
+                    onClick={cancel}
+                    className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-text)] text-white hover:opacity-80 transition-colors"
+                    title="Stop generating"
+                  >
+                    <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 24 24">
+                      <rect x="6" y="6" width="12" height="12" rx="1" />
+                    </svg>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => handleSubmit(e as unknown as React.FormEvent)}
+                    disabled={!input.trim()}
+                    className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-text)] text-white disabled:bg-[var(--color-layer-2)] disabled:text-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                )}
               </div>
             </div>
           </div>
