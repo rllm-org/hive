@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { LuArrowLeft, LuPlus } from "react-icons/lu";
+import { LuArrowLeft } from "react-icons/lu";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiFetch, apiPostJson, apiDelete } from "@/lib/api";
@@ -120,16 +120,12 @@ function AgentTabs({
   agents,
   activeAgentId,
   onSelect,
-  onCreate,
   onDelete,
-  adding,
 }: {
   agents: WorkspaceAgent[];
   activeAgentId: string | null;
   onSelect: (id: string) => void;
-  onCreate: (name?: string) => Promise<{ id: string } | undefined>;
   onDelete: (id: string) => Promise<void>;
-  adding: boolean;
 }) {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
@@ -346,7 +342,7 @@ function CreateAgentModal({
   );
 }
 import { WorkspaceEditor, type OpenFile } from "@/components/workspace-editor";
-import { useWorkspaceAgent } from "@/hooks/use-workspace-agent";
+import { useWorkspaceAgents, type AgentState } from "@/hooks/use-workspace-agent";
 import { useWorkspaceFiles, type FsTreeNode } from "@/hooks/use-workspace-files";
 
 interface WorkspaceAgent {
@@ -642,11 +638,16 @@ export default function WorkspacePage() {
     setOpenFiles((prev) => prev.map((f) => f.path === path ? { ...f, content } : f));
   }, []);
 
-  // Chat state — wired to agent-sdk via workspace connect
-  const { messages, commands: rawCommands, isLoading, connecting, error: agentError, sendMessage, cancel } = useWorkspaceAgent(
+  // Chat state — all agents connected simultaneously
+  const agentIdList = useMemo(() => agents.map((a) => a.id), [agents]);
+  const { states: agentStates, sendMessage: sendAgentMessage, cancel: cancelAgent } = useWorkspaceAgents(
     workspace ? workspaceId : null,
-    activeAgent?.id ?? null,
+    agentIdList,
   );
+  const activeState: AgentState = activeAgent ? agentStates[activeAgent.id] ?? { messages: [], commands: [], isLoading: false, connecting: false, error: null, sdkBaseUrl: null, sdkSessionId: null } : { messages: [], commands: [], isLoading: false, connecting: false, error: null, sdkBaseUrl: null, sdkSessionId: null };
+  const { messages, commands: rawCommands, isLoading, connecting, error: agentError } = activeState;
+  const sendMessage = useCallback((text: string) => { if (activeAgent) sendAgentMessage(activeAgent.id, text); }, [activeAgent, sendAgentMessage]);
+  const cancel = useCallback(() => { if (activeAgent) cancelAgent(activeAgent.id); }, [activeAgent, cancelAgent]);
 
   const commands = rawCommands;
   const validCommandNames = useMemo(() => new Set(commands.map((c) => c.name)), [commands]);
@@ -695,6 +696,8 @@ export default function WorkspacePage() {
     }
   }, [readFile]);
   const [input, setInput] = useState("");
+  // Clear input when switching agents
+  useEffect(() => { setInput(""); }, [activeAgentId]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const latestUserRef = useRef<HTMLDivElement>(null);
@@ -744,14 +747,20 @@ export default function WorkspacePage() {
     spacer.style.height = needed + "px";
   }, []);
 
+  const prevLastUserIdxRef = useRef(lastUserIdx);
   useEffect(() => {
     updateSpacer();
-    requestAnimationFrame(() => {
-      updateSpacer();
-      if (latestUserRef.current) {
-        latestUserRef.current.scrollIntoView({ block: "start" });
-      }
-    });
+    // Only scroll to top when a NEW user message is added, not on every streaming update
+    const isNewUserMsg = lastUserIdx !== prevLastUserIdxRef.current;
+    prevLastUserIdxRef.current = lastUserIdx;
+    if (isNewUserMsg) {
+      requestAnimationFrame(() => {
+        updateSpacer();
+        if (latestUserRef.current) {
+          latestUserRef.current.scrollIntoView({ block: "start" });
+        }
+      });
+    }
   }, [messages, lastUserIdx, updateSpacer]);
 
   useEffect(() => {
@@ -1032,9 +1041,7 @@ export default function WorkspacePage() {
             agents={agents}
             activeAgentId={activeAgent?.id ?? null}
             onSelect={setActiveAgentId}
-            onCreate={handleAddAgent}
             onDelete={handleDeleteAgent}
-            adding={addingAgent}
           />
 
           {!activeAgent ? (
