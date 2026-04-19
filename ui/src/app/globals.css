@@ -85,6 +85,25 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-layer-3); border-radius: 4px; }
 
+/* Shimmer text animation for loading indicators */
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--color-text-tertiary) 0%,
+    var(--color-text-secondary) 40%,
+    var(--color-text-tertiary) 80%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
 /* Dark mode prose (workspace chat) */
 .dark .prose code {
   background: var(--color-layer-2);

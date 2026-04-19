@@ -62,8 +62,7 @@ function ThinkingBlock({ content, active }: { content: string; active: boolean }
         onClick={() => setManualToggle(isOpen ? false : true)}
         className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)]"
       >
-        <span>{label}</span>
-        {active && <span className="inline-block w-1 h-1 bg-[var(--color-text-tertiary)] rounded-full animate-pulse" />}
+        <span className={active ? "shimmer-text" : ""}>{label}</span>
         <svg className={`w-3 h-3 transition-all ${isOpen ? "rotate-180 opacity-100" : "opacity-0 group-hover/th:opacity-100"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
@@ -1133,9 +1132,8 @@ export default function WorkspacePage() {
                         {msg.streaming && <span className="inline-block w-2 h-4 ml-0.5 bg-[var(--color-text)] animate-pulse" />}
                       </div>
                     ) : msg.streaming ? (
-                      <div className="flex items-center gap-2 text-[var(--color-text-tertiary)]">
-                        <div className="w-1.5 h-1.5 bg-[var(--color-text-tertiary)] rounded-full animate-pulse" />
-                        <span>Thinking...</span>
+                      <div>
+                        <span className="text-sm shimmer-text">Working on it</span>
                       </div>
                     ) : null}
                   </div>
@@ -1145,9 +1143,8 @@ export default function WorkspacePage() {
 
             {isLoading && messages.length > 0 && messages[messages.length - 1].role === "user" && (
               <div className="flex justify-start">
-                <div className="pl-4 flex items-center gap-2 text-[var(--color-text-tertiary)]">
-                  <div className="w-1.5 h-1.5 bg-[var(--color-text-tertiary)] rounded-full animate-pulse" />
-                  <span className="text-sm">Thinking...</span>
+                <div className="pl-4">
+                  <span className="text-sm shimmer-text">Working on it</span>
                 </div>
               </div>
             )}
