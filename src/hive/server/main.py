@@ -1683,13 +1683,22 @@ async def _clone_private_task(task: dict, agent_id: str, gh: GitHubApp):
             pass  # best-effort
 
     # Generate read-only deploy key
-    private_key, public_key = await asyncio.to_thread(gh.generate_ssh_keypair)
-    key_id = await asyncio.to_thread(
-        gh.add_deploy_key_for_installation,
-        source_repo, f"hive-{agent_id}", public_key, installation_id, read_only=True)
+    try:
+        private_key, public_key = await asyncio.to_thread(gh.generate_ssh_keypair)
+    except Exception as e:
+        raise HTTPException(502, f"SSH key generation failed: {e}")
+    try:
+        key_id = await asyncio.to_thread(
+            gh.add_deploy_key_for_installation,
+            source_repo, f"hive-{agent_id}", public_key, installation_id, read_only=True)
+    except Exception as e:
+        raise HTTPException(502, f"Deploy key failed: {e}")
 
     # Get SSH URL for the repo
-    ssh_url = await asyncio.to_thread(gh.get_repo_ssh_url, source_repo, installation_id)
+    try:
+        ssh_url = await asyncio.to_thread(gh.get_repo_ssh_url, source_repo, installation_id)
+    except Exception as e:
+        raise HTTPException(502, f"Failed to get repo SSH URL: {e}")
 
     # Create initial branch
     branch_prefix = f"hive/{agent_id}/"
@@ -1729,9 +1738,18 @@ async def _clone_public_task(task: dict, agent_id: str, gh: GitHubApp):
     task_id = task["id"]
     repo_url = task["repo_url"]
     fork_name = f"fork--{task['slug']}--{agent_id}"
-    repo_info = await asyncio.to_thread(gh.copy_repo, repo_url, fork_name)
-    private_key, public_key = await asyncio.to_thread(gh.generate_ssh_keypair)
-    key_id = await asyncio.to_thread(gh.add_deploy_key, f"{gh.org}/{fork_name}", f"hive-{agent_id}", public_key)
+    try:
+        repo_info = await asyncio.to_thread(gh.copy_repo, repo_url, fork_name)
+    except Exception as e:
+        raise HTTPException(502, f"GitHub fork failed: {e}")
+    try:
+        private_key, public_key = await asyncio.to_thread(gh.generate_ssh_keypair)
+    except Exception as e:
+        raise HTTPException(502, f"SSH key generation failed: {e}")
+    try:
+        key_id = await asyncio.to_thread(gh.add_deploy_key, f"{gh.org}/{fork_name}", f"hive-{agent_id}", public_key)
+    except Exception as e:
+        raise HTTPException(502, f"Deploy key failed: {e}")
     ssh_url = repo_info["ssh_url"]
     base_sha = repo_info.get("base_sha")
     async with get_db() as conn:
