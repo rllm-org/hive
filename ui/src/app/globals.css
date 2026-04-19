@@ -89,17 +89,17 @@ body {
 .shimmer-text {
   background: linear-gradient(
     90deg,
-    var(--color-text-tertiary) 0%,
-    var(--color-text-secondary) 40%,
-    var(--color-text-tertiary) 80%
+    var(--color-text-tertiary) 25%,
+    var(--color-accent) 50%,
+    var(--color-text-tertiary) 75%
   );
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: shimmer 2s ease-in-out infinite;
+  animation: shimmer-text 2.5s ease-in-out infinite;
 }
-@keyframes shimmer {
+@keyframes shimmer-text {
   0% { background-position: 100% 0; }
   100% { background-position: -100% 0; }
 }
@@ -216,11 +216,11 @@ body {
 }
 .animate-slide-in-right { animation: slide-in-right 0.3s ease-out both; }
 
-@keyframes shimmer {
+@keyframes shimmer-bg {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
-.animate-shimmer { animation: shimmer 4s ease-in-out infinite; }
+.animate-shimmer { animation: shimmer-bg 4s ease-in-out infinite; }
 
 @keyframes marquee-left {
   from { transform: translateX(0); }
