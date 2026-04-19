@@ -27,21 +27,24 @@ function HighlightSlash({ text, validCommands }: { text: string; validCommands: 
 
 import type { MessagePart } from "@/hooks/use-workspace-agent";
 
-function ThinkingBlock({ content }: { content: string }) {
-  const [open, setOpen] = useState(false);
+function ThinkingBlock({ content, active }: { content: string; active: boolean }) {
+  const [manualToggle, setManualToggle] = useState<boolean | null>(null);
+  // Show content while actively thinking, collapse when done
+  const isOpen = manualToggle ?? active;
   return (
     <div className="group/th">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={() => setManualToggle(isOpen ? false : true)}
         className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)]"
       >
         <span>Thought</span>
-        <svg className={`w-3 h-3 transition-all ${open ? "rotate-180 opacity-100" : "opacity-0 group-hover/th:opacity-100"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        {active && <span className="inline-block w-1 h-1 bg-[var(--color-text-tertiary)] rounded-full animate-pulse" />}
+        <svg className={`w-3 h-3 transition-all ${isOpen ? "rotate-180 opacity-100" : "opacity-0 group-hover/th:opacity-100"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
-      {open && (
+      {isOpen && (
         <div className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed max-h-40 overflow-y-auto text-[var(--color-text-tertiary)]">
           {content}
         </div>
@@ -1091,7 +1094,7 @@ export default function WorkspacePage() {
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.content}</ReactMarkdown>
                             </div>
                           ) : part.type === "thinking" ? (
-                            <ThinkingBlock key={pi} content={part.content} />
+                            <ThinkingBlock key={pi} content={part.content} active={!!msg.streaming && pi === (msg.parts?.length ?? 0) - 1} />
                           ) : (
                             <ToolCallCard key={pi} part={part} />
                           )

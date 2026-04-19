@@ -99,9 +99,10 @@ function buildMessagesFromLog(events: Array<{ event_type: string; payload: Recor
       const m = getOrCreateAssistant();
       const parts = (m.parts ??= []);
       const tcId = (ev.payload.tool_call_id as string) ?? "";
+      const title = (ev.payload.title as string) ?? undefined;
       const idx = parts.findLastIndex((p) => p.type === "tool" && (p.id === tcId || p.status === "pending"));
       if (idx >= 0 && parts[idx].type === "tool") {
-        parts[idx] = { ...parts[idx], status: "done", output: ev.payload.result ?? undefined } as MessagePart;
+        parts[idx] = { ...parts[idx], status: "done", output: ev.payload.result ?? undefined, ...(title ? { title } : {}) } as MessagePart;
       }
     } else if (ev.event_type === "error") {
       msgs.push({ role: "error", content: (ev.payload.message as string) ?? "error" });
