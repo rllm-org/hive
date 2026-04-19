@@ -735,8 +735,15 @@ export default function WorkspacePage() {
     }
   }, [readFile]);
   const [input, setInput] = useState("");
-  // Clear input when switching agents
-  useEffect(() => { setInput(""); }, [activeAgentId]);
+  // Clear input and scroll to bottom when switching agents
+  useEffect(() => {
+    setInput("");
+    requestAnimationFrame(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    });
+  }, [activeAgentId]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const latestUserRef = useRef<HTMLDivElement>(null);
