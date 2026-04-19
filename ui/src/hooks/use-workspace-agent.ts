@@ -20,11 +20,14 @@ export interface SlashCommand {
   input?: { hint: string } | null;
 }
 
+export type MessagePart =
+  | { type: "text"; content: string }
+  | { type: "tool"; name: string; status: "pending" | "done" };
+
 export interface ChatMessage {
   role: "user" | "assistant" | "error";
-  content: string;
-  toolName?: string;
-  reasoning?: string;
+  content: string;       // plain text for user/error, or full text for backward compat
+  parts?: MessagePart[]; // assistant turn: interleaved text + tool parts
   streaming?: boolean;
 }
 
@@ -130,11 +133,20 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
               if (cls && cls.kind === "text") {
                 setMessages((prev) => {
                   const last = prev[prev.length - 1];
-                  if (last?.role === "assistant" && last.streaming && !last.toolName) {
-                    return [...prev.slice(0, -1), { ...last, content: last.content + cls.value }];
+                  if (last?.role === "assistant" && last.streaming) {
+                    const parts = [...(last.parts ?? [])];
+                    const lastPart = parts[parts.length - 1];
+                    if (lastPart?.type === "text") {
+                      parts[parts.length - 1] = { ...lastPart, content: lastPart.content + cls.value };
+                    } else {
+                      parts.push({ type: "text", content: cls.value });
+                    }
+                    return [...prev.slice(0, -1), { ...last, content: last.content + cls.value, parts }];
                   }
-                  // After a tool call, start a new assistant message
-                  return [...prev, { role: "assistant", content: cls.value, streaming: true }];
+                  return [...prev, {
+                    role: "assistant" as const, content: cls.value, streaming: true,
+                    parts: [{ type: "text" as const, content: cls.value }],
+                  }];
                 });
               }
             } else if (su === "available_commands_update") {
@@ -145,7 +157,24 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
               setMessages((prev) => {
                 const last = prev[prev.length - 1];
                 if (last?.role === "assistant" && last.streaming) {
-                  return [...prev.slice(0, -1), { ...last, toolName: name }];
+                  const parts = [...(last.parts ?? [])];
+                  parts.push({ type: "tool", name, status: "pending" });
+                  return [...prev.slice(0, -1), { ...last, parts }];
+                }
+                return [...prev, {
+                  role: "assistant" as const, content: "", streaming: true,
+                  parts: [{ type: "tool" as const, name, status: "pending" as const }],
+                }];
+              });
+            } else if (su === "tool_call_update" || su === "execute_tool_completed") {
+              const tcId = extractToolCallId(classified.data);
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (last?.role === "assistant" && last.streaming && last.parts) {
+                  const parts = last.parts.map((p) =>
+                    p.type === "tool" && p.status === "pending" ? { ...p, status: "done" as const } : p
+                  );
+                  return [...prev.slice(0, -1), { ...last, parts }];
                 }
                 return prev;
               });

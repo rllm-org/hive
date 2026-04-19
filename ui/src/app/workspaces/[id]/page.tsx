@@ -992,17 +992,31 @@ export default function WorkspacePage() {
                     {msg.content}
                   </div>
                 ) : (
-                  <div className="w-full pl-4 prose prose-sm max-w-none text-[var(--color-text)]">
-                    {msg.toolName && (
-                      <div className="text-xs text-[var(--color-text-tertiary)] mb-1">
-                        ● {msg.toolName}
-                      </div>
-                    )}
-                    {msg.content ? (
+                  <div className="w-full pl-4 space-y-2">
+                    {msg.parts && msg.parts.length > 0 ? (
                       <>
+                        {msg.parts.map((part, pi) =>
+                          part.type === "text" ? (
+                            <div key={pi} className="prose prose-sm max-w-none text-[var(--color-text)]">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.content}</ReactMarkdown>
+                            </div>
+                          ) : (
+                            <div key={pi} className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)]">
+                              <span className={part.status === "done" ? "text-emerald-500" : "text-amber-500"}>●</span>
+                              <span>{part.name}</span>
+                              {part.status === "pending" && <span className="inline-block w-1 h-1 bg-[var(--color-text-tertiary)] rounded-full animate-pulse" />}
+                            </div>
+                          )
+                        )}
+                        {msg.streaming && msg.parts[msg.parts.length - 1]?.type === "text" && (
+                          <span className="inline-block w-2 h-4 ml-0.5 bg-[var(--color-text)] animate-pulse" />
+                        )}
+                      </>
+                    ) : msg.content ? (
+                      <div className="prose prose-sm max-w-none text-[var(--color-text)]">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                         {msg.streaming && <span className="inline-block w-2 h-4 ml-0.5 bg-[var(--color-text)] animate-pulse" />}
-                      </>
+                      </div>
                     ) : msg.streaming ? (
                       <div className="flex items-center gap-2 text-[var(--color-text-tertiary)]">
                         <div className="w-1.5 h-1.5 bg-[var(--color-text-tertiary)] rounded-full animate-pulse" />
