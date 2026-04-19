@@ -428,13 +428,23 @@ export function useWorkspaceAgents(
 
   const cancel = useCallback(async (agentId: string) => {
     const conn = connectionsRef.current[agentId];
-    if (!conn) return;
-    updateAgent(agentId, { cancelling: true });
-    try {
-      await fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/cancel`, { method: "POST" });
-    } catch {
-      // cancel is best-effort
+    if (!conn) {
+      console.warn("[cancel] no connection for agent", agentId);
+      return;
     }
+    updateAgent(agentId, { cancelling: true });
+    const minDelay = new Promise((r) => setTimeout(r, 800));
+    try {
+      const url = `${conn.sdkBase}/sessions/${conn.sdkSid}/cancel`;
+      const res = await fetch(url, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        console.warn("[cancel] failed:", res.status, body);
+      }
+    } catch (err) {
+      console.warn("[cancel] network error:", err);
+    }
+    await minDelay;
     updateAgent(agentId, { isLoading: false, cancelling: false });
     updateMessages(agentId, (prev) => {
       const last = prev[prev.length - 1];
