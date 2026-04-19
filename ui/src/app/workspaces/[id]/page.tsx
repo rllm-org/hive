@@ -735,10 +735,12 @@ export default function WorkspacePage() {
     }
   }, [readFile]);
   const [input, setInput] = useState("");
-  // Clear input and scroll to bottom when switching agents
+  // Clear input and scroll to bottom of content when switching agents
   useEffect(() => {
     setInput("");
     requestAnimationFrame(() => {
+      // Collapse the spacer so we scroll to actual content, not empty space
+      if (spacerRef.current) spacerRef.current.style.height = "0px";
       if (scrollRef.current) {
         scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       }
