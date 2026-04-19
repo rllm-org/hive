@@ -105,6 +105,7 @@ function PreviewThinkingBlock({ content, active }: { content: string; active: bo
   const [manualToggle, setManualToggle] = useState<boolean | null>(null);
   const startRef = useRef<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (active && startRef.current === null) startRef.current = Date.now();
@@ -122,6 +123,13 @@ function PreviewThinkingBlock({ content, active }: { content: string; active: bo
     return () => clearInterval(interval);
   }, [active]);
 
+  // Auto-scroll thinking content to bottom while streaming
+  useEffect(() => {
+    if (active && contentRef.current) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight;
+    }
+  }, [active, content]);
+
   const isOpen = manualToggle ?? active;
   const label = active ? "Thinking" : elapsed > 0 ? `Thought for ${elapsed}s` : "Thought";
 
@@ -138,7 +146,7 @@ function PreviewThinkingBlock({ content, active }: { content: string; active: bo
         </svg>
       </button>
       {isOpen && (
-        <div className={`mt-1 whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-text-tertiary)] ${active ? "" : "max-h-60 overflow-y-auto"}`}>
+        <div ref={contentRef} className="mt-1 whitespace-pre-wrap text-sm leading-relaxed max-h-60 overflow-y-auto text-[var(--color-text-tertiary)]">
           {content}
         </div>
       )}
@@ -261,14 +269,6 @@ export default function ChatPreview() {
         updateSpacer();
         scrollToUser();
       });
-    }
-    // Auto-scroll during thinking
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg?.role === "assistant" && lastMsg.streaming && lastMsg.parts) {
-      const lastPart = lastMsg.parts[lastMsg.parts.length - 1];
-      if (lastPart?.type === "thinking" && scrollRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      }
     }
   }, [messages, lastUserIdx, scrollToUser, updateSpacer]);
 
