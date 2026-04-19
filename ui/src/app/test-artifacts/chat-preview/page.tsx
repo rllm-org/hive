@@ -232,7 +232,7 @@ export default function ChatPreview() {
                 ))}
               </div>
               {filteredCommands[cmdIndex]?.description.length > 40 && (
-                <div className="bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg px-3 py-2.5 w-[220px] text-xs text-[var(--color-text-secondary)] leading-relaxed" style={{ borderRadius: 6 }}>
+                <div className="bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg px-3 py-2.5 w-[220px] max-h-52 overflow-y-auto text-xs text-[var(--color-text-secondary)] leading-relaxed" style={{ borderRadius: 6 }}>
                   {filteredCommands[cmdIndex].description}
                 </div>
               )}
