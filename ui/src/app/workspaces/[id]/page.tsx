@@ -776,7 +776,6 @@ export default function WorkspacePage() {
   const prevLastUserIdxRef = useRef(lastUserIdx);
   useEffect(() => {
     updateSpacer();
-    // Only scroll to top when a NEW user message is added, not on every streaming update
     const isNewUserMsg = lastUserIdx !== prevLastUserIdxRef.current;
     prevLastUserIdxRef.current = lastUserIdx;
     if (isNewUserMsg) {
@@ -786,6 +785,14 @@ export default function WorkspacePage() {
           latestUserRef.current.scrollIntoView({ block: "start" });
         }
       });
+    }
+    // Auto-scroll to bottom when thinking is streaming (so user can follow)
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg?.role === "assistant" && lastMsg.streaming && lastMsg.parts) {
+      const lastPart = lastMsg.parts[lastMsg.parts.length - 1];
+      if (lastPart?.type === "thinking" && scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
     }
   }, [messages, lastUserIdx, updateSpacer]);
 
@@ -1108,7 +1115,7 @@ export default function WorkspacePage() {
                     {msg.content}
                   </div>
                 ) : (
-                  <div className="w-full pl-4 space-y-2">
+                  <div className="w-full pl-4 space-y-1.5">
                     {msg.parts && msg.parts.length > 0 ? (
                       <>
                         {msg.parts.map((part, pi) =>
@@ -1117,9 +1124,7 @@ export default function WorkspacePage() {
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.content}</ReactMarkdown>
                             </div>
                           ) : part.type === "thinking" ? (
-                            <div key={pi} className="-mb-1">
-                              <ThinkingBlock content={part.content} active={!!msg.streaming && pi === (msg.parts?.length ?? 0) - 1} />
-                            </div>
+                            <ThinkingBlock key={pi} content={part.content} active={!!msg.streaming && pi === (msg.parts?.length ?? 0) - 1} />
                           ) : (
                             <ToolCallCard key={pi} part={part} />
                           )
