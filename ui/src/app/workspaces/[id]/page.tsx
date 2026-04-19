@@ -48,12 +48,11 @@ function AgentTabs({
   onDelete: (id: string) => Promise<void>;
   adding: boolean;
 }) {
-  const [showCreate, setShowCreate] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   return (
     <>
-      <div className="shrink-0 flex items-center gap-1 px-3 pt-3">
+      <div className="shrink-0 flex items-end gap-0 px-3 pt-2 relative overflow-x-auto" style={{ marginBottom: -1 }}>
         {agents.map((a) => {
           const active = a.id === activeAgentId;
           return (
@@ -62,8 +61,8 @@ function AgentTabs({
               onClick={() => onSelect(a.id)}
               className={`group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 text-[12px] font-medium cursor-pointer transition-colors ${
                 active
-                  ? "bg-[var(--color-layer-1)] text-[var(--color-text)]"
-                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] opacity-60 hover:opacity-100"
+                  ? "bg-[var(--color-layer-1)] text-[var(--color-text)] border border-[var(--color-border)] border-b-transparent z-10"
+                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] opacity-60 hover:opacity-100 border border-transparent"
               }`}
               style={{ borderRadius: "6px 6px 0 0" }}
             >
@@ -84,23 +83,7 @@ function AgentTabs({
             </div>
           );
         })}
-        <button
-          onClick={() => setShowCreate(true)}
-          className="ml-1 flex items-center gap-1 px-2 py-1.5 text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
-          style={{ borderRadius: 4 }}
-        >
-          <LuPlus size={12} />
-          Agent
-        </button>
       </div>
-      {showCreate && (
-        <CreateAgentModal
-          existingNames={agents.map((a) => a.id)}
-          onClose={() => setShowCreate(false)}
-          onCreate={onCreate}
-          submitting={adding}
-        />
-      )}
       {pendingDelete && (
         <DeleteAgentModal
           agentId={pendingDelete}
@@ -485,6 +468,7 @@ export default function WorkspacePage() {
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [showDeleteWs, setShowDeleteWs] = useState(false);
+  const [showCreateAgent, setShowCreateAgent] = useState(false);
   const wsMenuRef = useRef<HTMLDivElement>(null);
 
   const refetchWorkspace = useCallback(async () => {
@@ -855,6 +839,12 @@ export default function WorkspacePage() {
               style={{ borderRadius: 6 }}
             >
               <button
+                onClick={() => { setWsMenuOpen(false); setShowCreateAgent(true); }}
+                className="w-full text-left px-3 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+              >
+                Add agent
+              </button>
+              <button
                 onClick={() => { setWsMenuOpen(false); setShowDeleteWs(true); }}
                 className="w-full text-left px-3 py-2 text-sm font-medium text-red-500 hover:bg-red-500/10 transition-colors"
               >
@@ -865,6 +855,14 @@ export default function WorkspacePage() {
         </div>
       </div>
 
+      {showCreateAgent && (
+        <CreateAgentModal
+          existingNames={agents.map((a) => a.id)}
+          onClose={() => setShowCreateAgent(false)}
+          onCreate={handleAddAgent}
+          submitting={addingAgent}
+        />
+      )}
       {showDeleteWs && workspace && (
         <DeleteWorkspaceModal
           workspace={workspace}
@@ -879,7 +877,7 @@ export default function WorkspacePage() {
       {/* Split view */}
       <div ref={containerRef} className="flex-1 flex min-h-0">
         {/* Left: File System */}
-        <div className="shrink-0 flex flex-col" style={{ width: `${leftWidth}%` }}>
+        <div className="shrink-0 flex flex-col bg-[var(--color-layer-2)]" style={{ width: `${leftWidth}%` }}>
           {/* File tree */}
           <div className="flex-1 overflow-y-auto min-h-0 px-5 pt-4 pb-5">
             {fsLoading && (
@@ -943,8 +941,8 @@ export default function WorkspacePage() {
 
         {/* Right: Chat */}
         <div
-          className={`min-w-0 flex flex-col bg-[var(--color-layer-1)] shadow-sm ${openFiles.length === 0 ? "flex-1" : "shrink-0"}`}
-          style={{ ...(openFiles.length === 0 ? { height: "100%" } : { width: `${chatWidth}%`, height: "100%" }), fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', borderRadius: "8px" }}
+          className={`min-w-0 flex flex-col bg-[var(--color-layer-2)] ${openFiles.length === 0 ? "flex-1" : "shrink-0"}`}
+          style={{ ...(openFiles.length === 0 ? { height: "100%" } : { width: `${chatWidth}%`, height: "100%" }), fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
         >
           {/* Agent tabs */}
           <AgentTabs
@@ -957,11 +955,11 @@ export default function WorkspacePage() {
           />
 
           {!activeAgent ? (
-            <div className="flex-1" />
+            <div className="flex-1 border-t border-[var(--color-border)] bg-[var(--color-layer-1)]" />
           ) : (
             <>
           {/* Messages */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 py-4 space-y-3">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 py-4 space-y-3 border-t border-[var(--color-border)] bg-[var(--color-layer-1)]">
             {connecting && (
               <div className="flex flex-col items-center justify-center h-full">
                 <div className="w-6 h-6 border-2 border-[var(--color-border)] border-t-[var(--color-accent)] rounded-full animate-spin mb-3" />
@@ -1029,7 +1027,7 @@ export default function WorkspacePage() {
           </div>
 
           {/* Input */}
-          <div className="shrink-0 px-3 pb-5 pt-2">
+          <div className="shrink-0 px-3 pb-5 pt-2 bg-[var(--color-layer-1)]">
             <div className="max-w-4xl mx-auto relative">
               {/* Slash command dropdown */}
               {showCommands && filteredCommands.length > 0 && (
