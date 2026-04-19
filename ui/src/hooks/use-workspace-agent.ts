@@ -22,7 +22,8 @@ export interface SlashCommand {
 
 export type MessagePart =
   | { type: "text"; content: string }
-  | { type: "tool"; name: string; status: "pending" | "done" };
+  | { type: "thinking"; content: string }
+  | { type: "tool"; id: string; name: string; status: "pending" | "done" | "error"; title?: string; input?: unknown; output?: unknown };
 
 export interface ChatMessage {
   role: "user" | "assistant" | "error";
@@ -86,11 +87,50 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
             const events: Array<{ event_type: string; payload: Record<string, unknown> }> =
               logData.events ?? logData ?? [];
             const msgs: ChatMessage[] = [];
+            const getOrCreateAssistant = (): ChatMessage => {
+              const last = msgs[msgs.length - 1];
+              if (last?.role === "assistant") return last;
+              const m: ChatMessage = { role: "assistant", content: "", parts: [] };
+              msgs.push(m);
+              return m;
+            };
             for (const ev of events) {
               if (ev.event_type === "user_message") {
                 msgs.push({ role: "user", content: (ev.payload.text as string) ?? "" });
               } else if (ev.event_type === "assistant_message") {
-                msgs.push({ role: "assistant", content: (ev.payload.text as string) ?? "" });
+                const text = (ev.payload.text as string) ?? "";
+                const m = getOrCreateAssistant();
+                m.content += text;
+                (m.parts ??= []).push({ type: "text", content: text });
+              } else if (ev.event_type === "reasoning") {
+                const text = (ev.payload.text as string) ?? "";
+                if (text) {
+                  const m = getOrCreateAssistant();
+                  const parts = (m.parts ??= []);
+                  const last = parts[parts.length - 1];
+                  if (last?.type === "thinking") {
+                    last.content += text;
+                  } else {
+                    parts.push({ type: "thinking", content: text });
+                  }
+                }
+              } else if (ev.event_type === "tool_call") {
+                const m = getOrCreateAssistant();
+                (m.parts ??= []).push({
+                  type: "tool",
+                  id: (ev.payload.tool_call_id as string) ?? `tc-${msgs.length}`,
+                  name: (ev.payload.tool as string) ?? "tool",
+                  status: "pending",
+                  input: ev.payload.args ?? undefined,
+                });
+              } else if (ev.event_type === "tool_result") {
+                const m = getOrCreateAssistant();
+                const parts = (m.parts ??= []);
+                const tcId = (ev.payload.tool_call_id as string) ?? "";
+                const idx = parts.findLastIndex((p) => p.type === "tool" && (p.id === tcId || p.status === "pending"));
+                if (idx >= 0 && parts[idx].type === "tool") {
+                  parts[idx] = { ...parts[idx], status: "done", output: ev.payload.result ?? undefined } as MessagePart;
+                }
               } else if (ev.event_type === "error") {
                 msgs.push({ role: "error", content: (ev.payload.message as string) ?? "error" });
               }
@@ -130,7 +170,8 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
 
             if (su === "agent_message_delta" || su === "agent_message_chunk") {
               const cls = classifyMessageContent(classified.data.content);
-              if (cls && cls.kind === "text") {
+              if (!cls) { /* skip */ }
+              else if (cls.kind === "text") {
                 setMessages((prev) => {
                   const last = prev[prev.length - 1];
                   if (last?.role === "assistant" && last.streaming) {
@@ -148,31 +189,83 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
                     parts: [{ type: "text" as const, content: cls.value }],
                   }];
                 });
+              } else if (cls.kind === "reasoning") {
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (last?.role === "assistant" && last.streaming) {
+                    const parts = [...(last.parts ?? [])];
+                    const lastPart = parts[parts.length - 1];
+                    if (lastPart?.type === "thinking") {
+                      parts[parts.length - 1] = { ...lastPart, content: lastPart.content + cls.value };
+                    } else {
+                      parts.push({ type: "thinking", content: cls.value });
+                    }
+                    return [...prev.slice(0, -1), { ...last, parts }];
+                  }
+                  return [...prev, {
+                    role: "assistant" as const, content: "", streaming: true,
+                    parts: [{ type: "thinking" as const, content: cls.value }],
+                  }];
+                });
+              }
+            } else if (su === "agent_thought_chunk") {
+              const content = classified.data.content as Record<string, unknown> | undefined;
+              const text = (content?.text as string) ?? (content?.thinking as string) ?? "";
+              if (text) {
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (last?.role === "assistant" && last.streaming) {
+                    const parts = [...(last.parts ?? [])];
+                    const lastPart = parts[parts.length - 1];
+                    if (lastPart?.type === "thinking") {
+                      parts[parts.length - 1] = { ...lastPart, content: lastPart.content + text };
+                    } else {
+                      parts.push({ type: "thinking", content: text });
+                    }
+                    return [...prev.slice(0, -1), { ...last, parts }];
+                  }
+                  return [...prev, {
+                    role: "assistant" as const, content: "", streaming: true,
+                    parts: [{ type: "thinking" as const, content: text }],
+                  }];
+                });
               }
             } else if (su === "available_commands_update") {
               const cmds = classified.data.availableCommands as SlashCommand[] | undefined;
               if (Array.isArray(cmds)) setCommands(cmds);
             } else if (su === "tool_call" || su === "execute_tool_started") {
               const name = extractToolName(classified.data);
+              const title = (classified.data.title as string) ?? "";
+              const input = classified.data.rawInput ?? undefined;
+              const tcId = extractToolCallId(classified.data) ?? `tc-${Date.now()}`;
               setMessages((prev) => {
                 const last = prev[prev.length - 1];
                 if (last?.role === "assistant" && last.streaming) {
                   const parts = [...(last.parts ?? [])];
-                  parts.push({ type: "tool", name, status: "pending" });
+                  // Skip if we already have this tool call ID
+                  if (parts.some((p) => p.type === "tool" && p.id === tcId)) {
+                    return prev;
+                  }
+                  parts.push({ type: "tool", id: tcId, name, status: "pending", title, input });
                   return [...prev.slice(0, -1), { ...last, parts }];
                 }
                 return [...prev, {
                   role: "assistant" as const, content: "", streaming: true,
-                  parts: [{ type: "tool" as const, name, status: "pending" as const }],
+                  parts: [{ type: "tool" as const, id: tcId, name, status: "pending" as const, title, input }],
                 }];
               });
             } else if (su === "tool_call_update" || su === "execute_tool_completed") {
-              const tcId = extractToolCallId(classified.data);
+              const tcId = extractToolCallId(classified.data) ?? "";
+              const title = (classified.data.title as string) ?? "";
+              const output = classified.data.rawOutput ?? extractToolResponse(classified.data) ?? undefined;
+              const status = (classified.data.status as string) === "failed" ? "error" as const : "done" as const;
               setMessages((prev) => {
                 const last = prev[prev.length - 1];
                 if (last?.role === "assistant" && last.streaming && last.parts) {
                   const parts = last.parts.map((p) =>
-                    p.type === "tool" && p.status === "pending" ? { ...p, status: "done" as const } : p
+                    p.type === "tool" && (p.id === tcId || (tcId === "" && p.status === "pending"))
+                      ? { ...p, status, ...(title ? { title } : {}), ...(output !== undefined ? { output } : {}) }
+                      : p
                   );
                   return [...prev.slice(0, -1), { ...last, parts }];
                 }
