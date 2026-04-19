@@ -434,12 +434,12 @@ export default function ChatPreview() {
               )}
             </div>
           )}
-          <div className="relative bg-white dark:bg-[var(--color-surface)] shadow-sm px-4 flex items-center gap-2" style={{ borderRadius: 16, height: 40 }}>
+          <div className="relative bg-white dark:bg-[var(--color-surface)] shadow-sm px-4 py-2.5 flex items-end gap-2" style={{ borderRadius: 16, minHeight: 40 }}>
             {/* Highlight overlay */}
             <div
               aria-hidden
-              className="absolute top-0 left-4 right-12 text-sm whitespace-pre-wrap break-words pointer-events-none flex items-center"
-              style={{ height: 40 }}
+              className="absolute inset-x-4 top-2.5 bottom-2.5 right-12 text-sm whitespace-pre-wrap break-words pointer-events-none"
+              style={{ lineHeight: "20px" }}
             >
               <span className="text-[var(--color-text)]"><HighlightSlash text={input} /></span>
             </div>
@@ -452,11 +452,11 @@ export default function ChatPreview() {
               rows={1}
               className="flex-1 resize-none text-sm bg-transparent placeholder:text-[var(--color-text-tertiary)]"
               style={{
-                overflowY: "hidden", outline: "none", boxShadow: "none",
+                outline: "none", boxShadow: "none",
                 color: "transparent",
                 caretColor: "var(--color-text)",
                 padding: 0, margin: 0, border: "none",
-                height: 20, lineHeight: "20px",
+                lineHeight: "20px",
               }}
             />
             <button

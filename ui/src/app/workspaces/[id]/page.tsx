@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiFetch, apiPostJson, apiDelete } from "@/lib/api";
 import { getAuthHeader } from "@/lib/auth";
+import { TextShimmer } from "@/components/text-shimmer";
 
 const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
 import BoringAvatar from "boring-avatars";
@@ -70,7 +71,7 @@ function ThinkingBlock({ content, active }: { content: string; active: boolean }
         onClick={() => setManualToggle(isOpen ? false : true)}
         className="flex items-center gap-1.5 text-sm text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)]"
       >
-        <span className={active ? "shimmer-text" : ""}>{label}</span>
+        {active ? <TextShimmer className="text-sm [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-accent)]" duration={2} spread={2}>{label}</TextShimmer> : <span>{label}</span>}
         <svg className={`w-3 h-3 transition-all opacity-0 group-hover/th:opacity-100 ${isOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
@@ -1140,7 +1141,7 @@ export default function WorkspacePage() {
                       </div>
                     ) : msg.streaming ? (
                       <div>
-                        <span className="text-sm shimmer-text">Working on it</span>
+                        <TextShimmer className="text-sm [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-accent)]" duration={2} spread={2}>Working on it</TextShimmer>
                       </div>
                     ) : null}
                   </div>
@@ -1151,7 +1152,7 @@ export default function WorkspacePage() {
             {isLoading && messages.length > 0 && messages[messages.length - 1].role === "user" && (
               <div className="flex justify-start">
                 <div className="pl-4">
-                  <span className="text-sm shimmer-text">Working on it</span>
+                  <TextShimmer className="text-sm [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-accent)]" duration={2} spread={2}>Working on it</TextShimmer>
                 </div>
               </div>
             )}
@@ -1190,12 +1191,12 @@ export default function WorkspacePage() {
                   )}
                 </div>
               )}
-              <div className="relative bg-white dark:bg-[var(--color-surface)] shadow-sm px-4 flex items-center gap-2" style={{ borderRadius: 16, height: 40 }}>
+              <div className="relative bg-white dark:bg-[var(--color-surface)] shadow-sm px-4 py-2.5 flex items-end gap-2" style={{ borderRadius: 16, minHeight: 40 }}>
                 {/* Highlight overlay */}
                 <div
                   aria-hidden
-                  className="absolute top-0 left-4 right-12 text-sm whitespace-pre-wrap break-words pointer-events-none flex items-center"
-                  style={{ height: 40 }}
+                  className="absolute inset-x-4 top-2.5 bottom-2.5 right-12 text-sm whitespace-pre-wrap break-words pointer-events-none"
+                  style={{ lineHeight: "20px" }}
                 >
                   <span className="text-[var(--color-text)]"><HighlightSlash text={input} validCommands={validCommandNames} /></span>
                 </div>
@@ -1208,11 +1209,11 @@ export default function WorkspacePage() {
                   rows={1}
                   className="flex-1 resize-none text-sm bg-transparent placeholder:text-[var(--color-text-tertiary)]"
                   style={{
-                    overflowY: "hidden", outline: "none", boxShadow: "none",
+                    outline: "none", boxShadow: "none",
                     color: "transparent",
                     caretColor: "var(--color-text)",
                     padding: 0, margin: 0, border: "none",
-                    height: 20, lineHeight: "20px",
+                    lineHeight: "20px",
                   }}
                 />
                 {isLoading ? (
