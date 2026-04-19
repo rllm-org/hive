@@ -259,14 +259,22 @@ function processSseBlock(
     }
     setIsLoading(true);
   } else if (classified.kind === "done_result") {
+    // ACP sends intermediate done_result events between tool calls within
+    // the same turn. Only mark as done if no tools are still pending.
+    let turnDone = true;
     setMessages((prev) => {
       const last = prev[prev.length - 1];
       if (last?.role === "assistant" && last.streaming) {
+        const hasPending = last.parts?.some((p) => p.type === "tool" && p.status === "pending");
+        if (hasPending) {
+          turnDone = false;
+          return prev;
+        }
         return [...prev.slice(0, -1), { ...last, streaming: false }];
       }
       return prev;
     });
-    setIsLoading(false);
+    if (turnDone) setIsLoading(false);
   } else if (classified.kind === "error" && classified.data) {
     const msg = (classified.data.message as string) ?? "agent error";
     setMessages((prev) => [...prev, { role: "error", content: msg }]);
