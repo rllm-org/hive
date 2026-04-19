@@ -60,7 +60,7 @@ function ThinkingBlock({ content, active }: { content: string; active: boolean }
       <button
         type="button"
         onClick={() => setManualToggle(isOpen ? false : true)}
-        className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)]"
+        className="flex items-center gap-1.5 text-sm text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)]"
       >
         <span className={active ? "shimmer-text" : ""}>{label}</span>
         <svg className={`w-3 h-3 transition-all opacity-0 group-hover/th:opacity-100 ${isOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -68,7 +68,7 @@ function ThinkingBlock({ content, active }: { content: string; active: boolean }
         </svg>
       </button>
       {isOpen && (
-        <div className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed max-h-60 overflow-y-auto text-[var(--color-text-tertiary)]">
+        <div className={`mt-1 whitespace-pre-wrap text-sm leading-relaxed text-[var(--color-text-tertiary)] ${active ? "" : "max-h-60 overflow-y-auto"}`}>
           {content}
         </div>
       )}
