@@ -408,7 +408,7 @@ export default function ChatPreview() {
       <div className="shrink-0 px-3 pb-5 pt-2">
         <div className="max-w-4xl mx-auto relative">
           {showCommands && filteredCommands.length > 0 && (
-            <div className="absolute bottom-full left-0 mb-1 flex items-start gap-1 z-50">
+            <div className="absolute bottom-full left-0 mb-1 flex items-end gap-1 z-50">
               <div className="bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 overflow-y-auto max-h-52 w-[300px]" style={{ borderRadius: 6 }}>
                 <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)] font-medium">Skills</div>
                 {filteredCommands.map((cmd, i) => (
