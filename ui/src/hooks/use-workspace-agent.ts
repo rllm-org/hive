@@ -130,9 +130,10 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
               if (cls && cls.kind === "text") {
                 setMessages((prev) => {
                   const last = prev[prev.length - 1];
-                  if (last?.role === "assistant" && last.streaming) {
+                  if (last?.role === "assistant" && last.streaming && !last.toolName) {
                     return [...prev.slice(0, -1), { ...last, content: last.content + cls.value }];
                   }
+                  // After a tool call, start a new assistant message
                   return [...prev, { role: "assistant", content: cls.value, streaming: true }];
                 });
               }
