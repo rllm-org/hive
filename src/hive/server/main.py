@@ -2423,6 +2423,7 @@ async def _workspace_sdk_connect(
         agent_type=body.get("agent_type", "claude"),
         model=body.get("model", "claude-sonnet-4-6"),
         cwd=body.get("cwd", "/home/daytona"),
+        skills=["https://github.com/rllm-org/hive/tree/staging"],
     )
     async with get_db() as conn:
         wrow = await (await conn.execute(
@@ -2441,6 +2442,17 @@ async def _workspace_sdk_connect(
     session_from_quick = upstream.get("session_id")
     if not new_sandbox or not session_from_quick:
         raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
+
+    # Install hive CLI in the sandbox
+    try:
+        await client.sandbox_exec(
+            session_from_quick,
+            'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
+            timeout=120,
+        )
+    except Exception as e:
+        import logging
+        logging.warning("Failed to install hive CLI in sandbox: %s", e)
 
     async with get_db() as conn:
         r = await (await conn.execute(

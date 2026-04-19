@@ -82,6 +82,12 @@ class AgentSdkClient:
     async def set_config(self, sid: str, **kwargs: Any) -> dict[str, Any]:
         return await self._json("POST", f"/sessions/{sid}/config", json=kwargs)
 
+    async def sandbox_exec(self, sid: str, command: str, timeout: int = 120) -> dict[str, Any]:
+        return await self._json(
+            "POST", f"/sessions/{sid}/sandbox/exec",
+            json={"command": command, "timeout": timeout},
+        )
+
     async def destroy_sandbox(self, sandbox_id: str) -> None:
         try:
             await self._client.delete(f"/sandboxes/{sandbox_id}")
