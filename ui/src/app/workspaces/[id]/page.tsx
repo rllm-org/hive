@@ -85,7 +85,7 @@ function ThinkingBlock({ content, active }: { content: string; active: boolean }
   );
 }
 
-function ToolCallCard({ part }: { part: Extract<MessagePart, { type: "tool" }> }) {
+function ToolCallCard({ part, active }: { part: Extract<MessagePart, { type: "tool" }>; active?: boolean }) {
   const [open, setOpen] = useState(false);
   const hasDetails = part.input != null || part.output != null;
 
@@ -110,7 +110,7 @@ function ToolCallCard({ part }: { part: Extract<MessagePart, { type: "tool" }> }
             <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
           )}
         </svg>
-        {part.status === "pending" ? (
+        {(part.status === "pending" || active) ? (
           <TextShimmer className="text-xs [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-text)]" duration={1.5}>{part.title || part.name || "Running…"}</TextShimmer>
         ) : (
           <span className="truncate text-[var(--color-text-secondary)]">{part.title || part.name}</span>
@@ -1123,17 +1123,18 @@ export default function WorkspacePage() {
                   <div className="w-full pl-4 space-y-1.5">
                     {msg.parts && msg.parts.length > 0 ? (
                       <>
-                        {msg.parts.map((part, pi) =>
-                          part.type === "text" ? (
+                        {msg.parts.map((part, pi) => {
+                          const isLastPart = pi === (msg.parts?.length ?? 0) - 1;
+                          return part.type === "text" ? (
                             <div key={pi} className="prose prose-sm max-w-none text-[var(--color-text)]">
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.content}</ReactMarkdown>
                             </div>
                           ) : part.type === "thinking" ? (
-                            <ThinkingBlock key={pi} content={part.content} active={!!msg.streaming && pi === (msg.parts?.length ?? 0) - 1} />
+                            <ThinkingBlock key={pi} content={part.content} active={!!msg.streaming && isLastPart} />
                           ) : (
-                            <ToolCallCard key={pi} part={part} />
-                          )
-                        )}
+                            <ToolCallCard key={pi} part={part} active={!!msg.streaming && isLastPart} />
+                          );
+                        })}
                         {msg.streaming && msg.parts[msg.parts.length - 1]?.type === "text" && (
                           <span className="inline-block w-2 h-4 ml-0.5 bg-[var(--color-text)] animate-pulse" />
                         )}
