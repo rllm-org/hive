@@ -62,8 +62,8 @@ function AgentTabs({
               onClick={() => onSelect(a.id)}
               className={`group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 text-[12px] font-medium cursor-pointer transition-colors ${
                 active
-                  ? "bg-[var(--color-surface)] text-[var(--color-text)] shadow-sm"
-                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)]"
+                  ? "bg-[var(--color-layer-1)] text-[var(--color-text)]"
+                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] opacity-60 hover:opacity-100"
               }`}
               style={{ borderRadius: "6px 6px 0 0" }}
             >
@@ -943,8 +943,8 @@ export default function WorkspacePage() {
 
         {/* Right: Chat */}
         <div
-          className={`min-w-0 flex flex-col shadow-sm ${openFiles.length === 0 ? "flex-1" : "shrink-0"}`}
-          style={{ ...(openFiles.length === 0 ? { height: "100%" } : { width: `${chatWidth}%`, height: "100%" }), fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
+          className={`min-w-0 flex flex-col bg-[var(--color-layer-1)] shadow-sm ${openFiles.length === 0 ? "flex-1" : "shrink-0"}`}
+          style={{ ...(openFiles.length === 0 ? { height: "100%" } : { width: `${chatWidth}%`, height: "100%" }), fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', borderRadius: "8px" }}
         >
           {/* Agent tabs */}
           <AgentTabs
