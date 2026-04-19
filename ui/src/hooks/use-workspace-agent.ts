@@ -36,6 +36,7 @@ export interface AgentState {
   messages: ChatMessage[];
   commands: SlashCommand[];
   isLoading: boolean;
+  cancelling: boolean;
   connecting: boolean;
   error: string | null;
   sdkBaseUrl: string | null;
@@ -46,6 +47,7 @@ const EMPTY_STATE: AgentState = {
   messages: [],
   commands: [],
   isLoading: false,
+  cancelling: false,
   connecting: false,
   error: null,
   sdkBaseUrl: null,
@@ -426,10 +428,14 @@ export function useWorkspaceAgents(
 
   const cancel = useCallback(async (agentId: string) => {
     const conn = connectionsRef.current[agentId];
-    if (conn) {
+    if (!conn) return;
+    updateAgent(agentId, { cancelling: true });
+    try {
       await fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/cancel`, { method: "POST" });
+    } catch {
+      // cancel is best-effort
     }
-    updateAgent(agentId, { isLoading: false });
+    updateAgent(agentId, { isLoading: false, cancelling: false });
     updateMessages(agentId, (prev) => {
       const last = prev[prev.length - 1];
       if (last?.role === "assistant" && last.streaming) {
