@@ -111,7 +111,7 @@ function ToolCallCard({ part }: { part: Extract<MessagePart, { type: "tool" }> }
           )}
         </svg>
         {part.status === "pending" ? (
-          <TextShimmer className="text-xs truncate [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-text)]" duration={1.5} spread={3}>{part.title || part.name}</TextShimmer>
+          <TextShimmer className="text-xs [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-text)]" duration={1.5}>{part.title || part.name || "Running…"}</TextShimmer>
         ) : (
           <span className="truncate text-[var(--color-text-secondary)]">{part.title || part.name}</span>
         )}

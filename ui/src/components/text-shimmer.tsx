@@ -3,6 +3,14 @@
 import React, { useMemo, type JSX } from 'react';
 import { motion } from 'motion/react';
 
+const motionCache = new Map<string, React.ComponentType<Record<string, unknown>>>();
+function getMotionComponent(tag: string) {
+  if (!motionCache.has(tag)) {
+    motionCache.set(tag, motion.create(tag as keyof JSX.IntrinsicElements) as unknown as React.ComponentType<Record<string, unknown>>);
+  }
+  return motionCache.get(tag)!;
+}
+
 export type TextShimmerProps = {
   children: string;
   as?: React.ElementType;
@@ -18,9 +26,8 @@ function TextShimmerComponent({
   duration = 2,
   spread = 4,
 }: TextShimmerProps) {
-  const MotionComponent = motion.create(
-    Component as keyof JSX.IntrinsicElements
-  );
+  const tag = typeof Component === 'string' ? Component : 'span';
+  const MotionComponent = getMotionComponent(tag);
 
   const dynamicSpread = useMemo(() => {
     return children.length * spread;
