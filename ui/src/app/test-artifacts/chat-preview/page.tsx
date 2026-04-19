@@ -20,7 +20,7 @@ function HighlightSlash({ text, validCommands }: { text: string; validCommands?:
   const valid = validCommands ?? VALID_COMMAND_NAMES;
   return (
     <>
-      {text.split(/(\/[\w:-]+)/).map((part, i) =>
+      {text.split(/((?:^|(?<=\s))\/[\w:-]+)/).map((part, i) =>
         /^\/[\w:-]+$/.test(part) && valid.has(part.slice(1))
           ? <span key={i} className="text-[var(--color-accent)]">{part}</span>
           : <span key={i}>{part}</span>

@@ -85,6 +85,20 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-layer-3); border-radius: 4px; }
 
+/* Dark mode prose (workspace chat) */
+.dark .prose code {
+  background: var(--color-layer-2);
+  color: var(--color-text);
+}
+.dark .prose pre {
+  background: var(--color-layer-1) !important;
+  color: var(--color-text);
+}
+.dark .prose pre code {
+  background: transparent;
+  color: var(--color-text);
+}
+
 *:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;

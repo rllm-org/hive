@@ -16,7 +16,7 @@ const AVATAR_COLORS = ["#92A1C6", "#146A7C", "#F0AB3D", "#C271B4", "#C20D90"];
 function HighlightSlash({ text, validCommands }: { text: string; validCommands: Set<string> }) {
   return (
     <>
-      {text.split(/(\/[\w:-]+)/).map((part, i) =>
+      {text.split(/((?:^|(?<=\s))\/[\w:-]+)/).map((part, i) =>
         /^\/[\w:-]+$/.test(part) && validCommands.has(part.slice(1))
           ? <span key={i} className="text-[var(--color-accent)]">{part}</span>
           : <span key={i}>{part}</span>
@@ -53,7 +53,7 @@ function AgentTabs({
 
   return (
     <>
-      <div className="shrink-0 flex items-center gap-1 px-3 pt-3 border-b border-[var(--color-border)]">
+      <div className="shrink-0 flex items-center gap-1 px-3 pt-3">
         {agents.map((a) => {
           const active = a.id === activeAgentId;
           return (
@@ -62,8 +62,8 @@ function AgentTabs({
               onClick={() => onSelect(a.id)}
               className={`group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 text-[12px] font-medium cursor-pointer transition-colors ${
                 active
-                  ? "bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)] border-b-[var(--color-surface)] -mb-px"
-                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] border border-transparent"
+                  ? "bg-[var(--color-surface)] text-[var(--color-text)] shadow-sm"
+                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)]"
               }`}
               style={{ borderRadius: "6px 6px 0 0" }}
             >
@@ -943,7 +943,7 @@ export default function WorkspacePage() {
 
         {/* Right: Chat */}
         <div
-          className={`min-w-0 flex flex-col ${openFiles.length === 0 ? "flex-1" : "shrink-0"}`}
+          className={`min-w-0 flex flex-col shadow-sm ${openFiles.length === 0 ? "flex-1" : "shrink-0"}`}
           style={{ ...(openFiles.length === 0 ? { height: "100%" } : { width: `${chatWidth}%`, height: "100%" }), fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
         >
           {/* Agent tabs */}
