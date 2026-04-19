@@ -53,7 +53,7 @@ function ThinkingBlock({ content, active }: { content: string; active: boolean }
   }, [active]);
 
   const isOpen = manualToggle ?? active;
-  const label = active ? "Thinking" : `Thought for ${elapsed}s`;
+  const label = active ? "Thinking" : elapsed > 0 ? `Thought for ${elapsed}s` : "Thought";
 
   return (
     <div className="group/th">
@@ -63,12 +63,12 @@ function ThinkingBlock({ content, active }: { content: string; active: boolean }
         className="flex items-center gap-1.5 text-xs text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)]"
       >
         <span className={active ? "shimmer-text" : ""}>{label}</span>
-        <svg className={`w-3 h-3 transition-all ${isOpen ? "rotate-180 opacity-100" : "opacity-0 group-hover/th:opacity-100"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <svg className={`w-3 h-3 transition-all opacity-0 group-hover/th:opacity-100 ${isOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
       {isOpen && (
-        <div className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed max-h-40 overflow-y-auto text-[var(--color-text-tertiary)]">
+        <div className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed max-h-60 overflow-y-auto text-[var(--color-text-tertiary)]">
           {content}
         </div>
       )}
@@ -1117,7 +1117,9 @@ export default function WorkspacePage() {
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.content}</ReactMarkdown>
                             </div>
                           ) : part.type === "thinking" ? (
-                            <ThinkingBlock key={pi} content={part.content} active={!!msg.streaming && pi === (msg.parts?.length ?? 0) - 1} />
+                            <div key={pi} className="-mb-1">
+                              <ThinkingBlock content={part.content} active={!!msg.streaming && pi === (msg.parts?.length ?? 0) - 1} />
+                            </div>
                           ) : (
                             <ToolCallCard key={pi} part={part} />
                           )
