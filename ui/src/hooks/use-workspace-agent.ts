@@ -123,9 +123,18 @@ function processSseBlock(
   setMessages: MsgUpdater,
   setCommands: CmdUpdater,
   setIsLoading: LoadUpdater,
+  innerSessionId?: string | null,
 ) {
   const payload = parseSseData(block);
   if (!payload) return;
+
+  // Filter by session — shared sandbox broadcasts all events to all subscribers
+  if (innerSessionId) {
+    const params = (payload.params ?? {}) as Record<string, unknown>;
+    const eventSessionId = (params.sessionId as string) ?? (params.update as Record<string, unknown> | undefined)?.sessionId as string | undefined;
+    if (eventSessionId && eventSessionId !== innerSessionId) return;
+  }
+
   const tag = extractSseTag(block);
   const classified = parseAcpPayload(payload, tag);
 
@@ -346,17 +355,20 @@ export function useWorkspaceAgents(
           });
           if (!sseResp.ok) throw new Error(`events HTTP ${sseResp.status}`);
 
-          // Fetch available commands
-          fetch(`${sdkBase}/sessions/${sdkSid}/status`, { signal: ctrl.signal })
-            .then((r) => r.ok ? r.json() : null)
-            .then((data) => {
+          // Fetch available commands + inner session ID for event filtering
+          let innerSessionId: string | null = null;
+          try {
+            const statusResp = await fetch(`${sdkBase}/sessions/${sdkSid}/status`, { signal: ctrl.signal });
+            if (statusResp.ok) {
+              const data = await statusResp.json();
               if (data?.available_commands && !ctrl.signal.aborted) {
                 updateAgent(agentId, { commands: data.available_commands });
               }
-            })
-            .catch(() => {});
+              innerSessionId = data?.inner_session_id ?? null;
+            }
+          } catch { /* non-fatal */ }
 
-          // Process SSE stream
+          // Process SSE stream — filter by inner session ID to avoid cross-agent events
           for await (const block of iterSseBlocks(sseResp, ctrl.signal)) {
             if (ctrl.signal.aborted) break;
             processSseBlock(
@@ -364,6 +376,7 @@ export function useWorkspaceAgents(
               (fn) => updateMessages(agentId, fn),
               (cmds) => updateAgent(agentId, { commands: cmds }),
               (loading) => updateAgent(agentId, { isLoading: loading }),
+              innerSessionId,
             );
           }
         } catch (e) {
