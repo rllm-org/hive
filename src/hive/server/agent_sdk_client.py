@@ -88,6 +88,10 @@ class AgentSdkClient:
             json={"command": command, "timeout": timeout},
         )
 
+    async def provision_sandbox(self, **config: Any) -> dict[str, Any]:
+        """Provision a sandbox with deps installed, no supervisor started."""
+        return await self._json("POST", "/sandboxes/provision", json=config)
+
     async def destroy_sandbox(self, sandbox_id: str) -> None:
         try:
             await self._client.delete(f"/sandboxes/{sandbox_id}")

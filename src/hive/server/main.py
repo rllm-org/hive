@@ -2410,6 +2410,34 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
             " RETURNING id, name, type, created_at",
             (user_id, name, ws_type, now())
         )).fetchone()
+    workspace_id = row["id"]
+
+    # For cloud workspaces, provision the sandbox immediately
+    if ws_type == "cloud":
+        from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
+        try:
+            client = get_client()
+            provision_config: dict[str, Any] = {
+                "agent_type": "claude",
+                "cwd": "/home/daytona",
+                "skills": ["https://github.com/rllm-org/hive/tree/staging"],
+                "pre_start_commands": [
+                    'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
+                ],
+            }
+            result = await client.provision_sandbox(**provision_config)
+            sandbox_id = result.get("sandbox_id")
+            if sandbox_id:
+                async with get_db() as conn:
+                    await conn.execute(
+                        "UPDATE workspaces SET sdk_sandbox_id = %s, sdk_base_url = %s WHERE id = %s",
+                        (sandbox_id, AGENT_SDK_BASE_URL, workspace_id),
+                    )
+                row = {**dict(row), "sdk_sandbox_id": sandbox_id, "sdk_base_url": AGENT_SDK_BASE_URL}
+        except Exception as e:
+            import logging
+            logging.warning("Failed to provision sandbox for workspace %s: %s", workspace_id, e)
+
     return _serialize_workspace(row)
 
 
@@ -2431,66 +2459,37 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
 async def _workspace_sdk_connect(
     workspace_id: int, agent_id: str, body: dict[str, Any]
 ) -> tuple[str, str]:
+    """Start a per-session supervisor on the workspace's sandbox.
+
+    The sandbox must already be provisioned (from workspace creation).
+    Each agent gets its own supervisor process on a unique port.
+    """
     from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
 
     client = get_client()
     base = AGENT_SDK_BASE_URL or ""
-    kw: dict[str, Any] = dict(
-        name=f"agent-{agent_id}",
-        provider=body.get("provider", "daytona"),
-        agent_type=body.get("agent_type", "claude"),
-        model=body.get("model", "claude-sonnet-4-6"),
-        cwd=body.get("cwd", "/home/daytona"),
-        skills=["https://github.com/rllm-org/hive/tree/staging"],
-    )
+
     async with get_db() as conn:
         wrow = await (await conn.execute(
             "SELECT sdk_sandbox_id, sdk_base_url FROM workspaces WHERE id = %s",
             (workspace_id,),
         )).fetchone()
-    if wrow and wrow.get("sdk_sandbox_id"):
-        upstream = await client.create_session(wrow["sdk_sandbox_id"], **kw)
-        sid = upstream.get("session_id")
-        if not sid:
-            raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
-        return sid, wrow.get("sdk_base_url") or base
 
-    upstream = await client.create_quick_session(**kw)
-    new_sandbox = upstream.get("sandbox_id")
-    session_from_quick = upstream.get("session_id")
-    if not new_sandbox or not session_from_quick:
-        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
+    sandbox_id = wrow.get("sdk_sandbox_id") if wrow else None
+    if not sandbox_id:
+        raise HTTPException(400, "workspace sandbox not provisioned — recreate the workspace")
 
-    # Install hive CLI in the sandbox
-    try:
-        await client.sandbox_exec(
-            session_from_quick,
-            'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
-            timeout=120,
-        )
-    except Exception as e:
-        import logging
-        logging.warning("Failed to install hive CLI in sandbox: %s", e)
-
-    async with get_db() as conn:
-        r = await (await conn.execute(
-            "UPDATE workspaces SET sdk_sandbox_id = %s, sdk_base_url = %s"
-            " WHERE id = %s AND sdk_sandbox_id IS NULL RETURNING id",
-            (new_sandbox, base, workspace_id),
-        )).fetchone()
-        if r:
-            return session_from_quick, base
-        exist = await (await conn.execute(
-            "SELECT sdk_sandbox_id, sdk_base_url FROM workspaces WHERE id = %s",
-            (workspace_id,),
-        )).fetchone()
-
-    await client.destroy_sandbox(new_sandbox)
-    upstream2 = await client.create_session(exist["sdk_sandbox_id"], **kw)
-    sid = upstream2.get("session_id")
+    kw: dict[str, Any] = dict(
+        name=f"agent-{agent_id}",
+        agent_type=body.get("agent_type", "claude"),
+        model=body.get("model", "claude-sonnet-4-6"),
+        cwd=body.get("cwd", "/home/daytona"),
+    )
+    upstream = await client.create_session(sandbox_id, **kw)
+    sid = upstream.get("session_id")
     if not sid:
-        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream2}")
-    return sid, exist.get("sdk_base_url") or base
+        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
+    return sid, wrow.get("sdk_base_url") or base
 
 
 @router.post("/workspaces/{workspace_id}/agents")
