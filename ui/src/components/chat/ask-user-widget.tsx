@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { apiFetch, apiPostJson } from "@/lib/api";
 
 export interface AskUserData {
   question: string;
@@ -11,14 +10,10 @@ export interface AskUserData {
   answer?: string | string[];
 }
 
-interface PendingQuestion {
-  id: string;
-  question: string;
-}
-
 interface Props {
   questions: AskUserData[];
   onAnswered?: (questionIdx: number, answer: string | string[]) => void;
+  onSendMessage?: (text: string) => void;
 }
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -26,9 +21,11 @@ const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 function SingleQuestion({
   data,
   onAnswered,
+  onSendMessage,
 }: {
   data: AskUserData;
   onAnswered?: (answer: string | string[]) => void;
+  onSendMessage?: (text: string) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
@@ -40,22 +37,12 @@ function SingleQuestion({
     data.answer ?? null
   );
 
-  const submit = async (answer: string | string[]) => {
-    setSubmitting(true);
-    try {
-      const pending = await apiFetch<{ questions: PendingQuestion[] }>("/mcp/questions");
-      const qid = pending.questions.find((q) => q.question === data.question)?.id
-        ?? pending.questions[0]?.id;
-      if (!qid) throw new Error("Question not found");
-      await apiPostJson(`/mcp/questions/${qid}/answer`, { answer });
-      setAnswered(true);
-      setDisplayAnswer(answer);
-      onAnswered?.(answer);
-    } catch {
-      // Allow retry
-    } finally {
-      setSubmitting(false);
-    }
+  const submit = (answer: string | string[]) => {
+    const text = Array.isArray(answer) ? answer.join(", ") : String(answer);
+    onSendMessage?.(text);
+    setAnswered(true);
+    setDisplayAnswer(answer);
+    onAnswered?.(answer);
   };
 
   // Answered state
@@ -273,7 +260,7 @@ function SingleQuestion({
   );
 }
 
-export function AskUserWidget({ questions, onAnswered }: Props) {
+export function AskUserWidget({ questions, onAnswered, onSendMessage }: Props) {
   const [currentIdx, setCurrentIdx] = useState(0);
   const total = questions.length;
   const current = questions[currentIdx];
@@ -288,6 +275,7 @@ export function AskUserWidget({ questions, onAnswered }: Props) {
         <SingleQuestion
           data={current}
           onAnswered={(answer) => onAnswered?.(0, answer)}
+          onSendMessage={onSendMessage}
         />
       </div>
     );
@@ -324,9 +312,9 @@ export function AskUserWidget({ questions, onAnswered }: Props) {
       <SingleQuestion
         key={currentIdx}
         data={current}
+        onSendMessage={onSendMessage}
         onAnswered={(answer) => {
           onAnswered?.(currentIdx, answer);
-          // Auto-advance to next unanswered question
           if (currentIdx < total - 1) setCurrentIdx(currentIdx + 1);
         }}
       />

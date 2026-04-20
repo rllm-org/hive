@@ -1206,7 +1206,7 @@ export default function WorkspacePage() {
             return (
               <div className="shrink-0 px-3 pb-2 bg-[var(--color-layer-1)]">
                 <div className="max-w-4xl mx-auto">
-                  <AskUserWidget questions={pendingQuestions} />
+                  <AskUserWidget questions={pendingQuestions} onSendMessage={sendMessage} />
                 </div>
               </div>
             );
