@@ -2402,13 +2402,22 @@ def _default_provision_config() -> dict[str, Any]:
     }
 
 
+_provisioning_in_flight: set[int] = set()
+
+
 async def _provision_workspace_sandbox(workspace_id: int) -> None:
     """Background task: provision a sandbox and attach it to the workspace.
 
-    Idempotent: skips if the row already has a sandbox_id.
+    Idempotent: skips if the row already has a sandbox_id, and coalesces
+    concurrent calls for the same workspace so stranded rows (old cloud
+    workspaces with NULL sandbox_id) get re-provisioned on demand without
+    racing multiple provision calls.
     """
     from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
     import logging
+    if workspace_id in _provisioning_in_flight:
+        return
+    _provisioning_in_flight.add(workspace_id)
     try:
         async with get_db() as conn:
             row = await (await conn.execute(
@@ -2430,6 +2439,8 @@ async def _provision_workspace_sandbox(workspace_id: int) -> None:
             )
     except Exception as e:
         logging.warning("Background provision failed for workspace %s: %s", workspace_id, e)
+    finally:
+        _provisioning_in_flight.discard(workspace_id)
 
 
 @router.post("/workspaces")
@@ -2475,6 +2486,8 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
         if not row:
             raise HTTPException(404, "workspace not found")
         agents = await _agents_in_workspace(conn, workspace_id)
+    if row["type"] == "cloud" and not row.get("sdk_sandbox_id"):
+        asyncio.create_task(_provision_workspace_sandbox(workspace_id))
     return _serialize_workspace(row, agents=agents)
 
 
