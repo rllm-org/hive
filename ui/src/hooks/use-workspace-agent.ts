@@ -224,7 +224,7 @@ function processSseBlock(
     } else if (su === "tool_call" || su === "execute_tool_started") {
       const name = extractToolName(classified.data);
       const title = (classified.data.title as string) ?? "";
-      const input = classified.data.rawInput ?? undefined;
+      const input = classified.data.rawInput ?? classified.data.input ?? classified.data.arguments ?? undefined;
       const tcId = extractToolCallId(classified.data) ?? `tc-${Date.now()}`;
       setMessages((prev) => {
         const last = prev[prev.length - 1];

@@ -1147,11 +1147,19 @@ export default function WorkspacePage() {
                           }
                           // ask_user tool — render interactive widget
                           if (part.type === "tool" && part.name.endsWith("ask_user") && part.input) {
-                            const inp = part.input as Record<string, unknown>;
+                            // Input may be object or JSON string
+                            let inp: Record<string, unknown>;
+                            if (typeof part.input === "string") {
+                              try { inp = JSON.parse(part.input); } catch { inp = {}; }
+                            } else {
+                              inp = part.input as Record<string, unknown>;
+                            }
+                            // MCP tool arguments may be nested under "arguments" or "input"
+                            const args = (inp.arguments ?? inp.input ?? inp) as Record<string, unknown>;
                             const askData: AskUserData = {
-                              question: (inp.question as string) ?? "",
-                              options: inp.options as string[] | undefined,
-                              mode: (inp.mode as AskUserData["mode"]) ?? "select",
+                              question: (args.question as string) ?? "",
+                              options: args.options as string[] | undefined,
+                              mode: (args.mode as AskUserData["mode"]) ?? "select",
                               answered: part.status === "done",
                               answer: part.output ? String(part.output) : undefined,
                             };
