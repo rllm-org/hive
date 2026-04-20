@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect, KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { AskUserWidget, type AskUserData } from "@/components/chat/ask-user-widget";
 
 const MOCK_MESSAGES: Array<{ role: string; content: string; streaming?: boolean; parts?: Array<{ type: string; content?: string; name?: string; status?: string; title?: string; input?: unknown; output?: unknown }> }> = [
   { role: "user", content: "Can you help me build a REST API?" },
@@ -33,6 +34,22 @@ const MOCK_MESSAGES: Array<{ role: string; content: string; streaming?: boolean;
     ],
   },
   { role: "user", content: "Sounds good, go ahead" },
+  {
+    role: "assistant",
+    content: "",
+    parts: [
+      { type: "text", content: "I have a few questions before we proceed:" },
+      {
+        type: "tool", name: "mcp__hive__ask_user", status: "pending",
+        title: "Asking user",
+        input: {
+          question: "Pick a snack for a coding break:",
+          options: ["Chips", "Fruit", "Cookies", "No snack", "Other..."],
+          mode: "select",
+        },
+      },
+    ],
+  },
 ];
 
 const VALID_COMMAND_NAMES = new Set(["hive", "commit", "debug", "compact", "review-pr", "simplify", "help"]);
@@ -167,15 +184,17 @@ function MessageBubble({ msg }: { msg: typeof MOCK_MESSAGES[number] }) {
       <div className="w-full pl-4 space-y-1.5">
         {msg.parts.map((part, i) => {
           const isActiveThinking = part.type === "thinking" && !!msg.streaming && i === (msg.parts?.length ?? 0) - 1;
-          return part.type === "text" ? (
-            <div key={i} className="prose prose-sm max-w-none text-[var(--color-text)]">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.content ?? ""}</ReactMarkdown>
-            </div>
-          ) : part.type === "thinking" ? (
-            <PreviewThinkingBlock key={i} content={part.content ?? ""} active={isActiveThinking} />
-          ) : (
-            <ToolCard key={i} part={part} />
-          );
+          if (part.type === "text") {
+            return (
+              <div key={i} className="prose prose-sm max-w-none text-[var(--color-text)]">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.content ?? ""}</ReactMarkdown>
+              </div>
+            );
+          }
+          if (part.type === "thinking") {
+            return <PreviewThinkingBlock key={i} content={part.content ?? ""} active={isActiveThinking} />;
+          }
+          return <ToolCard key={i} part={part} />;
         })}
       </div>
     );
@@ -405,6 +424,33 @@ export default function ChatPreview() {
           <div ref={spacerRef} />
         </div>
       </div>
+      {/* Pending ask_user widget */}
+      {(() => {
+        const pendingQuestions: AskUserData[] = [];
+        for (const msg of messages) {
+          if (msg.parts) {
+            for (const part of msg.parts) {
+              if (part.type === "tool" && part.name?.endsWith("ask_user") && part.status === "pending" && part.input) {
+                const inp = part.input as Record<string, unknown>;
+                const args = (inp.arguments ?? inp.input ?? inp) as Record<string, unknown>;
+                pendingQuestions.push({
+                  question: (args.question as string) ?? "",
+                  options: args.options as string[] | undefined,
+                  mode: (args.mode as AskUserData["mode"]) ?? "select",
+                });
+              }
+            }
+          }
+        }
+        if (pendingQuestions.length === 0) return null;
+        return (
+          <div className="shrink-0 px-3 pb-2">
+            <div className="max-w-4xl mx-auto">
+              <AskUserWidget questions={pendingQuestions} />
+            </div>
+          </div>
+        );
+      })()}
       <div className="shrink-0 px-3 pb-5 pt-2">
         <div className="max-w-4xl mx-auto relative">
           {showCommands && filteredCommands.length > 0 && (

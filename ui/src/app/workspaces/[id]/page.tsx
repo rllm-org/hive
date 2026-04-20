@@ -1145,26 +1145,6 @@ export default function WorkspacePage() {
                           if (part.type === "thinking") {
                             return <ThinkingBlock key={pi} content={part.content} active={!!msg.streaming && isLastPart} />;
                           }
-                          // ask_user tool — render interactive widget
-                          if (part.type === "tool" && part.name.endsWith("ask_user") && part.input) {
-                            // Input may be object or JSON string
-                            let inp: Record<string, unknown>;
-                            if (typeof part.input === "string") {
-                              try { inp = JSON.parse(part.input); } catch { inp = {}; }
-                            } else {
-                              inp = part.input as Record<string, unknown>;
-                            }
-                            // MCP tool arguments may be nested under "arguments" or "input"
-                            const args = (inp.arguments ?? inp.input ?? inp) as Record<string, unknown>;
-                            const askData: AskUserData = {
-                              question: (args.question as string) ?? "",
-                              options: args.options as string[] | undefined,
-                              mode: (args.mode as AskUserData["mode"]) ?? "select",
-                              answered: part.status === "done",
-                              answer: part.output ? String(part.output) : undefined,
-                            };
-                            return <AskUserWidget key={pi} questions={[askData]} />;
-                          }
                           return <ToolCallCard key={pi} part={part} active={!!msg.streaming && isLastPart} />;
                         })}
                         {msg.streaming && msg.parts[msg.parts.length - 1]?.type === "text" && (
@@ -1196,6 +1176,39 @@ export default function WorkspacePage() {
             <div ref={spacerRef} />
             </div>
           </div>
+
+          {/* Pending ask_user widget — above the input */}
+          {(() => {
+            const pendingQuestions: AskUserData[] = [];
+            for (const msg of messages) {
+              if (msg.parts) {
+                for (const part of msg.parts) {
+                  if (part.type === "tool" && part.name.endsWith("ask_user") && part.status === "pending" && part.input) {
+                    let inp: Record<string, unknown>;
+                    if (typeof part.input === "string") {
+                      try { inp = JSON.parse(part.input); } catch { inp = {}; }
+                    } else {
+                      inp = part.input as Record<string, unknown>;
+                    }
+                    const args = (inp.arguments ?? inp.input ?? inp) as Record<string, unknown>;
+                    pendingQuestions.push({
+                      question: (args.question as string) ?? "",
+                      options: args.options as string[] | undefined,
+                      mode: (args.mode as AskUserData["mode"]) ?? "select",
+                    });
+                  }
+                }
+              }
+            }
+            if (pendingQuestions.length === 0) return null;
+            return (
+              <div className="shrink-0 px-3 pb-2 bg-[var(--color-layer-1)]">
+                <div className="max-w-4xl mx-auto">
+                  <AskUserWidget questions={pendingQuestions} />
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Input */}
           <div className="shrink-0 px-3 pb-5 pt-2 bg-[var(--color-layer-1)]">
