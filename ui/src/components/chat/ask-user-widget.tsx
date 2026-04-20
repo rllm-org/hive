@@ -34,6 +34,7 @@ function SingleQuestion({
   const [selected, setSelected] = useState<string | null>(null);
   const [multiSelected, setMultiSelected] = useState<Set<string>>(new Set());
   const [textInput, setTextInput] = useState("");
+  const [otherText, setOtherText] = useState("");
   const [answered, setAnswered] = useState(data.answered ?? false);
   const [displayAnswer, setDisplayAnswer] = useState<string | string[] | null>(
     data.answer ?? null
@@ -176,33 +177,56 @@ function SingleQuestion({
   }
 
   // Select mode (default) — lettered list like Cursor
+  const isOther = (opt: string) => /^other/i.test(opt.replace(/[^a-zA-Z]/g, ""));
+
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
       <div className="space-y-0.5">
         {(data.options ?? []).map((opt, i) => {
           const isSelected = selected === opt;
+          const isOtherOpt = isOther(opt);
           return (
-            <button
-              key={opt}
-              onClick={() => setSelected(opt)}
-              disabled={submitting}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left transition-colors ${
-                isSelected
-                  ? "bg-[var(--color-accent-50)] border border-[var(--color-accent)]"
-                  : "hover:bg-[var(--color-layer-1)] border border-transparent"
-              }`}
-              style={{ borderRadius: 8 }}
-            >
-              <span className={`inline-flex items-center justify-center w-6 h-6 text-xs font-medium shrink-0 ${
-                isSelected
-                  ? "bg-[var(--color-accent)] text-white"
-                  : "bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]"
-              }`} style={{ borderRadius: 6 }}>
-                {LETTERS[i] ?? i + 1}
-              </span>
-              <span className="text-[var(--color-text)]">{opt}</span>
-            </button>
+            <div key={opt}>
+              <button
+                onClick={() => { setSelected(opt); if (isOtherOpt) setOtherText(""); }}
+                disabled={submitting}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left transition-colors ${
+                  isSelected
+                    ? "bg-[var(--color-accent-50)] border border-[var(--color-accent)]"
+                    : "hover:bg-[var(--color-layer-1)] border border-transparent"
+                }`}
+                style={{ borderRadius: isSelected && isOtherOpt ? "8px 8px 0 0" : 8 }}
+              >
+                <span className={`inline-flex items-center justify-center w-6 h-6 text-xs font-medium shrink-0 ${
+                  isSelected
+                    ? "bg-[var(--color-accent)] text-white"
+                    : "bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]"
+                }`} style={{ borderRadius: 6 }}>
+                  {LETTERS[i] ?? i + 1}
+                </span>
+                <span className="text-[var(--color-text)]">{opt}</span>
+              </button>
+              {isSelected && isOtherOpt && (
+                <div className="px-3 pb-2.5 bg-[var(--color-accent-50)] border border-t-0 border-[var(--color-accent)]" style={{ borderRadius: "0 0 8px 8px" }}>
+                  <input
+                    type="text"
+                    value={otherText}
+                    onChange={(e) => setOtherText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && otherText.trim()) {
+                        e.preventDefault();
+                        submit(otherText.trim());
+                      }
+                    }}
+                    placeholder="Type your answer…"
+                    autoFocus
+                    className="w-full px-2.5 py-1.5 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)]"
+                    style={{ outline: "none", boxShadow: "none", borderRadius: 6 }}
+                  />
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
