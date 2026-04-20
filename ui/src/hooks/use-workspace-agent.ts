@@ -225,7 +225,6 @@ function processSseBlock(
       const title = (classified.data.title as string) ?? "";
       const input = classified.data.rawInput ?? classified.data.input ?? classified.data.arguments ?? undefined;
       const tcId = extractToolCallId(classified.data) ?? `tc-${Date.now()}`;
-      if (name.includes("ask_user")) console.log("[SSE] ask_user tool_call", { name, title, input, tcId, raw: classified.data });
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?.role === "assistant" && last.streaming) {
@@ -242,15 +241,15 @@ function processSseBlock(
     } else if (su === "tool_call_update" || su === "execute_tool_completed") {
       const tcId = extractToolCallId(classified.data) ?? "";
       const title = (classified.data.title as string) ?? "";
-      if (JSON.stringify(classified.data).includes("ask_user")) console.log("[SSE] ask_user tool_result", { tcId, title, raw: classified.data });
       const output = classified.data.rawOutput ?? extractToolResponse(classified.data) ?? undefined;
+      const rawInput = classified.data.rawInput ?? undefined;
       const status = (classified.data.status as string) === "failed" ? "error" as const : "done" as const;
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?.role === "assistant" && last.streaming && last.parts) {
           const parts = last.parts.map((p) =>
             p.type === "tool" && (p.id === tcId || (tcId === "" && p.status === "pending"))
-              ? { ...p, status, ...(title ? { title } : {}), ...(output !== undefined ? { output } : {}) }
+              ? { ...p, status, ...(title ? { title } : {}), ...(output !== undefined ? { output } : {}), ...(rawInput !== undefined ? { input: rawInput } : {}) }
               : p
           );
           return [...prev.slice(0, -1), { ...last, parts }];

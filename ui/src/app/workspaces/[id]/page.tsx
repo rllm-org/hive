@@ -1177,13 +1177,13 @@ export default function WorkspacePage() {
             </div>
           </div>
 
-          {/* Pending ask_user widget — above the input */}
+          {/* ask_user widget — above the input */}
           {(() => {
             const pendingQuestions: AskUserData[] = [];
             for (const msg of messages) {
               if (msg.parts) {
                 for (const part of msg.parts) {
-                  if (part.type === "tool" && part.name.endsWith("ask_user") && part.status === "pending" && part.input) {
+                  if (part.type === "tool" && part.name.endsWith("ask_user") && part.input) {
                     let inp: Record<string, unknown>;
                     if (typeof part.input === "string") {
                       try { inp = JSON.parse(part.input); } catch { inp = {}; }
@@ -1191,8 +1191,10 @@ export default function WorkspacePage() {
                       inp = part.input as Record<string, unknown>;
                     }
                     const args = (inp.arguments ?? inp.input ?? inp) as Record<string, unknown>;
+                    const question = (args.question as string) ?? "";
+                    if (!question) continue; // skip if no question data yet
                     pendingQuestions.push({
-                      question: (args.question as string) ?? "",
+                      question,
                       options: args.options as string[] | undefined,
                       mode: (args.mode as AskUserData["mode"]) ?? "select",
                     });
