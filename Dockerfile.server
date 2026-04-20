@@ -1,11 +1,25 @@
 FROM python:3.11-slim
-RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client curl ca-certificates gnupg && \
-    mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
-    apt-get update && apt-get install -y --no-install-recommends nodejs && \
-    npm install -g @anthropic-ai/claude-code && \
-    rm -rf /var/lib/apt/lists/*
+# Base OS deps + Node.js 22 from NodeSource.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        git openssh-client curl ca-certificates gnupg; \
+    mkdir -p /etc/apt/keyrings; \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+        | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends nodejs; \
+    rm -rf /var/lib/apt/lists/*; \
+    node --version; \
+    npm --version
+# Claude Code CLI — required by hive.server.claude_oauth (PTY broker for user OAuth).
+# The final `command -v claude` step fails the build if the install didn't land.
+RUN set -eux; \
+    npm install -g --loglevel=info @anthropic-ai/claude-code; \
+    command -v claude; \
+    claude --version
 WORKDIR /app
 COPY pyproject.toml .
 COPY src/ src/
