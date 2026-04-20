@@ -33,6 +33,7 @@ from .channels import _ensure_default_channels
 
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 HIVE_SERVER_URL = os.environ.get("HIVE_SERVER", "")
+print(f"[STARTUP] HIVE_SERVER={repr(HIVE_SERVER_URL)}", flush=True)
 JWT_SECRET = os.environ.get("JWT_SECRET", "hive-dev-secret-change-me")
 
 # Derive a Fernet key from JWT_SECRET for encrypting GitHub tokens
@@ -2486,6 +2487,7 @@ async def _workspace_sdk_connect(
         model=body.get("model", "claude-sonnet-4-6"),
         cwd=body.get("cwd", "/home/daytona"),
     )
+    print(f"[DEBUG] HIVE_SERVER_URL={repr(HIVE_SERVER_URL)}", flush=True)
     if HIVE_SERVER_URL:
         mcp_url = f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"
         kw["mcp_servers"] = {
@@ -2494,11 +2496,9 @@ async def _workspace_sdk_connect(
                 "url": mcp_url,
             }
         }
-        import logging
-        logging.getLogger("hive").info("[workspace] MCP config: url=%s", mcp_url)
+        print(f"[DEBUG] MCP config added: url={mcp_url}", flush=True)
     else:
-        import logging
-        logging.getLogger("hive").warning("[workspace] HIVE_SERVER not set — MCP tools disabled")
+        print("[DEBUG] HIVE_SERVER not set — MCP tools disabled", flush=True)
     upstream = await client.create_session(sandbox_id, **kw)
     sid = upstream.get("session_id")
     if not sid:
