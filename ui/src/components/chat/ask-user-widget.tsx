@@ -186,7 +186,7 @@ function SingleQuestion({
           return (
             <button
               key={opt}
-              onClick={() => setSelected(opt)}
+              onClick={() => submit(opt)}
               disabled={submitting}
               className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left transition-colors ${
                 isSelected
@@ -235,26 +235,6 @@ function SingleQuestion({
             />
           </div>
         )}
-      </div>
-      <div className="flex items-center justify-end gap-3 pt-1">
-        <button
-          onClick={() => submit("skip")}
-          disabled={submitting}
-          className="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
-        >
-          Skip
-        </button>
-        <button
-          onClick={handleSubmit}
-          disabled={submitting || (!selected && !otherText.trim())}
-          className="px-3 py-1 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-40 transition-colors flex items-center gap-1.5"
-          style={{ borderRadius: 6 }}
-        >
-          Continue
-          <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M2 10L10 2M10 2H4M10 2v6" />
-          </svg>
-        </button>
       </div>
     </div>
   );
