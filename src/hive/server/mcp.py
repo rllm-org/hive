@@ -76,6 +76,25 @@ TOOLS = [
 # MCP protocol handler
 # ---------------------------------------------------------------------------
 
+@router.get("")
+async def mcp_sse_endpoint(request: Request):
+    """Handle GET requests — Streamable HTTP transport uses GET for SSE stream."""
+    log.info("[mcp] GET request from %s, headers=%s", request.client, dict(request.headers))
+    # Return empty SSE stream for now — required by Streamable HTTP transport
+    from fastapi.responses import StreamingResponse
+    async def empty_stream():
+        yield ": heartbeat\n\n"
+    return StreamingResponse(empty_stream(), media_type="text/event-stream")
+
+
+@router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+async def mcp_catch_all(path: str, request: Request):
+    """Catch-all for debugging — log any unexpected sub-path requests."""
+    body = await request.body()
+    log.warning("[mcp] unexpected %s /api/mcp/%s body=%s headers=%s", request.method, path, body[:500], dict(request.headers))
+    return JSONResponse({"error": f"unknown path: /api/mcp/{path}"}, status_code=404)
+
+
 @router.post("")
 async def mcp_endpoint(request: Request):
     """MCP JSON-RPC endpoint. Handles initialize, tools/list, tools/call."""
