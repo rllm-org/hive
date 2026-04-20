@@ -52,7 +52,7 @@ function SingleQuestion({
       : String(displayAnswer);
     return (
       <div className="space-y-1.5">
-        <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
+        <p className="text-sm text-[var(--color-text)]">{data.question}</p>
         <div className="flex items-center gap-2 px-3 py-2 bg-[var(--color-accent-50)] border border-[var(--color-accent)] text-sm text-[var(--color-text)]" style={{ borderRadius: 8 }}>
           {display}
         </div>
@@ -86,7 +86,7 @@ function SingleQuestion({
   if (data.mode === "confirm") {
     return (
       <div className="space-y-1.5">
-        <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
+        <p className="text-sm text-[var(--color-text)]">{data.question}</p>
         <div className="space-y-0.5">
           <OptionButton label="Yes" index={0} isSelected={false} onClick={() => submit("yes")} />
           <OptionButton label="No" index={1} isSelected={false} onClick={() => submit("no")} />
@@ -99,7 +99,7 @@ function SingleQuestion({
   if (data.mode === "text" || (!data.options?.length)) {
     return (
       <div className="space-y-1.5">
-        <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
+        <p className="text-sm text-[var(--color-text)]">{data.question}</p>
         <div
           className="flex items-center gap-2.5 px-2.5 py-1.5 text-sm border border-transparent focus-within:bg-[var(--color-accent-50)] focus-within:border-[var(--color-accent)]"
           style={{ borderRadius: 8 }}
@@ -125,7 +125,7 @@ function SingleQuestion({
   if (data.mode === "multi_select" && data.options) {
     return (
       <div className="space-y-1.5">
-        <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
+        <p className="text-sm text-[var(--color-text)]">{data.question}</p>
         <div className="space-y-0.5">
           {data.options.map((opt, i) => (
             <OptionButton
@@ -163,7 +163,7 @@ function SingleQuestion({
 
   return (
     <div className="space-y-1.5">
-      <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
+      <p className="text-sm text-[var(--color-text)]">{data.question}</p>
       <div className="space-y-0.5">
         {regularOptions.map((opt, i) => (
           <OptionButton key={opt} label={opt} index={i} isSelected={false} onClick={() => submit(opt)} />
