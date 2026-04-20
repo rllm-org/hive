@@ -2487,12 +2487,16 @@ async def _workspace_sdk_connect(
         cwd=body.get("cwd", "/home/daytona"),
     )
     if HIVE_SERVER_URL:
+        mcp_url = f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"
         kw["mcp_servers"] = {
             "hive": {
                 "type": "http",
-                "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp",
+                "url": mcp_url,
             }
         }
+        log.info("[workspace] MCP config: url=%s", mcp_url)
+    else:
+        log.warning("[workspace] HIVE_SERVER not set — MCP tools disabled")
     upstream = await client.create_session(sandbox_id, **kw)
     sid = upstream.get("session_id")
     if not sid:
