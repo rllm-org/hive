@@ -899,6 +899,72 @@ async def auth_github_disconnect(user: dict = Depends(require_user)):
     return {"status": "disconnected"}
 
 
+@router.post("/auth/claude/start")
+async def auth_claude_start(user: dict = Depends(require_user)):
+    from . import claude_oauth
+    user_id = int(user["sub"])
+    try:
+        sid, url = await asyncio.to_thread(claude_oauth.start_session, user_id)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    return {"auth_session_id": sid, "auth_url": url}
+
+
+@router.post("/auth/claude/code")
+async def auth_claude_code(body: dict[str, Any], user: dict = Depends(require_user)):
+    from . import claude_oauth
+    user_id = int(user["sub"])
+    sid = (body.get("auth_session_id") or "").strip()
+    code = (body.get("code") or "").strip()
+    if not sid or not code:
+        raise HTTPException(400, "auth_session_id and code required")
+    try:
+        token = await asyncio.to_thread(claude_oauth.submit_code, sid, user_id, code)
+    except LookupError:
+        raise HTTPException(404, "auth session not found or expired")
+    except PermissionError:
+        raise HTTPException(403, "auth session does not belong to this user")
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    token_encrypted = _encrypt(token)
+    created_at = now()
+    expires_at = created_at + timedelta(days=350)
+    async with get_db() as conn:
+        await conn.execute(
+            "INSERT INTO claude_oauth_tokens (user_id, token_encrypted, created_at, expires_at) "
+            "VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (user_id) DO UPDATE SET token_encrypted = EXCLUDED.token_encrypted, "
+            "created_at = EXCLUDED.created_at, expires_at = EXCLUDED.expires_at",
+            (user_id, token_encrypted, created_at, expires_at),
+        )
+    return {"status": "connected", "connected_at": created_at.isoformat(), "expires_at": expires_at.isoformat()}
+
+
+@router.get("/auth/claude/status")
+async def auth_claude_status(user: dict = Depends(require_user)):
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT created_at, expires_at FROM claude_oauth_tokens WHERE user_id = %s",
+            (user_id,),
+        )).fetchone()
+    if not row:
+        return {"connected": False}
+    return {
+        "connected": True,
+        "connected_at": row["created_at"].isoformat() if row["created_at"] else None,
+        "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
+    }
+
+
+@router.delete("/auth/claude")
+async def auth_claude_disconnect(user: dict = Depends(require_user)):
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        await conn.execute("DELETE FROM claude_oauth_tokens WHERE user_id = %s", (user_id,))
+    return {"status": "disconnected"}
+
+
 @router.get("/auth/github/repos")
 async def auth_github_repos(user: dict = Depends(require_user), page: int = 1, per_page: int = 30):
     user_id = int(user["sub"])
@@ -2443,6 +2509,17 @@ async def _provision_workspace_sandbox(workspace_id: int) -> None:
         _provisioning_in_flight.discard(workspace_id)
 
 
+async def _get_user_claude_token(user_id: int) -> str | None:
+    async with get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT token_encrypted FROM claude_oauth_tokens WHERE user_id = %s",
+            (user_id,),
+        )).fetchone()
+    if not row:
+        return None
+    return _decrypt(row["token_encrypted"])
+
+
 @router.post("/workspaces")
 async def create_workspace(body: dict[str, Any], user: dict = Depends(require_user)):
     user_id = int(user["sub"])
@@ -2454,6 +2531,14 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
         raise HTTPException(400, "type must be 'local', 'cloud', or 'persistent'")
     if ws_type == "persistent":
         raise HTTPException(400, "persistent workspaces are admin-only")
+
+    if ws_type == "cloud" and not await _get_user_claude_token(user_id):
+        # No Claude creds yet — front-end shows the connect modal and retries.
+        return JSONResponse(
+            {"auth_required": True, "reason": "claude_oauth"},
+            status_code=402,
+        )
+
     async with get_db() as conn:
         existing = await (await conn.execute(
             "SELECT 1 FROM workspaces WHERE user_id = %s AND name = %s", (user_id, name)
@@ -2492,7 +2577,7 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
 
 
 async def _workspace_sdk_connect(
-    workspace_id: int, agent_id: str, body: dict[str, Any]
+    workspace_id: int, agent_id: str, body: dict[str, Any], user_id: int,
 ) -> tuple[str, str]:
     """Start a per-session supervisor on the workspace's sandbox.
 
@@ -2503,6 +2588,7 @@ async def _workspace_sdk_connect(
 
     client = get_client()
     base = AGENT_SDK_BASE_URL or ""
+    user_oauth_token = await _get_user_claude_token(user_id)
 
     async with get_db() as conn:
         wrow = await (await conn.execute(
@@ -2536,6 +2622,8 @@ async def _workspace_sdk_connect(
         model=body.get("model", "claude-sonnet-4-6"),
         cwd=body.get("cwd", "/home/daytona"),
     )
+    if user_oauth_token:
+        kw["oauth_token"] = user_oauth_token
     print(f"[DEBUG] HIVE_SERVER_URL={repr(HIVE_SERVER_URL)}", flush=True)
     if HIVE_SERVER_URL:
         mcp_url = f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"
@@ -2600,7 +2688,7 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
     sdk_base_url = None
     if ws_type == "cloud":
         try:
-            sdk_session_id, sdk_base_url = await _workspace_sdk_connect(workspace_id, agent_id, body)
+            sdk_session_id, sdk_base_url = await _workspace_sdk_connect(workspace_id, agent_id, body, user_id)
             async with get_db() as conn:
                 await conn.execute(
                     "UPDATE agents SET sdk_session_id = %s, sdk_base_url = %s WHERE id = %s",
@@ -2639,7 +2727,7 @@ async def connect_workspace_agent(workspace_id: int, agent_id: str, body: dict[s
                 "sdk_session_id": row["sdk_session_id"],
                 "sdk_base_url": row["sdk_base_url"] or AGENT_SDK_BASE_URL,
             }
-    sdk_session_id, sdk_base_url = await _workspace_sdk_connect(workspace_id, agent_id, body)
+    sdk_session_id, sdk_base_url = await _workspace_sdk_connect(workspace_id, agent_id, body, user_id)
     async with get_db() as conn:
         await conn.execute(
             "UPDATE agents SET sdk_session_id = %s, sdk_base_url = %s WHERE id = %s",
