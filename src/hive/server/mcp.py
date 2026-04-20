@@ -78,15 +78,21 @@ TOOLS = [
 
 @router.get("")
 async def mcp_sse_endpoint(request: Request):
-    """Handle GET requests — Streamable HTTP transport uses GET for SSE stream."""
-    log.info("[mcp] GET request from %s", request.client)
+    """Handle GET requests — SSE transport needs an 'endpoint' event to know where to POST."""
+    log.info("[mcp] GET SSE connect from %s", request.client)
     from fastapi.responses import StreamingResponse
-    async def keep_alive():
-        """Keep the SSE stream open with periodic heartbeats."""
+    # Build the POST endpoint URL from the request
+    scheme = request.headers.get("x-forwarded-proto", "https")
+    host = request.headers.get("host", "localhost")
+    endpoint_url = f"{scheme}://{host}/api/mcp"
+    async def sse_stream():
+        # Send the endpoint event — SSE transport needs this to know where to POST
+        yield f"event: endpoint\ndata: {endpoint_url}\n\n"
+        # Keep alive with heartbeats
         while True:
             yield ": heartbeat\n\n"
             await asyncio.sleep(15)
-    return StreamingResponse(keep_alive(), media_type="text/event-stream")
+    return StreamingResponse(sse_stream(), media_type="text/event-stream")
 
 
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
