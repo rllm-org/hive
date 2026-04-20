@@ -736,6 +736,7 @@ export default function WorkspacePage() {
     }
   }, [readFile]);
   const [input, setInput] = useState("");
+  const [answeredToolIds, setAnsweredToolIds] = useState<Set<string>>(new Set());
   // Clear input and scroll to bottom of content when switching agents
   useEffect(() => {
     setInput("");
@@ -1179,11 +1180,11 @@ export default function WorkspacePage() {
 
           {/* ask_user widget — above the input */}
           {(() => {
-            const pendingQuestions: AskUserData[] = [];
+            const pendingQuestions: { data: AskUserData; id: string }[] = [];
             for (const msg of messages) {
               if (msg.parts) {
                 for (const part of msg.parts) {
-                  if (part.type === "tool" && part.name.endsWith("ask_user") && part.input) {
+                  if (part.type === "tool" && part.name.endsWith("ask_user") && part.input && !answeredToolIds.has(part.id)) {
                     let inp: Record<string, unknown>;
                     if (typeof part.input === "string") {
                       try { inp = JSON.parse(part.input); } catch { inp = {}; }
@@ -1192,11 +1193,14 @@ export default function WorkspacePage() {
                     }
                     const args = (inp.arguments ?? inp.input ?? inp) as Record<string, unknown>;
                     const question = (args.question as string) ?? "";
-                    if (!question) continue; // skip if no question data yet
+                    if (!question) continue;
                     pendingQuestions.push({
-                      question,
-                      options: args.options as string[] | undefined,
-                      mode: (args.mode as AskUserData["mode"]) ?? "select",
+                      id: part.id,
+                      data: {
+                        question,
+                        options: args.options as string[] | undefined,
+                        mode: (args.mode as AskUserData["mode"]) ?? "select",
+                      },
                     });
                   }
                 }
@@ -1206,7 +1210,18 @@ export default function WorkspacePage() {
             return (
               <div className="shrink-0 px-3 pb-2 bg-[var(--color-layer-1)]">
                 <div className="max-w-4xl mx-auto">
-                  <AskUserWidget questions={pendingQuestions} onSendMessage={sendMessage} />
+                  <AskUserWidget
+                    questions={pendingQuestions.map((q) => q.data)}
+                    onSendMessage={(text) => {
+                      // Mark all current questions as answered
+                      setAnsweredToolIds((prev) => {
+                        const next = new Set(prev);
+                        for (const q of pendingQuestions) next.add(q.id);
+                        return next;
+                      });
+                      sendMessage(text);
+                    }}
+                  />
                 </div>
               </div>
             );
