@@ -76,7 +76,7 @@ function SingleQuestion({
   // Confirm mode
   if (data.mode === "confirm") {
     return (
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
         <div className="flex items-center gap-2">
           <button
@@ -103,7 +103,7 @@ function SingleQuestion({
   // Text mode
   if (data.mode === "text" || (!data.options?.length && data.mode !== "multi_select")) {
     return (
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
         <div className="flex items-end gap-2">
           <input
@@ -136,7 +136,7 @@ function SingleQuestion({
   // Multi-select mode
   if (data.mode === "multi_select" && data.options) {
     return (
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
         <div className="space-y-0.5">
           {data.options.map((opt, i) => {
@@ -153,14 +153,14 @@ function SingleQuestion({
                   });
                 }}
                 disabled={submitting}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left transition-colors ${
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left transition-colors ${
                   isSelected
                     ? "bg-[var(--color-accent-50)] border border-[var(--color-accent)]"
                     : "hover:bg-[var(--color-layer-1)] border border-transparent"
                 }`}
                 style={{ borderRadius: 8 }}
               >
-                <span className={`inline-flex items-center justify-center w-6 h-6 text-xs font-medium shrink-0 ${
+                <span className={`inline-flex items-center justify-center w-5 h-5 text-xs font-medium shrink-0 ${
                   isSelected
                     ? "bg-[var(--color-accent)] text-white"
                     : "bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]"
@@ -180,7 +180,7 @@ function SingleQuestion({
   const isOther = (opt: string) => /^other/i.test(opt.replace(/[^a-zA-Z]/g, ""));
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
       <div className="space-y-0.5">
         {(data.options ?? []).map((opt, i) => {
@@ -191,14 +191,14 @@ function SingleQuestion({
               <button
                 onClick={() => { setSelected(opt); if (isOtherOpt) setOtherText(""); }}
                 disabled={submitting}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left transition-colors ${
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left transition-colors ${
                   isSelected
                     ? "bg-[var(--color-accent-50)] border border-[var(--color-accent)]"
                     : "hover:bg-[var(--color-layer-1)] border border-transparent"
                 }`}
                 style={{ borderRadius: isSelected && isOtherOpt ? "8px 8px 0 0" : 8 }}
               >
-                <span className={`inline-flex items-center justify-center w-6 h-6 text-xs font-medium shrink-0 ${
+                <span className={`inline-flex items-center justify-center w-5 h-5 text-xs font-medium shrink-0 ${
                   isSelected
                     ? "bg-[var(--color-accent)] text-white"
                     : "bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]"
@@ -208,7 +208,7 @@ function SingleQuestion({
                 <span className="text-[var(--color-text)]">{opt}</span>
               </button>
               {isSelected && isOtherOpt && (
-                <div className="px-3 pb-2.5 bg-[var(--color-accent-50)] border border-t-0 border-[var(--color-accent)]" style={{ borderRadius: "0 0 8px 8px" }}>
+                <div className="px-2.5 pb-2 bg-[var(--color-accent-50)] border border-t-0 border-[var(--color-accent)]" style={{ borderRadius: "0 0 8px 8px" }}>
                   <input
                     type="text"
                     value={otherText}
@@ -244,7 +244,7 @@ export function AskUserWidget({ questions, onAnswered }: Props) {
   // Single question — no pagination
   if (total === 1) {
     return (
-      <div className="border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4" style={{ borderRadius: 10 }}>
+      <div className="border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-3" style={{ borderRadius: 10 }}>
         <SingleQuestion
           data={current}
           onAnswered={(answer) => onAnswered?.(0, answer)}
@@ -255,7 +255,7 @@ export function AskUserWidget({ questions, onAnswered }: Props) {
 
   // Multiple questions — paginated like Cursor
   return (
-    <div className="border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-4 space-y-4" style={{ borderRadius: 10 }}>
+    <div className="border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-3 space-y-4" style={{ borderRadius: 10 }}>
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider">Questions</span>
         <div className="flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
