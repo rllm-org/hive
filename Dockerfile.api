@@ -2,7 +2,32 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client && rm -rf /var/lib/apt/lists/*
+# Base OS deps + Node.js 22 from NodeSource.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        git openssh-client curl ca-certificates gnupg; \
+    mkdir -p /etc/apt/keyrings; \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+        | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends nodejs; \
+    rm -rf /var/lib/apt/lists/*; \
+    node --version; \
+    npm --version
+
+# Claude Code CLI — required by hive.server.claude_oauth (PTY broker for user OAuth).
+# Symlink to /usr/local/bin/claude so the runtime finds it regardless of npm's
+# prefix dir or Railway's PATH overrides. Final verify fails the build if the
+# CLI isn't installed correctly.
+RUN set -eux; \
+    npm install -g --loglevel=info @anthropic-ai/claude-code; \
+    CLAUDE_BIN="$(command -v claude)"; \
+    echo "installed claude CLI at: ${CLAUDE_BIN}"; \
+    ln -sf "${CLAUDE_BIN}" /usr/local/bin/claude; \
+    /usr/local/bin/claude --version
 
 COPY pyproject.toml .
 COPY src/ src/
