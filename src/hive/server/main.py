@@ -2402,6 +2402,36 @@ def _default_provision_config() -> dict[str, Any]:
     }
 
 
+async def _provision_workspace_sandbox(workspace_id: int) -> None:
+    """Background task: provision a sandbox and attach it to the workspace.
+
+    Idempotent: skips if the row already has a sandbox_id.
+    """
+    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
+    import logging
+    try:
+        async with get_db() as conn:
+            row = await (await conn.execute(
+                "SELECT sdk_sandbox_id FROM workspaces WHERE id = %s",
+                (workspace_id,),
+            )).fetchone()
+        if not row or row.get("sdk_sandbox_id"):
+            return
+        client = get_client()
+        result = await client.provision_sandbox(**_default_provision_config())
+        sandbox_id = result.get("sandbox_id")
+        if not sandbox_id:
+            raise RuntimeError(f"agent-sdk returned no sandbox_id: {result}")
+        async with get_db() as conn:
+            await conn.execute(
+                "UPDATE workspaces SET sdk_sandbox_id = %s, sdk_base_url = %s"
+                " WHERE id = %s AND sdk_sandbox_id IS NULL",
+                (sandbox_id, AGENT_SDK_BASE_URL, workspace_id),
+            )
+    except Exception as e:
+        logging.warning("Background provision failed for workspace %s: %s", workspace_id, e)
+
+
 @router.post("/workspaces")
 async def create_workspace(body: dict[str, Any], user: dict = Depends(require_user)):
     user_id = int(user["sub"])
@@ -2428,25 +2458,7 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
     workspace_id = row["id"]
 
     if ws_type == "cloud":
-        from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
-        try:
-            client = get_client()
-            result = await client.provision_sandbox(**_default_provision_config())
-            sandbox_id = result.get("sandbox_id")
-            if not sandbox_id:
-                raise RuntimeError(f"agent-sdk returned no sandbox_id: {result}")
-        except Exception as e:
-            import logging
-            logging.warning("Failed to provision sandbox for workspace %s: %s", workspace_id, e)
-            async with get_db() as conn:
-                await conn.execute("DELETE FROM workspaces WHERE id = %s", (workspace_id,))
-            raise HTTPException(502, f"failed to provision workspace sandbox: {e}")
-        async with get_db() as conn:
-            await conn.execute(
-                "UPDATE workspaces SET sdk_sandbox_id = %s, sdk_base_url = %s WHERE id = %s",
-                (sandbox_id, AGENT_SDK_BASE_URL, workspace_id),
-            )
-        row = {**dict(row), "sdk_sandbox_id": sandbox_id, "sdk_base_url": AGENT_SDK_BASE_URL}
+        asyncio.create_task(_provision_workspace_sandbox(workspace_id))
 
     return _serialize_workspace(row)
 

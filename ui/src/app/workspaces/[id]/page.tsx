@@ -605,6 +605,14 @@ export default function WorkspacePage() {
     return () => { cancelled = true; };
   }, [workspaceId]);
 
+  const isProvisioning = workspace?.type === "cloud" && !workspace?.sdk_sandbox_id;
+
+  useEffect(() => {
+    if (!isProvisioning) return;
+    const timer = setInterval(() => { refetchWorkspace(); }, 2000);
+    return () => clearInterval(timer);
+  }, [isProvisioning, refetchWorkspace]);
+
   const handleAddAgent = useCallback(async (name?: string) => {
     setAddingAgent(true);
     try {
@@ -944,7 +952,7 @@ export default function WorkspacePage() {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col relative">
       {/* Header */}
       <div className="shrink-0 h-[52px] px-4 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3">
         <button
@@ -1013,6 +1021,16 @@ export default function WorkspacePage() {
             router.push("/me?tab=workspaces");
           }}
         />
+      )}
+
+      {isProvisioning && (
+        <div className="absolute inset-x-0 top-[52px] bottom-0 z-20 flex flex-col items-center justify-center gap-3 bg-[var(--color-bg)]">
+          <div className="w-8 h-8 border-2 border-[var(--color-border)] border-t-[var(--color-accent)] rounded-full animate-spin" />
+          <div className="text-sm text-[var(--color-text-secondary)]">Preparing your workspace sandbox…</div>
+          <div className="text-xs text-[var(--color-text-tertiary)] max-w-xs text-center px-4">
+            Installing dependencies on a fresh cloud sandbox. This usually takes 1–5 minutes.
+          </div>
+        </div>
       )}
 
       {/* Split view */}

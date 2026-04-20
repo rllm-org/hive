@@ -1,5 +1,7 @@
 """Workspace + agent-sdk: shared sandbox per workspace."""
 
+import time
+
 import pytest
 import psycopg
 from unittest.mock import AsyncMock, MagicMock
@@ -8,6 +10,16 @@ from fastapi import HTTPException
 
 from hive.server.db import init_db, get_db_sync
 from tests.conftest import _create_verified_user
+
+
+def _wait_for_provision(client, headers, wid, timeout_s=2.0):
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        ws = client.get(f"/api/workspaces/{wid}", headers=headers).json()
+        if ws.get("sdk_sandbox_id"):
+            return ws
+        time.sleep(0.05)
+    return None
 
 
 @pytest.fixture
@@ -47,6 +59,8 @@ class TestWorkspaceSharedSandbox:
         assert w.status_code == 200
         wid = w.json()["id"]
 
+        ws = _wait_for_provision(client, h, wid)
+        assert ws and ws.get("sdk_sandbox_id") == "sb-ws-shared"
         assert mock_agent_sdk.provision_sandbox.call_count == 1
         assert mock_agent_sdk.create_quick_session.call_count == 0
 
@@ -65,6 +79,7 @@ class TestWorkspaceSharedSandbox:
         token, _ = _create_verified_user(client, "ws-del@x.com", "password123", handle="ws-del-user")
         h = {"Authorization": f"Bearer {token}"}
         wid = client.post("/api/workspaces", json={"name": "ws-del", "type": "cloud"}, headers=h).json()["id"]
+        assert _wait_for_provision(client, h, wid) is not None
         client.post(f"/api/workspaces/{wid}/agents", json={}, headers=h)
         client.post(f"/api/workspaces/{wid}/agents", json={}, headers=h)
 
@@ -73,7 +88,7 @@ class TestWorkspaceSharedSandbox:
         assert mock_agent_sdk.destroy_sandbox.call_count == 1
         assert mock_agent_sdk.destroy_sandbox.call_args[0][0] == "sb-ws-shared"
 
-    def test_create_workspace_rolls_back_on_provision_failure(self, client, mock_agent_sdk):
+    def test_provision_failure_leaves_pending_workspace(self, client, mock_agent_sdk):
         token, _ = _create_verified_user(client, "ws-fail@x.com", "password123", handle="ws-fail-user")
         h = {"Authorization": f"Bearer {token}"}
         mock_agent_sdk.provision_sandbox = AsyncMock(
@@ -81,16 +96,18 @@ class TestWorkspaceSharedSandbox:
         )
 
         r = client.post("/api/workspaces", json={"name": "ws-boom", "type": "cloud"}, headers=h)
-        assert r.status_code == 502
+        assert r.status_code == 200
+        wid = r.json()["id"]
+        assert r.json().get("sdk_sandbox_id") is None
 
-        listing = client.get("/api/workspaces", headers=h).json()
-        names = [w["name"] for w in listing.get("workspaces", listing if isinstance(listing, list) else [])]
-        assert "ws-boom" not in names
+        ws = client.get(f"/api/workspaces/{wid}", headers=h).json()
+        assert ws.get("sdk_sandbox_id") is None
 
     def test_cloud_workspace_agent_has_cloud_type(self, client, mock_agent_sdk):
         token, _ = _create_verified_user(client, "ws-type@x.com", "password123", handle="ws-type-user")
         h = {"Authorization": f"Bearer {token}"}
         wid = client.post("/api/workspaces", json={"name": "ws-type", "type": "cloud"}, headers=h).json()["id"]
+        assert _wait_for_provision(client, h, wid) is not None
         resp = client.post(f"/api/workspaces/{wid}/agents", json={}, headers=h)
         assert resp.status_code == 200
         agent_id = resp.json()["id"]
