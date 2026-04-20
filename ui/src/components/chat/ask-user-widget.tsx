@@ -60,152 +60,114 @@ function SingleQuestion({
     );
   }
 
-  // Confirm mode
+  // Helper: render a single lettered option button
+  const OptionButton = ({ label, index, isSelected, onClick }: { label: string; index: number; isSelected: boolean; onClick: () => void }) => (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left transition-colors ${
+        isSelected
+          ? "bg-[var(--color-accent-50)] border border-[var(--color-accent)]"
+          : "hover:bg-[var(--color-layer-1)] border border-transparent"
+      }`}
+      style={{ borderRadius: 8 }}
+    >
+      <span className={`inline-flex items-center justify-center w-5 h-5 text-xs font-medium shrink-0 ${
+        isSelected
+          ? "bg-[var(--color-accent)] text-white"
+          : "bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]"
+      }`} style={{ borderRadius: 6 }}>
+        {LETTERS[index] ?? index + 1}
+      </span>
+      <span className="text-[var(--color-text)]">{label}</span>
+    </button>
+  );
+
+  // Confirm mode — A) Yes, B) No
   if (data.mode === "confirm") {
     return (
       <div className="space-y-1.5">
         <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => submit("yes")}
-            disabled={submitting}
-            className="px-4 py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
-            style={{ borderRadius: 6 }}
-          >
-            Yes
-          </button>
-          <button
-            onClick={() => submit("no")}
-            disabled={submitting}
-            className="px-4 py-2 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-layer-2)] disabled:opacity-50 transition-colors"
-            style={{ borderRadius: 6 }}
-          >
-            No
-          </button>
+        <div className="space-y-0.5">
+          <OptionButton label="Yes" index={0} isSelected={false} onClick={() => submit("yes")} />
+          <OptionButton label="No" index={1} isSelected={false} onClick={() => submit("no")} />
         </div>
       </div>
     );
   }
 
-  // Text mode
-  if (data.mode === "text" || (!data.options?.length && data.mode !== "multi_select")) {
+  // Text mode — badge + inline text field
+  if (data.mode === "text" || (!data.options?.length)) {
     return (
       <div className="space-y-1.5">
         <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
-        <div className="flex items-end gap-2">
+        <div
+          className="flex items-center gap-2.5 px-2.5 py-1.5 text-sm border border-transparent focus-within:bg-[var(--color-accent-50)] focus-within:border-[var(--color-accent)]"
+          style={{ borderRadius: 8 }}
+        >
+          <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-medium shrink-0 bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]" style={{ borderRadius: 6 }}>
+            A
+          </span>
           <input
             type="text"
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && textInput.trim()) {
-                e.preventDefault();
-                submit(textInput.trim());
-              }
-            }}
+            onKeyDown={(e) => { if (e.key === "Enter" && textInput.trim()) { e.preventDefault(); submit(textInput.trim()); } }}
             placeholder="Type your answer…"
-            className="flex-1 px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)]"
-            style={{ outline: "none", boxShadow: "none", borderRadius: 6 }}
+            className="flex-1 bg-transparent text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
+            style={{ outline: "none", border: "none", padding: 0 }}
           />
-          <button
-            onClick={() => submit(textInput.trim())}
-            disabled={submitting || !textInput.trim()}
-            className="px-4 py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
-            style={{ borderRadius: 6 }}
-          >
-            Send
-          </button>
         </div>
       </div>
     );
   }
 
-  // Multi-select mode
+  // Multi-select mode — lettered badges, multiple selectable, Submit button
   if (data.mode === "multi_select" && data.options) {
     return (
       <div className="space-y-1.5">
         <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
         <div className="space-y-0.5">
-          {data.options.map((opt, i) => {
-            const isSelected = multiSelected.has(opt);
-            return (
-              <button
-                key={opt}
-                onClick={() => {
-                  setMultiSelected((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(opt)) next.delete(opt);
-                    else next.add(opt);
-                    return next;
-                  });
-                }}
-                disabled={submitting}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left transition-colors ${
-                  isSelected
-                    ? "bg-[var(--color-accent-50)] border border-[var(--color-accent)]"
-                    : "hover:bg-[var(--color-layer-1)] border border-transparent"
-                }`}
-                style={{ borderRadius: 8 }}
-              >
-                <span className={`inline-flex items-center justify-center w-5 h-5 text-xs font-medium shrink-0 ${
-                  isSelected
-                    ? "bg-[var(--color-accent)] text-white"
-                    : "bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]"
-                }`} style={{ borderRadius: 6 }}>
-                  {LETTERS[i] ?? i + 1}
-                </span>
-                <span className="text-[var(--color-text)]">{opt}</span>
-              </button>
-            );
-          })}
+          {data.options.map((opt, i) => (
+            <OptionButton
+              key={opt}
+              label={opt}
+              index={i}
+              isSelected={multiSelected.has(opt)}
+              onClick={() => setMultiSelected((prev) => {
+                const next = new Set(prev);
+                if (next.has(opt)) next.delete(opt); else next.add(opt);
+                return next;
+              })}
+            />
+          ))}
+        </div>
+        <div className="flex justify-end pt-1">
+          <button
+            onClick={() => submit([...multiSelected])}
+            disabled={multiSelected.size === 0}
+            className="px-3 py-1 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-40 transition-colors"
+            style={{ borderRadius: 6 }}
+          >
+            Submit ({multiSelected.size})
+          </button>
         </div>
       </div>
     );
   }
 
-  // Select mode (default) — lettered list like Cursor
+  // Select mode (default) — lettered options, click to submit
   const isOtherOpt = (opt: string) => /^other/i.test(opt.replace(/[^a-zA-Z]/g, ""));
   const regularOptions = (data.options ?? []).filter((o) => !isOtherOpt(o));
   const hasOther = (data.options ?? []).some(isOtherOpt);
   const otherIdx = regularOptions.length;
 
-  const handleSubmit = () => {
-    if (selected === "__other__" && otherText.trim()) {
-      submit(otherText.trim());
-    } else if (selected && selected !== "__other__") {
-      submit(selected);
-    }
-  };
-
   return (
     <div className="space-y-1.5">
       <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
       <div className="space-y-0.5">
-        {regularOptions.map((opt, i) => {
-          const isSelected = selected === opt;
-          return (
-            <button
-              key={opt}
-              onClick={() => submit(opt)}
-              disabled={submitting}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left transition-colors ${
-                isSelected
-                  ? "bg-[var(--color-accent-50)] border border-[var(--color-accent)]"
-                  : "hover:bg-[var(--color-layer-1)] border border-transparent"
-              }`}
-              style={{ borderRadius: 8 }}
-            >
-              <span className={`inline-flex items-center justify-center w-5 h-5 text-xs font-medium shrink-0 ${
-                isSelected
-                  ? "bg-[var(--color-accent)] text-white"
-                  : "bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]"
-              }`} style={{ borderRadius: 6 }}>
-                {LETTERS[i] ?? i + 1}
-              </span>
-              <span className="text-[var(--color-text)]">{opt}</span>
-            </button>
-          );
-        })}
+        {regularOptions.map((opt, i) => (
+          <OptionButton key={opt} label={opt} index={i} isSelected={false} onClick={() => submit(opt)} />
+        ))}
         {hasOther && (
           <div
             onClick={() => setSelected("__other__")}

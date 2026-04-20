@@ -44,8 +44,8 @@ TOOLS = [
     {
         "name": "ask_user",
         "description": (
-            "Ask the user a question and wait for their response. "
-            "Use this when you need clarification, confirmation, or the user to choose from options."
+            "Ask the user a question with multiple choice options. "
+            "Always provide options for the user to choose from. Include 'Other...' as the last option to allow free-text input."
         ),
         "inputSchema": {
             "type": "object",
@@ -57,16 +57,16 @@ TOOLS = [
                 "options": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of options for the user to choose from. Omit for free-text input.",
+                    "description": "List of options. Always include at least 2. Add 'Other...' as last option for custom input.",
                 },
                 "mode": {
                     "type": "string",
                     "enum": ["select", "confirm", "multi_select", "text"],
                     "default": "select",
-                    "description": "Interaction mode: select (pick one), confirm (yes/no), multi_select (pick many), text (free input)",
+                    "description": "select: pick one, confirm: yes/no, multi_select: pick many, text: free input",
                 },
             },
-            "required": ["question"],
+            "required": ["question", "options"],
         },
     },
 ]
