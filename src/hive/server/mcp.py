@@ -79,12 +79,14 @@ TOOLS = [
 @router.get("")
 async def mcp_sse_endpoint(request: Request):
     """Handle GET requests — Streamable HTTP transport uses GET for SSE stream."""
-    log.info("[mcp] GET request from %s, headers=%s", request.client, dict(request.headers))
-    # Return empty SSE stream for now — required by Streamable HTTP transport
+    log.info("[mcp] GET request from %s", request.client)
     from fastapi.responses import StreamingResponse
-    async def empty_stream():
-        yield ": heartbeat\n\n"
-    return StreamingResponse(empty_stream(), media_type="text/event-stream")
+    async def keep_alive():
+        """Keep the SSE stream open with periodic heartbeats."""
+        while True:
+            yield ": heartbeat\n\n"
+            await asyncio.sleep(15)
+    return StreamingResponse(keep_alive(), media_type="text/event-stream")
 
 
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
@@ -117,7 +119,7 @@ async def mcp_endpoint(request: Request):
         })
 
     if method == "notifications/initialized":
-        return JSONResponse(status_code=202, content={})
+        return JSONResponse(status_code=202, content={}, headers=_MCP_HEADERS)
 
     if method == "tools/list":
         return _jsonrpc_ok(rpc_id, {"tools": TOOLS})
@@ -226,9 +228,13 @@ async def answer_question(
 # Helpers
 # ---------------------------------------------------------------------------
 
+_MCP_SESSION_ID = "hive-mcp-" + uuid.uuid4().hex[:12]
+_MCP_HEADERS = {"mcp-session-id": _MCP_SESSION_ID}
+
+
 def _jsonrpc_ok(rpc_id, result):
-    return JSONResponse({"jsonrpc": "2.0", "id": rpc_id, "result": result})
+    return JSONResponse({"jsonrpc": "2.0", "id": rpc_id, "result": result}, headers=_MCP_HEADERS)
 
 
 def _jsonrpc_error(rpc_id, code, message):
-    return JSONResponse({"jsonrpc": "2.0", "id": rpc_id, "error": {"code": code, "message": message}})
+    return JSONResponse({"jsonrpc": "2.0", "id": rpc_id, "error": {"code": code, "message": message}}, headers=_MCP_HEADERS)
