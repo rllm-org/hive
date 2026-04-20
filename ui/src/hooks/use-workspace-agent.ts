@@ -349,7 +349,19 @@ export function useWorkspaceAgents(
         }
       } catch (e) {
         if (!ctrl.signal.aborted) {
-          console.warn("[sse] stream error for", agentId, e);
+          console.warn("[sse] stream dropped for", agentId, "— reconnecting in 2s");
+        }
+      }
+      // Auto-reconnect if not intentionally aborted
+      if (!ctrl.signal.aborted) {
+        const conn = connectionsRef.current[agentId];
+        if (conn) {
+          await new Promise((r) => setTimeout(r, 2000));
+          if (!ctrl.signal.aborted) {
+            const newCtrl = new AbortController();
+            connectionsRef.current[agentId] = { ...conn, abort: newCtrl };
+            startSseStream(agentId, sdkBase, sdkSid, newCtrl);
+          }
         }
       }
     })();
