@@ -81,13 +81,9 @@ async def mcp_sse_endpoint(request: Request):
     """Handle GET requests — SSE transport needs an 'endpoint' event to know where to POST."""
     log.info("[mcp] GET SSE connect from %s", request.client)
     from fastapi.responses import StreamingResponse
-    # Build the POST endpoint URL from the request
-    scheme = request.headers.get("x-forwarded-proto", "https")
-    host = request.headers.get("host", "localhost")
-    endpoint_url = f"{scheme}://{host}/api/mcp"
     async def sse_stream():
-        # Send the endpoint event — SSE transport needs this to know where to POST
-        yield f"event: endpoint\ndata: {endpoint_url}\n\n"
+        # Send endpoint as relative path — SSE transport resolves against connection URL
+        yield "event: endpoint\ndata: /api/mcp\n\n"
         # Keep alive with heartbeats
         while True:
             yield ": heartbeat\n\n"
