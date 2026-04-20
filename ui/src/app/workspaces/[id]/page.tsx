@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 import { apiFetch, apiPostJson, apiDelete } from "@/lib/api";
 import { getAuthHeader } from "@/lib/auth";
 import { TextShimmer } from "@/components/text-shimmer";
+import { AskUserWidget, type AskUserData } from "@/components/chat/ask-user-widget";
 
 const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
 import BoringAvatar from "boring-avatars";
@@ -1134,15 +1135,29 @@ export default function WorkspacePage() {
                       <>
                         {msg.parts.map((part, pi) => {
                           const isLastPart = pi === (msg.parts?.length ?? 0) - 1;
-                          return part.type === "text" ? (
-                            <div key={pi} className="prose prose-sm max-w-none text-[var(--color-text)]">
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.content}</ReactMarkdown>
-                            </div>
-                          ) : part.type === "thinking" ? (
-                            <ThinkingBlock key={pi} content={part.content} active={!!msg.streaming && isLastPart} />
-                          ) : (
-                            <ToolCallCard key={pi} part={part} active={!!msg.streaming && isLastPart} />
-                          );
+                          if (part.type === "text") {
+                            return (
+                              <div key={pi} className="prose prose-sm max-w-none text-[var(--color-text)]">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.content}</ReactMarkdown>
+                              </div>
+                            );
+                          }
+                          if (part.type === "thinking") {
+                            return <ThinkingBlock key={pi} content={part.content} active={!!msg.streaming && isLastPart} />;
+                          }
+                          // ask_user tool — render interactive widget
+                          if (part.type === "tool" && part.name === "ask_user" && part.input) {
+                            const inp = part.input as Record<string, unknown>;
+                            const askData: AskUserData = {
+                              question: (inp.question as string) ?? "",
+                              options: inp.options as string[] | undefined,
+                              mode: (inp.mode as AskUserData["mode"]) ?? "select",
+                              answered: part.status === "done",
+                              answer: part.output ? String(part.output) : undefined,
+                            };
+                            return <AskUserWidget key={pi} questions={[askData]} />;
+                          }
+                          return <ToolCallCard key={pi} part={part} active={!!msg.streaming && isLastPart} />;
                         })}
                         {msg.streaming && msg.parts[msg.parts.length - 1]?.type === "text" && (
                           <span className="inline-block w-2 h-4 ml-0.5 bg-[var(--color-text)] animate-pulse" />

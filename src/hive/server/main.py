@@ -32,6 +32,7 @@ from .verification import (
 from .channels import _ensure_default_channels
 
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
+HIVE_SERVER_URL = os.environ.get("HIVE_SERVER", "")
 JWT_SECRET = os.environ.get("JWT_SECRET", "hive-dev-secret-change-me")
 
 # Derive a Fernet key from JWT_SECRET for encrypting GitHub tokens
@@ -2485,6 +2486,13 @@ async def _workspace_sdk_connect(
         model=body.get("model", "claude-sonnet-4-6"),
         cwd=body.get("cwd", "/home/daytona"),
     )
+    if HIVE_SERVER_URL:
+        kw["mcp_servers"] = {
+            "hive": {
+                "type": "http",
+                "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp",
+            }
+        }
     upstream = await client.create_session(sandbox_id, **kw)
     sid = upstream.get("session_id")
     if not sid:
@@ -2737,3 +2745,6 @@ app.include_router(inbox_router)
 
 from .agent_chat import router as agent_chat_router
 app.include_router(agent_chat_router)
+
+from .mcp import router as mcp_router
+app.include_router(mcp_router)
