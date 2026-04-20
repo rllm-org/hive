@@ -52,9 +52,9 @@ const MOCK_MESSAGES: Array<{ role: string; content: string; streaming?: boolean;
         type: "tool", name: "mcp__hive__ask_user", status: "pending", id: "q2",
         title: "Asking user",
         input: {
-          question: "What background audio do you prefer while coding?",
-          options: ["Lo-fi beats", "Classical music", "White noise", "Silence"],
-          mode: "select",
+          question: "Which programming languages do you use?",
+          options: ["Python", "JavaScript", "TypeScript", "Go", "Rust", "Other..."],
+          mode: "multi_select",
         },
       },
       {

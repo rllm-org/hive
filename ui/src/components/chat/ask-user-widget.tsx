@@ -60,62 +60,91 @@ function QuestionView({
       <div className="space-y-1.5">
         <p className="text-sm text-[var(--color-text)]">{data.question}</p>
         <div className="space-y-0.5">
-          <OptionButton label="Yes" index={0} isSelected={answer === "Yes"} onClick={() => onAnswer("Yes")} />
-          <OptionButton label="No" index={1} isSelected={answer === "No"} onClick={() => onAnswer("No")} />
+          <OptionButton label="Yes" index={0} isSelected={answer === "Yes"} onClick={() => onAnswer(answer === "Yes" ? "" : "Yes")} />
+          <OptionButton label="No" index={1} isSelected={answer === "No"} onClick={() => onAnswer(answer === "No" ? "" : "No")} />
         </div>
       </div>
     );
   }
 
-  // Text mode — badge + inline text field
+  // Text mode — plain text field
   if (data.mode === "text" || !data.options?.length) {
     return (
       <div className="space-y-1.5">
         <p className="text-sm text-[var(--color-text)]">{data.question}</p>
-        <div
-          className="flex items-center gap-2.5 px-2.5 py-1.5 text-sm border border-transparent focus-within:bg-[var(--color-accent-50)] focus-within:border-[var(--color-accent)]"
-          style={{ borderRadius: 8 }}
-        >
-          <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-medium shrink-0 bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]" style={{ borderRadius: 6 }}>
-            A
-          </span>
-          <input
-            type="text"
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && textInput.trim()) { e.preventDefault(); onAnswer(textInput.trim()); } }}
-            onBlur={() => { if (textInput.trim()) onAnswer(textInput.trim()); }}
-            placeholder="Type your answer…"
-            className="flex-1 bg-transparent text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
-            style={{ outline: "none", border: "none", padding: 0 }}
-          />
-        </div>
+        <input
+          type="text"
+          value={textInput}
+          onChange={(e) => setTextInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && textInput.trim()) { e.preventDefault(); onAnswer(textInput.trim()); } }}
+          onBlur={() => { if (textInput.trim()) onAnswer(textInput.trim()); }}
+          placeholder="Type your answer…"
+          className="w-full px-2.5 py-1.5 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--color-accent)] focus:bg-[var(--color-accent-50)]"
+          style={{ outline: "none", boxShadow: "none", borderRadius: 8 }}
+        />
       </div>
     );
   }
 
   // Multi-select mode
   if (data.mode === "multi_select") {
+    const isOther = (opt: string) => /^other/i.test(opt.replace(/[^a-zA-Z]/g, ""));
+    const regularOpts = (data.options ?? []).filter((o) => !isOther(o));
+    const hasOtherOpt = (data.options ?? []).some(isOther);
+    const otherI = regularOpts.length;
     return (
       <div className="space-y-1.5">
         <p className="text-sm text-[var(--color-text)]">{data.question}</p>
         <div className="space-y-0.5">
-          {data.options.map((opt, i) => (
+          {regularOpts.map((opt, i) => (
             <OptionButton
               key={opt}
               label={opt}
               index={i}
               isSelected={multiSelected.has(opt)}
               onClick={() => {
-                setMultiSelected((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(opt)) next.delete(opt); else next.add(opt);
-                  onAnswer([...next]);
-                  return next;
-                });
+                const next = new Set(multiSelected);
+                if (next.has(opt)) next.delete(opt); else next.add(opt);
+                setMultiSelected(next);
+                const allAnswers = [...next];
+                if (otherText.trim()) allAnswers.push(otherText.trim());
+                setTimeout(() => onAnswer(allAnswers), 0);
               }}
             />
           ))}
+          {hasOtherOpt && (
+            <div
+              className={`flex items-center gap-2.5 px-2.5 py-1.5 text-sm transition-colors ${
+                otherActive
+                  ? "bg-[var(--color-accent-50)] border border-[var(--color-accent)]"
+                  : "border border-transparent"
+              }`}
+              style={{ borderRadius: 8 }}
+            >
+              <span className={`inline-flex items-center justify-center w-5 h-5 text-xs font-medium shrink-0 ${
+                otherActive
+                  ? "bg-[var(--color-accent)] text-white"
+                  : "bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]"
+              }`} style={{ borderRadius: 6 }}>
+                {LETTERS[otherI] ?? otherI + 1}
+              </span>
+              <input
+                type="text"
+                value={otherText}
+                onChange={(e) => {
+                  setOtherText(e.target.value);
+                  setOtherActive(!!e.target.value);
+                  const allAnswers = [...multiSelected];
+                  if (e.target.value.trim()) allAnswers.push(e.target.value.trim());
+                  setTimeout(() => onAnswer(allAnswers), 0);
+                }}
+                onFocus={() => setOtherActive(true)}
+                placeholder="Other..."
+                className="flex-1 bg-transparent text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
+                style={{ outline: "none", border: "none", padding: 0 }}
+              />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -137,7 +166,7 @@ function QuestionView({
             label={opt}
             index={i}
             isSelected={answer === opt}
-            onClick={() => { setOtherActive(false); onAnswer(opt); }}
+            onClick={() => { setOtherActive(false); onAnswer(answer === opt ? "" : opt); }}
           />
         ))}
         {hasOther && (
@@ -186,13 +215,14 @@ export function AskUserWidget({ questions, onSubmitAll }: Props) {
   if (!current) return null;
 
   const handleAnswer = (answer: string | string[]) => {
+    const isEmpty = answer === "" || (Array.isArray(answer) && answer.length === 0);
     setAnswers((prev) => {
       const next = [...prev];
-      next[currentIdx] = answer;
+      next[currentIdx] = isEmpty ? null : answer;
       return next;
     });
-    // Auto-advance for select/confirm (single-choice modes)
-    if ((current.mode === "select" || current.mode === "confirm" || !current.mode) && !isLast) {
+    // Auto-advance for select/confirm only when selecting (not deselecting)
+    if (!isEmpty && (current.mode === "select" || current.mode === "confirm" || !current.mode) && !isLast) {
       setTimeout(() => setCurrentIdx((i) => Math.min(total - 1, i + 1)), 150);
     }
   };
@@ -242,14 +272,24 @@ export function AskUserWidget({ questions, onSubmitAll }: Props) {
         onAnswer={handleAnswer}
       />
 
-      {/* Footer — skip / submit */}
-      <div className="flex items-center justify-end gap-3 pt-1">
+      {/* Footer — skip / next / submit */}
+      <div className="flex items-center justify-end gap-2 pt-1">
         {!isLast && (
           <button
             onClick={() => setCurrentIdx((i) => Math.min(total - 1, i + 1))}
-            className="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+            className="px-3 py-1 text-sm font-medium bg-[var(--color-layer-3)] text-[var(--color-text-secondary)] hover:bg-[var(--color-layer-2)] transition-colors"
+            style={{ borderRadius: 6 }}
           >
             Skip
+          </button>
+        )}
+        {!isLast && (current.mode === "multi_select" || current.mode === "text") && answers[currentIdx] !== null && (
+          <button
+            onClick={() => setCurrentIdx((i) => Math.min(total - 1, i + 1))}
+            className="px-3 py-1 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] transition-colors"
+            style={{ borderRadius: 6 }}
+          >
+            Next
           </button>
         )}
         {(isLast || total === 1) && (
@@ -264,24 +304,6 @@ export function AskUserWidget({ questions, onSubmitAll }: Props) {
         )}
       </div>
 
-      {/* Answer dots — show progress */}
-      {total > 1 && (
-        <div className="flex items-center justify-center gap-1.5">
-          {answers.map((a, i) => (
-            <button
-              key={i}
-              onClick={() => setCurrentIdx(i)}
-              className={`w-2 h-2 rounded-full transition-colors ${
-                i === currentIdx
-                  ? "bg-[var(--color-accent)]"
-                  : a !== null
-                    ? "bg-[var(--color-accent)] opacity-40"
-                    : "bg-[var(--color-layer-3)]"
-              }`}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
