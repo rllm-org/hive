@@ -209,7 +209,7 @@ export function AskUserWidget({ questions, onSubmitAll }: Props) {
   const [answers, setAnswers] = useState<(string | string[] | null)[]>(() => questions.map(() => null));
   const total = questions.length;
   const current = questions[currentIdx];
-  const allAnswered = answers.every((a) => a !== null && (typeof a === "string" ? a.length > 0 : a.length > 0));
+  const hasAnyAnswer = answers.some((a) => a !== null && (typeof a === "string" ? a.length > 0 : a.length > 0));
   const isLast = currentIdx === total - 1;
 
   if (!current) return null;
@@ -228,10 +228,9 @@ export function AskUserWidget({ questions, onSubmitAll }: Props) {
   };
 
   const handleSubmit = () => {
-    const filled = answers.filter((a): a is string | string[] => a !== null);
-    if (filled.length === total) {
-      onSubmitAll?.(filled);
-    }
+    // Send all answers, using empty string for skipped questions
+    const result = answers.map((a) => a ?? "");
+    onSubmitAll?.(result);
   };
 
   return (
@@ -295,7 +294,7 @@ export function AskUserWidget({ questions, onSubmitAll }: Props) {
         {(isLast || total === 1) && (
           <button
             onClick={handleSubmit}
-            disabled={!allAnswered}
+            disabled={!hasAnyAnswer}
             className="px-3 py-1 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-40 transition-colors"
             style={{ borderRadius: 6 }}
           >
