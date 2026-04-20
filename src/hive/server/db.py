@@ -246,6 +246,12 @@ _PG_SCHEMA = [
         closed_at       TIMESTAMPTZ,
         UNIQUE (user_id, task_id, sdk_session_id)
     )""",
+    """CREATE TABLE IF NOT EXISTS claude_oauth_tokens (
+        user_id         INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        token_encrypted TEXT NOT NULL,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at      TIMESTAMPTZ
+    )""",
 ]
 
 

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth, getGithubOAuthUrl, getAuthHeader, fetchAuthConfig } from "@/lib/auth";
 import { ClaimAgentModal } from "@/components/claim-agent-modal";
+import { ClaudeConnectModal } from "@/components/claude-connect-modal";
 import { Avatar } from "@/components/shared";
 import { useRouter } from "next/navigation";
 import { LuBot, LuActivity, LuPlus, LuGithub, LuLogOut, LuRefreshCw, LuMonitor, LuLaptop, LuCloud, LuMail, LuKeyRound } from "react-icons/lu";
@@ -255,6 +256,8 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showClaudeConnect, setShowClaudeConnect] = useState(false);
+  const [pendingType, setPendingType] = useState<"local" | "cloud" | null>(null);
 
   const handleCreate = async (type: "local" | "cloud") => {
     setSubmitting(true);
@@ -265,6 +268,15 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
         headers: { "Content-Type": "application/json", ...getAuthHeader() },
         body: JSON.stringify({ name: name.trim(), type }),
       });
+      if (res.status === 402) {
+        const data = await res.json().catch(() => null);
+        if (data?.auth_required) {
+          setPendingType(type);
+          setShowClaudeConnect(true);
+          setSubmitting(false);
+          return;
+        }
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail ?? "Failed to create workspace");
       onCreated(data);
@@ -351,12 +363,21 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
       </div>
+      {showClaudeConnect && (
+        <ClaudeConnectModal
+          onClose={() => setShowClaudeConnect(false)}
+          onConnected={() => {
+            setShowClaudeConnect(false);
+            if (pendingType) handleCreate(pendingType);
+          }}
+        />
+      )}
     </div>
   );
 }
 
 export function ProfilePanel() {
-  const { user, logout, disconnectGithub } = useAuth();
+  const { user, logout, disconnectGithub, claudeStatus, claudeDisconnect } = useAuth();
   const router = useRouter();
   const [tab, setTab] = useState<ProfileTab>(() => {
     if (typeof window !== "undefined") {
@@ -373,6 +394,16 @@ export function ProfilePanel() {
   const [loading, setLoading] = useState(true);
   const [installUrl, setInstallUrl] = useState<string | null>(null);
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
+  const [claudeConn, setClaudeConn] = useState<{ connected: boolean; connected_at?: string } | null>(null);
+  const [showClaudeConnect, setShowClaudeConnect] = useState(false);
+
+  const fetchClaudeStatus = useCallback(async () => {
+    try {
+      setClaudeConn(await claudeStatus());
+    } catch { /* noop */ }
+  }, [claudeStatus]);
+
+  useEffect(() => { fetchClaudeStatus(); }, [fetchClaudeStatus]);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -423,6 +454,12 @@ export function ProfilePanel() {
             fetchWorkspaces();
             router.push(`/workspaces/${ws.id}`);
           }}
+        />
+      )}
+      {showClaudeConnect && (
+        <ClaudeConnectModal
+          onClose={() => setShowClaudeConnect(false)}
+          onConnected={() => { setShowClaudeConnect(false); fetchClaudeStatus(); }}
         />
       )}
       <div className="h-full py-8 px-8">
@@ -690,6 +727,49 @@ export function ProfilePanel() {
                     {disconnectError && (
                       <p className="text-xs text-red-500 mt-2">{disconnectError}</p>
                     )}
+                  </div>
+                </div>
+
+                {/* Claude */}
+                <div className="px-5 py-3 flex items-start gap-3 border-t border-[var(--color-border)]">
+                  <LuBot size={16} className="shrink-0 text-[var(--color-text-secondary)] mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-[var(--color-text)]">Claude Account</div>
+                        <div className="text-xs text-[var(--color-text-tertiary)] truncate">
+                          {claudeConn?.connected
+                            ? `Connected${claudeConn.connected_at ? ` on ${new Date(claudeConn.connected_at).toLocaleDateString()}` : ""}`
+                            : "Not connected — workspaces use your Claude subscription once you connect"}
+                        </div>
+                      </div>
+                      {claudeConn?.connected ? (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setShowClaudeConnect(true)}
+                            className="shrink-0 px-3 py-1.5 text-xs font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+                          >
+                            Reconnect
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const result = await claudeDisconnect();
+                              if (result.ok) fetchClaudeStatus();
+                            }}
+                            className="shrink-0 px-3 py-1.5 text-xs font-medium text-red-500 border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                          >
+                            Disconnect
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setShowClaudeConnect(true)}
+                          className="shrink-0 px-3 py-1.5 text-xs font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+                        >
+                          Connect
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

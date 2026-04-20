@@ -27,6 +27,10 @@ interface AuthContextType extends AuthState {
   loginWithGithub: (code: string, state?: string) => Promise<void>;
   connectGithub: (code: string, state?: string) => Promise<void>;
   disconnectGithub: () => Promise<{ ok: true } | { ok: false; reason: "needs_password" } | { ok: false; reason: "error"; message: string }>;
+  claudeStatus: () => Promise<{ connected: boolean; connected_at?: string; expires_at?: string }>;
+  claudeStart: () => Promise<{ auth_session_id: string; auth_url: string }>;
+  claudeSubmitCode: (auth_session_id: string, code: string) => Promise<{ connected_at: string; expires_at: string }>;
+  claudeDisconnect: () => Promise<{ ok: true } | { ok: false; message: string }>;
   checkHandleAvailable: (handle: string) => Promise<{ available: boolean; reason?: string }>;
   updateHandle: (handle: string) => Promise<void>;
   logout: () => void;
@@ -234,13 +238,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { ok: true };
   }, []);
 
+  const claudeStatus = useCallback(async () => {
+    const res = await fetch(`${API_BASE}/auth/claude/status`, { headers: getAuthHeader() });
+    if (!res.ok) throw new Error("failed to fetch Claude status");
+    return res.json();
+  }, []);
+
+  const claudeStart = useCallback(async () => {
+    const res = await fetch(`${API_BASE}/auth/claude/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail ?? "failed to start Claude OAuth");
+    }
+    return res.json();
+  }, []);
+
+  const claudeSubmitCode = useCallback(async (auth_session_id: string, code: string) => {
+    const res = await fetch(`${API_BASE}/auth/claude/code`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
+      body: JSON.stringify({ auth_session_id, code }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.detail ?? "failed to submit Claude OAuth code");
+    }
+    return res.json();
+  }, []);
+
+  const claudeDisconnect = useCallback(async (): Promise<{ ok: true } | { ok: false; message: string }> => {
+    const res = await fetch(`${API_BASE}/auth/claude`, { method: "DELETE", headers: getAuthHeader() });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      return { ok: false, message: data?.detail ?? "Claude disconnect failed" };
+    }
+    return { ok: true };
+  }, []);
+
   const logout = useCallback(() => {
     persist({ token: null, user: null });
     window.location.href = "/";
   }, []);
 
   return (
-    <AuthContext.Provider value={{ ...state, ready, login, signup, verifyCode, resendCode, forgotPassword, resetPassword, loginWithGithub, connectGithub, disconnectGithub, checkHandleAvailable, updateHandle, logout, isAdmin: state.user?.role === "admin" }}>
+    <AuthContext.Provider value={{ ...state, ready, login, signup, verifyCode, resendCode, forgotPassword, resetPassword, loginWithGithub, connectGithub, disconnectGithub, claudeStatus, claudeStart, claudeSubmitCode, claudeDisconnect, checkHandleAvailable, updateHandle, logout, isAdmin: state.user?.role === "admin" }}>
       {children}
     </AuthContext.Provider>
   );
