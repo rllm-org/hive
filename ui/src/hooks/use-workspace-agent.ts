@@ -449,26 +449,37 @@ export function useWorkspaceAgents(
     const conn = connectionsRef.current[agentId];
     if (!conn) return;
 
-    // 1. Abort the SSE connection — instant UI feedback
-    conn.abort.abort();
+    // Show cancelling state
+    updateAgent(agentId, { cancelling: true });
 
-    // 2. Fire-and-forget cancel to backend — best-effort to actually stop the agent
-    fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/cancel`, { method: "POST" }).catch(() => {});
+    // Send cancel and wait for ACP to honor it (up to 10s on the backend)
+    let ok = false;
+    try {
+      const res = await fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/cancel`, { method: "POST" });
+      ok = res.ok; // 200 = agent cancelled, 504 = timeout
+    } catch {
+      // Network error
+    }
 
-    // 3. Update UI immediately — show partial results, clear loading
-    updateAgent(agentId, { isLoading: false });
-    updateMessages(agentId, (prev) => {
-      const last = prev[prev.length - 1];
-      if (last?.role === "assistant" && last.streaming) {
-        return [...prev.slice(0, -1), { ...last, streaming: false }];
-      }
-      return prev;
-    });
-
-    // 4. Reconnect SSE so we can receive responses to future messages
-    const newCtrl = new AbortController();
-    connectionsRef.current[agentId] = { ...conn, abort: newCtrl };
-    startSseStream(agentId, conn.sdkBase, conn.sdkSid, newCtrl);
+    if (ok) {
+      // ACP honoured the cancel — done_result already came through SSE
+      // and set isLoading=false. Just clear cancelling.
+      updateAgent(agentId, { cancelling: false });
+    } else {
+      // ACP didn't respond — force-clear state, abort and reconnect SSE
+      conn.abort.abort();
+      updateAgent(agentId, { isLoading: false, cancelling: false });
+      updateMessages(agentId, (prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.role === "assistant" && last.streaming) {
+          return [...prev.slice(0, -1), { ...last, streaming: false }];
+        }
+        return prev;
+      });
+      const newCtrl = new AbortController();
+      connectionsRef.current[agentId] = { ...conn, abort: newCtrl };
+      startSseStream(agentId, conn.sdkBase, conn.sdkSid, newCtrl);
+    }
   }, [updateAgent, updateMessages, startSseStream]);
 
   return { states, sendMessage, cancel };
