@@ -451,18 +451,18 @@ export function useWorkspaceAgents(
 
     updateAgent(agentId, { cancelling: true });
 
-    // Keep retrying cancel until ACP honours it
-    while (true) {
-      try {
-        const res = await fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/cancel`, { method: "POST" });
-        if (res.ok) {
-          updateAgent(agentId, { cancelling: false });
-          return;
-        }
-      } catch {
-        // Network error — retry
+    try {
+      const res = await fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/cancel`, { method: "POST" });
+      if (res.ok) {
+        updateAgent(agentId, { cancelling: false });
+        return;
       }
+    } catch {
+      // Network error
     }
+
+    // Failed — reshow the stop button so user can try again
+    updateAgent(agentId, { cancelling: false });
   }, [updateAgent]);
 
   return { states, sendMessage, cancel };
