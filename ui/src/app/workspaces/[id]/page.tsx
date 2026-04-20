@@ -1146,7 +1146,7 @@ export default function WorkspacePage() {
                             return <ThinkingBlock key={pi} content={part.content} active={!!msg.streaming && isLastPart} />;
                           }
                           // ask_user tool — render interactive widget
-                          if (part.type === "tool" && part.name === "ask_user" && part.input) {
+                          if (part.type === "tool" && part.name.endsWith("ask_user") && part.input) {
                             const inp = part.input as Record<string, unknown>;
                             const askData: AskUserData = {
                               question: (inp.question as string) ?? "",
