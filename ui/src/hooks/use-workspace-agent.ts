@@ -449,11 +449,14 @@ export function useWorkspaceAgents(
     const conn = connectionsRef.current[agentId];
     if (!conn) return;
 
-    // 1. Abort the SSE connection — this is the actual cancellation
+    // 1. Abort the SSE connection — instant UI feedback
     conn.abort.abort();
 
-    // 2. Update UI immediately — show partial results, clear loading
-    updateAgent(agentId, { isLoading: false, cancelling: false });
+    // 2. Fire-and-forget cancel to backend — best-effort to actually stop the agent
+    fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/cancel`, { method: "POST" }).catch(() => {});
+
+    // 3. Update UI immediately — show partial results, clear loading
+    updateAgent(agentId, { isLoading: false });
     updateMessages(agentId, (prev) => {
       const last = prev[prev.length - 1];
       if (last?.role === "assistant" && last.streaming) {
@@ -462,7 +465,7 @@ export function useWorkspaceAgents(
       return prev;
     });
 
-    // 3. Reconnect SSE so we can receive responses to future messages
+    // 4. Reconnect SSE so we can receive responses to future messages
     const newCtrl = new AbortController();
     connectionsRef.current[agentId] = { ...conn, abort: newCtrl };
     startSseStream(agentId, conn.sdkBase, conn.sdkSid, newCtrl);
