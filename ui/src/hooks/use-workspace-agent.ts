@@ -451,36 +451,19 @@ export function useWorkspaceAgents(
 
     updateAgent(agentId, { cancelling: true });
 
-    // Retry cancel until ACP honours it
-    const MAX_RETRIES = 3;
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    // Keep retrying cancel until ACP honours it
+    while (true) {
       try {
         const res = await fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/cancel`, { method: "POST" });
         if (res.ok) {
-          // ACP honoured the cancel — done_result came through SSE
           updateAgent(agentId, { cancelling: false });
           return;
         }
-        // 504 timeout — ACP didn't respond, retry
       } catch {
         // Network error — retry
       }
     }
-
-    // All retries exhausted — force-clear state, abort and reconnect SSE
-    conn.abort.abort();
-    updateAgent(agentId, { isLoading: false, cancelling: false });
-    updateMessages(agentId, (prev) => {
-      const last = prev[prev.length - 1];
-      if (last?.role === "assistant" && last.streaming) {
-        return [...prev.slice(0, -1), { ...last, streaming: false }];
-      }
-      return prev;
-    });
-    const newCtrl = new AbortController();
-    connectionsRef.current[agentId] = { ...conn, abort: newCtrl };
-    startSseStream(agentId, conn.sdkBase, conn.sdkSid, newCtrl);
-  }, [updateAgent, updateMessages, startSseStream]);
+  }, [updateAgent]);
 
   return { states, sendMessage, cancel };
 }
