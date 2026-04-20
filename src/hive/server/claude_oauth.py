@@ -35,6 +35,23 @@ _SESSION_TTL_SEC = 600
 _URL_WAIT_SEC = 20
 _FINISH_WAIT_SEC = 60
 
+_CLAUDE_CANDIDATE_PATHS = (
+    "/usr/local/bin/claude",
+    "/usr/bin/claude",
+    "/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+    "/root/.npm-global/bin/claude",
+)
+
+
+def _find_claude_cli() -> str | None:
+    found = shutil.which("claude")
+    if found:
+        return found
+    for cand in _CLAUDE_CANDIDATE_PATHS:
+        if os.path.exists(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
+
 
 @dataclass
 class ClaudeAuthSession:
@@ -127,9 +144,12 @@ def start_session(user_id: int) -> tuple[str, str]:
         _kill(existing)
         existing.done.set()
 
-    claude_bin = shutil.which("claude")
+    claude_bin = _find_claude_cli()
     if not claude_bin:
-        raise RuntimeError("`claude` CLI not installed on hive server")
+        raise RuntimeError(
+            "`claude` CLI not found on hive server. Checked PATH="
+            f"{os.environ.get('PATH', '')!r} and common npm-global locations."
+        )
 
     pid, master_fd = pty.fork()
     if pid == 0:

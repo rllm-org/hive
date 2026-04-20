@@ -15,11 +15,15 @@ RUN set -eux; \
     node --version; \
     npm --version
 # Claude Code CLI — required by hive.server.claude_oauth (PTY broker for user OAuth).
-# The final `command -v claude` step fails the build if the install didn't land.
+# Symlink to /usr/local/bin/claude so the runtime finds it regardless of npm's
+# prefix dir or Railway's PATH overrides. Final verify fails the build if the
+# CLI isn't installed correctly.
 RUN set -eux; \
     npm install -g --loglevel=info @anthropic-ai/claude-code; \
-    command -v claude; \
-    claude --version
+    CLAUDE_BIN="$(command -v claude)"; \
+    echo "installed claude CLI at: ${CLAUDE_BIN}"; \
+    ln -sf "${CLAUDE_BIN}" /usr/local/bin/claude; \
+    /usr/local/bin/claude --version
 WORKDIR /app
 COPY pyproject.toml .
 COPY src/ src/
