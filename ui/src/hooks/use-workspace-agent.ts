@@ -110,6 +110,17 @@ function buildMessagesFromLog(events: Array<{ event_type: string; payload: Recor
       msgs.push({ role: "error", content: (ev.payload.message as string) ?? "error" });
     }
   }
+  // Fix ordering: log may store reasoning after text, but at runtime
+  // thinking appears before text. Swap adjacent (text, thinking) pairs.
+  for (const m of msgs) {
+    if (m.role === "assistant" && m.parts && m.parts.length > 1) {
+      for (let i = 0; i < m.parts.length - 1; i++) {
+        if (m.parts[i].type === "text" && m.parts[i + 1].type === "thinking") {
+          [m.parts[i], m.parts[i + 1]] = [m.parts[i + 1], m.parts[i]];
+        }
+      }
+    }
+  }
   return msgs;
 }
 
