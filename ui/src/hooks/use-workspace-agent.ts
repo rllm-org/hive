@@ -110,18 +110,6 @@ function buildMessagesFromLog(events: Array<{ event_type: string; payload: Recor
       msgs.push({ role: "error", content: (ev.payload.message as string) ?? "error" });
     }
   }
-  // Reorder parts so thinking comes before text/tools within each assistant turn
-  for (const m of msgs) {
-    if (m.role === "assistant" && m.parts && m.parts.length > 1) {
-      const thinking: MessagePart[] = [];
-      const rest: MessagePart[] = [];
-      for (const p of m.parts) {
-        if (p.type === "thinking") thinking.push(p);
-        else rest.push(p);
-      }
-      if (thinking.length > 0) m.parts = [...thinking, ...rest];
-    }
-  }
   return msgs;
 }
 
