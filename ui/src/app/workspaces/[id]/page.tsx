@@ -1192,16 +1192,34 @@ export default function WorkspacePage() {
                       inp = part.input as Record<string, unknown>;
                     }
                     const args = (inp.arguments ?? inp.input ?? inp) as Record<string, unknown>;
-                    const question = (args.question as string) ?? "";
-                    if (!question) continue;
-                    pendingQuestions.push({
-                      id: part.id,
-                      data: {
-                        question,
-                        options: args.options as string[] | undefined,
-                        mode: (args.mode as AskUserData["mode"]) ?? "select",
-                      },
-                    });
+                    // Support both single question and questions array format
+                    const questionsArr = args.questions as Array<Record<string, unknown>> | undefined;
+                    if (questionsArr && Array.isArray(questionsArr)) {
+                      for (const q of questionsArr) {
+                        const question = (q.question as string) ?? "";
+                        if (!question) continue;
+                        pendingQuestions.push({
+                          id: part.id,
+                          data: {
+                            question,
+                            options: q.options as string[] | undefined,
+                            mode: (q.mode as AskUserData["mode"]) ?? "select",
+                          },
+                        });
+                      }
+                    } else {
+                      // Fallback: single question format
+                      const question = (args.question as string) ?? "";
+                      if (!question) continue;
+                      pendingQuestions.push({
+                        id: part.id,
+                        data: {
+                          question,
+                          options: args.options as string[] | undefined,
+                          mode: (args.mode as AskUserData["mode"]) ?? "select",
+                        },
+                      });
+                    }
                   }
                 }
               }
@@ -1212,13 +1230,19 @@ export default function WorkspacePage() {
                 <div className="max-w-4xl mx-auto">
                   <AskUserWidget
                     questions={pendingQuestions.map((q) => q.data)}
-                    onSendMessage={(text) => {
-                      // Mark all current questions as answered
+                    onSubmitAll={(answers) => {
+                      // Mark all questions as answered
                       setAnsweredToolIds((prev) => {
                         const next = new Set(prev);
                         for (const q of pendingQuestions) next.add(q.id);
                         return next;
                       });
+                      // Send all answers as one message
+                      const text = answers.map((a, i) => {
+                        const q = pendingQuestions[i]?.data.question ?? "";
+                        const ans = Array.isArray(a) ? a.join(", ") : a;
+                        return pendingQuestions.length === 1 ? ans : `${q}: ${ans}`;
+                      }).join("\n");
                       sendMessage(text);
                     }}
                   />

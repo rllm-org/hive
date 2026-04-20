@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AskUserWidget, type AskUserData } from "@/components/chat/ask-user-widget";
 
-const MOCK_MESSAGES: Array<{ role: string; content: string; streaming?: boolean; parts?: Array<{ type: string; content?: string; name?: string; status?: string; title?: string; input?: unknown; output?: unknown }> }> = [
+const MOCK_MESSAGES: Array<{ role: string; content: string; streaming?: boolean; parts?: Array<{ type: string; content?: string; name?: string; status?: string; title?: string; input?: unknown; output?: unknown; id?: string }> }> = [
   { role: "user", content: "Can you help me build a REST API?" },
   { role: "assistant", content: "Sure! What language and framework would you like to use?\n\n- **Python** (FastAPI, Flask, Django)\n- **TypeScript** (Express, Fastify, Hono)\n- **Go** (Gin, Echo, Chi)" },
   { role: "user", content: "Let's go with FastAPI" },
@@ -40,12 +40,29 @@ const MOCK_MESSAGES: Array<{ role: string; content: string; streaming?: boolean;
     parts: [
       { type: "text", content: "I have a few questions before we proceed:" },
       {
-        type: "tool", name: "mcp__hive__ask_user", status: "pending",
+        type: "tool", name: "mcp__hive__ask_user", status: "pending", id: "q1",
         title: "Asking user",
         input: {
           question: "Pick a snack for a coding break:",
           options: ["Chips", "Fruit", "Cookies", "No snack", "Other..."],
           mode: "select",
+        },
+      },
+      {
+        type: "tool", name: "mcp__hive__ask_user", status: "pending", id: "q2",
+        title: "Asking user",
+        input: {
+          question: "What background audio do you prefer while coding?",
+          options: ["Lo-fi beats", "Classical music", "White noise", "Silence"],
+          mode: "select",
+        },
+      },
+      {
+        type: "tool", name: "mcp__hive__ask_user", status: "pending", id: "q3",
+        title: "Asking user",
+        input: {
+          question: "Do you want dark mode?",
+          mode: "confirm",
         },
       },
     ],
