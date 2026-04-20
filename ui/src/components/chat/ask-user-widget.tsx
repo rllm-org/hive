@@ -177,58 +177,97 @@ function SingleQuestion({
   }
 
   // Select mode (default) — lettered list like Cursor
-  const isOther = (opt: string) => /^other/i.test(opt.replace(/[^a-zA-Z]/g, ""));
+  const isOtherOpt = (opt: string) => /^other/i.test(opt.replace(/[^a-zA-Z]/g, ""));
+  const regularOptions = (data.options ?? []).filter((o) => !isOtherOpt(o));
+  const hasOther = (data.options ?? []).some(isOtherOpt);
+  const otherIdx = regularOptions.length;
+
+  const handleSubmit = () => {
+    if (selected === "__other__" && otherText.trim()) {
+      submit(otherText.trim());
+    } else if (selected && selected !== "__other__") {
+      submit(selected);
+    }
+  };
 
   return (
     <div className="space-y-1.5">
       <p className="text-sm font-medium text-[var(--color-text)]">{data.question}</p>
       <div className="space-y-0.5">
-        {(data.options ?? []).map((opt, i) => {
+        {regularOptions.map((opt, i) => {
           const isSelected = selected === opt;
-          const isOtherOpt = isOther(opt);
           return (
-            <div key={opt}>
-              <button
-                onClick={() => { setSelected(opt); if (isOtherOpt) setOtherText(""); }}
-                disabled={submitting}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left transition-colors ${
-                  isSelected
-                    ? "bg-[var(--color-accent-50)] border border-[var(--color-accent)]"
-                    : "hover:bg-[var(--color-layer-1)] border border-transparent"
-                }`}
-                style={{ borderRadius: isSelected && isOtherOpt ? "8px 8px 0 0" : 8 }}
-              >
-                <span className={`inline-flex items-center justify-center w-5 h-5 text-xs font-medium shrink-0 ${
-                  isSelected
-                    ? "bg-[var(--color-accent)] text-white"
-                    : "bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]"
-                }`} style={{ borderRadius: 6 }}>
-                  {LETTERS[i] ?? i + 1}
-                </span>
-                <span className="text-[var(--color-text)]">{opt}</span>
-              </button>
-              {isSelected && isOtherOpt && (
-                <div className="px-2.5 pb-2 bg-[var(--color-accent-50)] border border-t-0 border-[var(--color-accent)]" style={{ borderRadius: "0 0 8px 8px" }}>
-                  <input
-                    type="text"
-                    value={otherText}
-                    onChange={(e) => setOtherText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && otherText.trim()) {
-                        e.preventDefault();
-                        submit(otherText.trim());
-                      }
-                    }}
-                    placeholder="Type your answer…"
-                    autoFocus
-                    className="w-full px-2.5 py-1.5 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)]"
-                    style={{ outline: "none", boxShadow: "none", borderRadius: 6 }}
-                  />
-                </div>
-              )}
-            </div>
+            <button
+              key={opt}
+              onClick={() => setSelected(opt)}
+              disabled={submitting}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-sm text-left transition-colors ${
+                isSelected
+                  ? "bg-[var(--color-accent-50)] border border-[var(--color-accent)]"
+                  : "hover:bg-[var(--color-layer-1)] border border-transparent"
+              }`}
+              style={{ borderRadius: 8 }}
+            >
+              <span className={`inline-flex items-center justify-center w-5 h-5 text-xs font-medium shrink-0 ${
+                isSelected
+                  ? "bg-[var(--color-accent)] text-white"
+                  : "bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]"
+              }`} style={{ borderRadius: 6 }}>
+                {LETTERS[i] ?? i + 1}
+              </span>
+              <span className="text-[var(--color-text)]">{opt}</span>
+            </button>
           );
         })}
+        {hasOther && (
+          <div
+            onClick={() => setSelected("__other__")}
+            className={`flex items-center gap-2.5 px-2.5 py-1.5 text-sm cursor-text transition-colors ${
+              selected === "__other__"
+                ? "bg-[var(--color-accent-50)] border border-[var(--color-accent)]"
+                : "border border-transparent"
+            }`}
+            style={{ borderRadius: 8 }}
+          >
+            <span className={`inline-flex items-center justify-center w-5 h-5 text-xs font-medium shrink-0 ${
+              selected === "__other__"
+                ? "bg-[var(--color-accent)] text-white"
+                : "bg-[var(--color-layer-2)] text-[var(--color-text-tertiary)]"
+            }`} style={{ borderRadius: 6 }}>
+              {LETTERS[otherIdx] ?? otherIdx + 1}
+            </span>
+            <input
+              type="text"
+              value={otherText}
+              onChange={(e) => { setOtherText(e.target.value); setSelected("__other__"); }}
+              onFocus={() => setSelected("__other__")}
+              onKeyDown={(e) => { if (e.key === "Enter" && otherText.trim()) { e.preventDefault(); submit(otherText.trim()); } }}
+              placeholder="Other..."
+              className="flex-1 bg-transparent text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
+              style={{ outline: "none", border: "none", padding: 0 }}
+            />
+          </div>
+        )}
+      </div>
+      <div className="flex items-center justify-end gap-3 pt-1">
+        <button
+          onClick={() => submit("skip")}
+          disabled={submitting}
+          className="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+        >
+          Skip
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || (!selected && !otherText.trim())}
+          className="px-3 py-1 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-40 transition-colors flex items-center gap-1.5"
+          style={{ borderRadius: 6 }}
+        >
+          Continue
+          <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M2 10L10 2M10 2H4M10 2v6" />
+          </svg>
+        </button>
       </div>
     </div>
   );
@@ -244,7 +283,8 @@ export function AskUserWidget({ questions, onAnswered }: Props) {
   // Single question — no pagination
   if (total === 1) {
     return (
-      <div className="border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-3" style={{ borderRadius: 10 }}>
+      <div className="border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-3 space-y-2" style={{ borderRadius: 10 }}>
+        <span className="text-xs font-medium text-[var(--color-text-tertiary)]">Questions</span>
         <SingleQuestion
           data={current}
           onAnswered={(answer) => onAnswered?.(0, answer)}
