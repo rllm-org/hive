@@ -2391,15 +2391,28 @@ async def list_workspaces(user: dict = Depends(require_user)):
     } for r in rows]}
 
 
+def _default_provision_config() -> dict[str, Any]:
+    return {
+        "agent_type": "claude",
+        "cwd": "/home/daytona",
+        "skills": ["https://github.com/rllm-org/hive/tree/staging"],
+        "pre_start_commands": [
+            'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
+        ],
+    }
+
+
 @router.post("/workspaces")
 async def create_workspace(body: dict[str, Any], user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     name = (body.get("name") or "").strip()
-    ws_type = (body.get("type") or "local").strip()
+    ws_type = (body.get("type") or "cloud").strip()
     if not name:
         raise HTTPException(400, "name is required")
-    if ws_type not in ("local", "cloud"):
-        raise HTTPException(400, "type must be 'local' or 'cloud'")
+    if ws_type not in ("local", "cloud", "persistent"):
+        raise HTTPException(400, "type must be 'local', 'cloud', or 'persistent'")
+    if ws_type == "persistent":
+        raise HTTPException(400, "persistent workspaces are admin-only")
     async with get_db() as conn:
         existing = await (await conn.execute(
             "SELECT 1 FROM workspaces WHERE user_id = %s AND name = %s", (user_id, name)
@@ -2414,31 +2427,26 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
         )).fetchone()
     workspace_id = row["id"]
 
-    # For cloud workspaces, provision the sandbox immediately
     if ws_type == "cloud":
         from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
         try:
             client = get_client()
-            provision_config: dict[str, Any] = {
-                "agent_type": "claude",
-                "cwd": "/home/daytona",
-                "skills": ["https://github.com/rllm-org/hive/tree/staging"],
-                "pre_start_commands": [
-                    'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
-                ],
-            }
-            result = await client.provision_sandbox(**provision_config)
+            result = await client.provision_sandbox(**_default_provision_config())
             sandbox_id = result.get("sandbox_id")
-            if sandbox_id:
-                async with get_db() as conn:
-                    await conn.execute(
-                        "UPDATE workspaces SET sdk_sandbox_id = %s, sdk_base_url = %s WHERE id = %s",
-                        (sandbox_id, AGENT_SDK_BASE_URL, workspace_id),
-                    )
-                row = {**dict(row), "sdk_sandbox_id": sandbox_id, "sdk_base_url": AGENT_SDK_BASE_URL}
+            if not sandbox_id:
+                raise RuntimeError(f"agent-sdk returned no sandbox_id: {result}")
         except Exception as e:
             import logging
             logging.warning("Failed to provision sandbox for workspace %s: %s", workspace_id, e)
+            async with get_db() as conn:
+                await conn.execute("DELETE FROM workspaces WHERE id = %s", (workspace_id,))
+            raise HTTPException(502, f"failed to provision workspace sandbox: {e}")
+        async with get_db() as conn:
+            await conn.execute(
+                "UPDATE workspaces SET sdk_sandbox_id = %s, sdk_base_url = %s WHERE id = %s",
+                (sandbox_id, AGENT_SDK_BASE_URL, workspace_id),
+            )
+        row = {**dict(row), "sdk_sandbox_id": sandbox_id, "sdk_base_url": AGENT_SDK_BASE_URL}
 
     return _serialize_workspace(row)
 
@@ -2473,13 +2481,29 @@ async def _workspace_sdk_connect(
 
     async with get_db() as conn:
         wrow = await (await conn.execute(
-            "SELECT sdk_sandbox_id, sdk_base_url FROM workspaces WHERE id = %s",
+            "SELECT sdk_sandbox_id, sdk_base_url, type FROM workspaces WHERE id = %s",
             (workspace_id,),
         )).fetchone()
 
-    sandbox_id = wrow.get("sdk_sandbox_id") if wrow else None
+    if not wrow:
+        raise HTTPException(404, "workspace not found")
+
+    sandbox_id = wrow.get("sdk_sandbox_id")
     if not sandbox_id:
-        raise HTTPException(400, "workspace sandbox not provisioned — recreate the workspace")
+        if wrow.get("type") != "cloud":
+            raise HTTPException(400, "workspace is not cloud-backed")
+        try:
+            result = await client.provision_sandbox(**_default_provision_config())
+            sandbox_id = result.get("sandbox_id")
+            if not sandbox_id:
+                raise RuntimeError(f"agent-sdk returned no sandbox_id: {result}")
+        except Exception as e:
+            raise HTTPException(502, f"failed to provision workspace sandbox: {e}")
+        async with get_db() as conn:
+            await conn.execute(
+                "UPDATE workspaces SET sdk_sandbox_id = %s, sdk_base_url = %s WHERE id = %s",
+                (sandbox_id, AGENT_SDK_BASE_URL, workspace_id),
+            )
 
     kw: dict[str, Any] = dict(
         name=f"agent-{agent_id}",
@@ -2522,11 +2546,12 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
     requested_name = (body.get("name") or "").strip().lower()
     async with get_db() as conn:
         ws = await (await conn.execute(
-            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s",
+            "SELECT id, type FROM workspaces WHERE id = %s AND user_id = %s",
             (workspace_id, user_id)
         )).fetchone()
         if not ws:
             raise HTTPException(404, "workspace not found")
+        ws_type = ws.get("type") or "cloud"
         if requested_name:
             if not re.match(r"^[a-z][a-z0-9-]{1,38}[a-z0-9]$", requested_name):
                 raise HTTPException(400, "name must be 3-40 chars, lowercase letters, digits, or hyphens")
@@ -2543,22 +2568,23 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         await conn.execute(
             "INSERT INTO agents (id, token, registered_at, last_seen_at, user_id, type, harness, model, avatar_seed, workspace_id)"
             " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (agent_id, agent_token, ts, ts, user_id, "local", harness, model, str(uuid.uuid4()), workspace_id)
+            (agent_id, agent_token, ts, ts, user_id, ws_type, harness, model, str(uuid.uuid4()), workspace_id)
         )
 
     sdk_session_id = None
     sdk_base_url = None
-    try:
-        sdk_session_id, sdk_base_url = await _workspace_sdk_connect(workspace_id, agent_id, body)
-        async with get_db() as conn:
-            await conn.execute(
-                "UPDATE agents SET sdk_session_id = %s, sdk_base_url = %s WHERE id = %s",
-                (sdk_session_id, sdk_base_url or AGENT_SDK_BASE_URL, agent_id),
-            )
-    except Exception as e:
-        import logging
+    if ws_type == "cloud":
+        try:
+            sdk_session_id, sdk_base_url = await _workspace_sdk_connect(workspace_id, agent_id, body)
+            async with get_db() as conn:
+                await conn.execute(
+                    "UPDATE agents SET sdk_session_id = %s, sdk_base_url = %s WHERE id = %s",
+                    (sdk_session_id, sdk_base_url or AGENT_SDK_BASE_URL, agent_id),
+                )
+        except Exception as e:
+            import logging
 
-        logging.warning("Failed to auto-connect agent %s: %s", agent_id, e)
+            logging.warning("Failed to auto-connect agent %s: %s", agent_id, e)
 
     return {
         "id": agent_id,

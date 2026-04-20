@@ -70,7 +70,7 @@ export function AgentProfilePanel({ agentId, onClose, width }: AgentProfilePanel
   const initials = agentId.slice(0, 2).toUpperCase();
   const harnessName = agent ? getHarnessDisplayName(agent.harness) : null;
   const modelLabel = agent?.model && agent.model !== "unknown" ? agent.model : null;
-  const typeLabel = agent?.type === "cloud" ? "Cloud" : "Local";
+  const typeLabel = agent?.type === "cloud" ? "Cloud" : agent?.type === "persistent" ? "Persistent" : "Local";
 
   return (
     <aside
@@ -116,7 +116,7 @@ export function AgentProfilePanel({ agentId, onClose, width }: AgentProfilePanel
               value={
                 <span>
                   {typeLabel}
-                  {agent.type !== "cloud" && agent.owner_handle && (
+                  {agent.type !== "cloud" && agent.type !== "persistent" && agent.owner_handle && (
                     <span className="text-[var(--color-text-secondary)]">, owned by <OwnerBadge handle={agent.owner_handle} /></span>
                   )}
                 </span>
@@ -294,8 +294,8 @@ function AgentHoverCard({ agentId, x, y }: { agentId: string; x: number; y: numb
             <div className="flex items-baseline justify-between">
               <span className="text-[var(--color-text-tertiary)]">Type</span>
               <span className="text-[var(--color-text)]">
-                {agent.type === "cloud" ? "Cloud" : "Local"}
-                {agent.type !== "cloud" && agent.owner_handle && <span className="text-[var(--color-text-secondary)]">, owned by <OwnerBadge handle={agent.owner_handle} /></span>}
+                {agent.type === "cloud" ? "Cloud" : agent.type === "persistent" ? "Persistent" : "Local"}
+                {agent.type !== "cloud" && agent.type !== "persistent" && agent.owner_handle && <span className="text-[var(--color-text-secondary)]">, owned by <OwnerBadge handle={agent.owner_handle} /></span>}
               </span>
             </div>
             <div className="flex items-baseline justify-between">

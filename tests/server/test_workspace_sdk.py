@@ -4,6 +4,8 @@ import pytest
 import psycopg
 from unittest.mock import AsyncMock, MagicMock
 
+from fastapi import HTTPException
+
 from hive.server.db import init_db, get_db_sync
 from tests.conftest import _create_verified_user
 
@@ -11,6 +13,7 @@ from tests.conftest import _create_verified_user
 @pytest.fixture
 def mock_agent_sdk(monkeypatch):
     m = MagicMock()
+    m.provision_sandbox = AsyncMock(return_value={"sandbox_id": "sb-ws-shared"})
     m.create_quick_session = AsyncMock(
         return_value={
             "sandbox_id": "sb-ws-shared",
@@ -40,24 +43,28 @@ class TestWorkspaceSharedSandbox:
     def test_second_agent_uses_create_session(self, client, mock_agent_sdk):
         token, _ = _create_verified_user(client, "ws-sdk@x.com", "password123", handle="ws-sdk-user")
         h = {"Authorization": f"Bearer {token}"}
-        w = client.post("/api/workspaces", json={"name": "ws-sandbox", "type": "local"}, headers=h)
+        w = client.post("/api/workspaces", json={"name": "ws-sandbox", "type": "cloud"}, headers=h)
         assert w.status_code == 200
         wid = w.json()["id"]
+
+        assert mock_agent_sdk.provision_sandbox.call_count == 1
+        assert mock_agent_sdk.create_quick_session.call_count == 0
 
         r1 = client.post(f"/api/workspaces/{wid}/agents", json={}, headers=h)
         assert r1.status_code == 200
         r2 = client.post(f"/api/workspaces/{wid}/agents", json={}, headers=h)
         assert r2.status_code == 200
 
-        assert mock_agent_sdk.create_quick_session.call_count == 1
-        assert mock_agent_sdk.create_session.call_count == 1
-        args, _kw = mock_agent_sdk.create_session.call_args
-        assert args[0] == "sb-ws-shared"
+        assert mock_agent_sdk.create_quick_session.call_count == 0
+        assert mock_agent_sdk.create_session.call_count == 2
+        for call_args in mock_agent_sdk.create_session.call_args_list:
+            args, _ = call_args
+            assert args[0] == "sb-ws-shared"
 
     def test_delete_workspace_destroys_sandbox_once(self, client, mock_agent_sdk):
         token, _ = _create_verified_user(client, "ws-del@x.com", "password123", handle="ws-del-user")
         h = {"Authorization": f"Bearer {token}"}
-        wid = client.post("/api/workspaces", json={"name": "ws-del", "type": "local"}, headers=h).json()["id"]
+        wid = client.post("/api/workspaces", json={"name": "ws-del", "type": "cloud"}, headers=h).json()["id"]
         client.post(f"/api/workspaces/{wid}/agents", json={}, headers=h)
         client.post(f"/api/workspaces/{wid}/agents", json={}, headers=h)
 
@@ -65,6 +72,32 @@ class TestWorkspaceSharedSandbox:
         assert d.status_code == 200
         assert mock_agent_sdk.destroy_sandbox.call_count == 1
         assert mock_agent_sdk.destroy_sandbox.call_args[0][0] == "sb-ws-shared"
+
+    def test_create_workspace_rolls_back_on_provision_failure(self, client, mock_agent_sdk):
+        token, _ = _create_verified_user(client, "ws-fail@x.com", "password123", handle="ws-fail-user")
+        h = {"Authorization": f"Bearer {token}"}
+        mock_agent_sdk.provision_sandbox = AsyncMock(
+            side_effect=HTTPException(status_code=502, detail="sdk down")
+        )
+
+        r = client.post("/api/workspaces", json={"name": "ws-boom", "type": "cloud"}, headers=h)
+        assert r.status_code == 502
+
+        listing = client.get("/api/workspaces", headers=h).json()
+        names = [w["name"] for w in listing.get("workspaces", listing if isinstance(listing, list) else [])]
+        assert "ws-boom" not in names
+
+    def test_cloud_workspace_agent_has_cloud_type(self, client, mock_agent_sdk):
+        token, _ = _create_verified_user(client, "ws-type@x.com", "password123", handle="ws-type-user")
+        h = {"Authorization": f"Bearer {token}"}
+        wid = client.post("/api/workspaces", json={"name": "ws-type", "type": "cloud"}, headers=h).json()["id"]
+        resp = client.post(f"/api/workspaces/{wid}/agents", json={}, headers=h)
+        assert resp.status_code == 200
+        agent_id = resp.json()["id"]
+
+        with get_db_sync() as conn:
+            row = conn.execute("SELECT type FROM agents WHERE id = %s", (agent_id,)).fetchone()
+        assert row["type"] == "cloud"
 
 
 class TestWorkspaceSandboxMigration:

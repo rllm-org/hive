@@ -39,7 +39,7 @@ function draftKey(taskPath: string, channelName: string, threadTs?: string): str
 interface MentionItem {
   id: string;
   kind: "agent" | "user";
-  agentType?: "local" | "cloud";
+  agentType?: "local" | "cloud" | "persistent";
   avatar_url?: string | null;
   owner_handle?: string | null;
   total_runs?: number;
@@ -606,7 +606,7 @@ async function fetchMentionItems(query: string): Promise<MentionItem[]> {
   const agents: MentionItem[] = agentData.agents.map((a) => ({
     id: a.id,
     kind: "agent",
-    agentType: a.type as "local" | "cloud",
+    agentType: a.type as "local" | "cloud" | "persistent",
     owner_handle: a.owner_handle,
     total_runs: a.total_runs,
   }));

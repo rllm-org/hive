@@ -386,7 +386,7 @@ import { useWorkspaceFiles, type FsTreeNode } from "@/hooks/use-workspace-files"
 
 interface WorkspaceAgent {
   id: string;
-  type: "local" | "cloud";
+  type: "local" | "cloud" | "persistent";
   harness: string;
   model: string;
   avatar_seed: string | null;
@@ -398,7 +398,7 @@ interface WorkspaceAgent {
 interface Workspace {
   id: number;
   name: string;
-  type: "local" | "cloud";
+  type: "local" | "cloud" | "persistent";
   agents: WorkspaceAgent[];
   created_at: string;
   sdk_sandbox_id: string | null;
@@ -955,7 +955,7 @@ export default function WorkspacePage() {
         </button>
         <div className="flex flex-col leading-tight">
           <span className="text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)] font-semibold">
-            {workspace?.type === "cloud" ? "Cloud" : "Local"}
+            {workspace?.type === "cloud" ? "Cloud" : workspace?.type === "persistent" ? "Persistent" : "Local"}
           </span>
           <span className="text-[14px] font-semibold text-[var(--color-text)]">{workspaceName}</span>
         </div>
