@@ -315,6 +315,46 @@ export function useWorkspaceAgents(
     });
   }, []);
 
+  // Start SSE stream for an agent (reusable by both initial connect and reconnect after cancel)
+  const startSseStream = useCallback((agentId: string, sdkBase: string, sdkSid: string, ctrl: AbortController) => {
+    (async () => {
+      try {
+        const sseResp = await fetch(`${sdkBase}/sessions/${sdkSid}/events`, {
+          headers: { Accept: "text/event-stream" },
+          signal: ctrl.signal,
+        });
+        if (!sseResp.ok || ctrl.signal.aborted) return;
+
+        let innerSessionId: string | null = null;
+        try {
+          const statusResp = await fetch(`${sdkBase}/sessions/${sdkSid}/status`, { signal: ctrl.signal });
+          if (statusResp.ok) {
+            const data = await statusResp.json();
+            if (data?.available_commands && !ctrl.signal.aborted) {
+              updateAgent(agentId, { commands: data.available_commands });
+            }
+            innerSessionId = data?.inner_session_id ?? null;
+          }
+        } catch { /* non-fatal */ }
+
+        for await (const block of iterSseBlocks(sseResp, ctrl.signal)) {
+          if (ctrl.signal.aborted) break;
+          processSseBlock(
+            block,
+            (fn) => updateMessages(agentId, fn),
+            (cmds) => updateAgent(agentId, { commands: cmds }),
+            (loading) => updateAgent(agentId, { isLoading: loading }),
+            innerSessionId,
+          );
+        }
+      } catch (e) {
+        if (!ctrl.signal.aborted) {
+          console.warn("[sse] stream error for", agentId, e);
+        }
+      }
+    })();
+  }, [updateAgent, updateMessages]);
+
   // Start/stop connections based on agentIds
   useEffect(() => {
     if (workspaceId == null) return;
@@ -372,36 +412,7 @@ export function useWorkspaceAgents(
           updateAgent(agentId, { connecting: false });
 
           // Live SSE
-          const sseResp = await fetch(`${sdkBase}/sessions/${sdkSid}/events`, {
-            headers: { Accept: "text/event-stream" },
-            signal: ctrl.signal,
-          });
-          if (!sseResp.ok) throw new Error(`events HTTP ${sseResp.status}`);
-
-          // Fetch available commands + inner session ID for event filtering
-          let innerSessionId: string | null = null;
-          try {
-            const statusResp = await fetch(`${sdkBase}/sessions/${sdkSid}/status`, { signal: ctrl.signal });
-            if (statusResp.ok) {
-              const data = await statusResp.json();
-              if (data?.available_commands && !ctrl.signal.aborted) {
-                updateAgent(agentId, { commands: data.available_commands });
-              }
-              innerSessionId = data?.inner_session_id ?? null;
-            }
-          } catch { /* non-fatal */ }
-
-          // Process SSE stream — filter by inner session ID to avoid cross-agent events
-          for await (const block of iterSseBlocks(sseResp, ctrl.signal)) {
-            if (ctrl.signal.aborted) break;
-            processSseBlock(
-              block,
-              (fn) => updateMessages(agentId, fn),
-              (cmds) => updateAgent(agentId, { commands: cmds }),
-              (loading) => updateAgent(agentId, { isLoading: loading }),
-              innerSessionId,
-            );
-          }
+          startSseStream(agentId, sdkBase, sdkSid, ctrl);
         } catch (e) {
           if (!ctrl.signal.aborted) {
             updateAgent(agentId, { error: e instanceof Error ? e.message : String(e), connecting: false });
@@ -418,7 +429,7 @@ export function useWorkspaceAgents(
       connectionsRef.current = {};
       activeIdsRef.current = new Set();
     };
-  }, [workspaceId, agentIds.join(","), updateAgent, updateMessages]);
+  }, [workspaceId, agentIds.join(","), updateAgent, updateMessages, startSseStream]);
 
   const sendMessage = useCallback(async (agentId: string, text: string) => {
     if (!text.trim()) return;
@@ -436,23 +447,12 @@ export function useWorkspaceAgents(
 
   const cancel = useCallback(async (agentId: string) => {
     const conn = connectionsRef.current[agentId];
-    if (!conn) {
-      console.warn("[cancel] no connection for agent", agentId);
-      return;
-    }
-    updateAgent(agentId, { cancelling: true });
-    const minDelay = new Promise((r) => setTimeout(r, 800));
-    try {
-      const url = `${conn.sdkBase}/sessions/${conn.sdkSid}/cancel`;
-      const res = await fetch(url, { method: "POST" });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        console.warn("[cancel] failed:", res.status, body);
-      }
-    } catch (err) {
-      console.warn("[cancel] network error:", err);
-    }
-    await minDelay;
+    if (!conn) return;
+
+    // 1. Abort the SSE connection — this is the actual cancellation
+    conn.abort.abort();
+
+    // 2. Update UI immediately — show partial results, clear loading
     updateAgent(agentId, { isLoading: false, cancelling: false });
     updateMessages(agentId, (prev) => {
       const last = prev[prev.length - 1];
@@ -461,7 +461,12 @@ export function useWorkspaceAgents(
       }
       return prev;
     });
-  }, [updateAgent, updateMessages]);
+
+    // 3. Reconnect SSE so we can receive responses to future messages
+    const newCtrl = new AbortController();
+    connectionsRef.current[agentId] = { ...conn, abort: newCtrl };
+    startSseStream(agentId, conn.sdkBase, conn.sdkSid, newCtrl);
+  }, [updateAgent, updateMessages, startSseStream]);
 
   return { states, sendMessage, cancel };
 }

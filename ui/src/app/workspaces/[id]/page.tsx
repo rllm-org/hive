@@ -684,7 +684,7 @@ export default function WorkspacePage() {
   );
   const emptyState: AgentState = { messages: [], commands: [], isLoading: false, cancelling: false, connecting: false, error: null, sdkBaseUrl: null, sdkSessionId: null };
   const activeState: AgentState = activeAgent ? agentStates[activeAgent.id] ?? emptyState : emptyState;
-  const { messages, commands: rawCommands, isLoading, cancelling, connecting, error: agentError } = activeState;
+  const { messages, commands: rawCommands, isLoading, connecting, error: agentError } = activeState;
   const sendMessage = useCallback((text: string) => { if (activeAgent) sendAgentMessage(activeAgent.id, text); }, [activeAgent, sendAgentMessage]);
   const cancel = useCallback(() => { if (activeAgent) cancelAgent(activeAgent.id); }, [activeAgent, cancelAgent]);
 
@@ -820,7 +820,7 @@ export default function WorkspacePage() {
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || cancelling) return;
+    if (!input.trim()) return;
     sendMessage(input.trim());
     setInput("");
     setTimeout(() => {
@@ -829,7 +829,7 @@ export default function WorkspacePage() {
         latestUserRef.current.scrollIntoView({ block: "start" });
       }
     }, 0);
-  }, [input, cancelling, sendMessage, updateSpacer]);
+  }, [input, sendMessage, updateSpacer]);
 
   const selectCommand = useCallback((cmd: string) => {
     const ta = textareaRef.current;
@@ -1230,11 +1230,7 @@ export default function WorkspacePage() {
                     lineHeight: "20px",
                   }}
                 />
-                {cancelling ? (
-                  <div className="shrink-0 w-5 h-5 flex items-center justify-center" title="Stopping…">
-                    <div className="w-4 h-4 border-2 border-[var(--color-border)] border-t-[var(--color-text-tertiary)] rounded-full animate-spin" />
-                  </div>
-                ) : isLoading ? (
+                {isLoading ? (
                   <button
                     type="button"
                     onClick={cancel}
