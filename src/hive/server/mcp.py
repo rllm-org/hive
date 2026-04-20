@@ -25,30 +25,40 @@ TOOLS = [
     {
         "name": "ask_user",
         "description": (
-            "Ask the user a question with multiple choice options. "
-            "Always provide options for the user to choose from. "
+            "Ask the user one or more questions. Each question has options for the user to choose from. "
+            "You can ask multiple questions at once — they will be shown as a paginated form. "
             "Include 'Other...' as the last option to allow free-text input."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "question": {
-                    "type": "string",
-                    "description": "The question to ask the user",
-                },
-                "options": {
+                "questions": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of options. Always include at least 2. Add 'Other...' as last option for custom input.",
-                },
-                "mode": {
-                    "type": "string",
-                    "enum": ["select", "confirm", "multi_select", "text"],
-                    "default": "select",
-                    "description": "select: pick one, confirm: yes/no, multi_select: pick many, text: free input",
+                    "description": "List of questions to ask. Each question is shown one at a time in a paginated widget.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "question": {
+                                "type": "string",
+                                "description": "The question text",
+                            },
+                            "options": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of options. Add 'Other...' as last option for custom input.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["select", "confirm", "multi_select", "text"],
+                                "default": "select",
+                                "description": "select: pick one, confirm: yes/no, multi_select: pick many, text: free input",
+                            },
+                        },
+                        "required": ["question", "options"],
+                    },
                 },
             },
-            "required": ["question", "options"],
+            "required": ["questions"],
         },
     },
 ]
