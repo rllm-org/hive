@@ -2494,9 +2494,11 @@ async def _workspace_sdk_connect(
                 "url": mcp_url,
             }
         }
-        log.info("[workspace] MCP config: url=%s", mcp_url)
+        import logging
+        logging.getLogger("hive").info("[workspace] MCP config: url=%s", mcp_url)
     else:
-        log.warning("[workspace] HIVE_SERVER not set — MCP tools disabled")
+        import logging
+        logging.getLogger("hive").warning("[workspace] HIVE_SERVER not set — MCP tools disabled")
     upstream = await client.create_session(sandbox_id, **kw)
     sid = upstream.get("session_id")
     if not sid:
