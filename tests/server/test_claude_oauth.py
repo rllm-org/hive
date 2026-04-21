@@ -28,12 +28,20 @@ class TestUrlRegex:
         plain = (
             b"Browser didn't open? Use the url below to sign in:\n"
             b"https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a"
+            b"&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback"
             b"&code_challenge=abc&state=xyz\n"
             b"Paste code here if prompted >"
         )
         url = claude_oauth._extract_url(plain)
         assert url is not None
         assert url.startswith("https://claude.com/cai/oauth/authorize?")
+        assert "redirect_uri=" in url
+
+    def test_rejects_truncated_plain_text_url(self):
+        truncated = (
+            b"https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a\n"
+        )
+        assert claude_oauth._extract_url(truncated) is None
 
     def test_rejects_non_matching(self):
         assert claude_oauth._extract_url(b"no oauth url here") is None

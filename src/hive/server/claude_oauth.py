@@ -11,12 +11,15 @@ One session per user — concurrent starts kill the prior session.
 
 from __future__ import annotations
 
+import fcntl
 import os
 import pty
 import re
 import select
 import shutil
 import signal
+import struct
+import termios
 import threading
 import time
 import uuid
@@ -34,12 +37,19 @@ _URL_PLAIN_RE = re.compile(
 
 
 def _extract_url(buffer: bytes) -> str | None:
+    # Hyperlink escape always carries the full URL on a single line.
     m = _URL_HYPERLINK_RE.search(buffer)
     if m:
         return m.group(1).decode("utf-8", "replace")
+    # Plain-text fallback: only accept if the URL is complete enough to work.
+    # claude setup-token's URL always includes redirect_uri; if ours doesn't,
+    # it's been truncated by terminal line-wrapping and would fail on Anthropic's
+    # OAuth page with "Missing redirect_uri parameter".
     m = _URL_PLAIN_RE.search(buffer)
     if m:
-        return m.group(1).decode("utf-8", "replace")
+        url = m.group(1).decode("utf-8", "replace")
+        if "redirect_uri=" in url:
+            return url
     return None
 # Final token pattern. setup-token prints a single opaque string on success;
 # known format includes `sk-ant-oat01-...` but we accept any long URL-safe run.
@@ -168,11 +178,19 @@ def start_session(user_id: int) -> tuple[str, str]:
 
     pid, master_fd = pty.fork()
     if pid == 0:
-        # child
+        # child — ensure Ink doesn't word-wrap the OAuth URL.
+        os.environ["COLUMNS"] = "4000"
+        os.environ["LINES"] = "50"
         try:
             os.execvp(claude_bin, [claude_bin, "setup-token"])
         except Exception:
             os._exit(127)
+
+    # parent — widen the PTY so the TUI renders the URL on one line.
+    try:
+        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 4000, 0, 0))
+    except OSError:
+        pass
 
     sid = uuid.uuid4().hex
     session = ClaudeAuthSession(
