@@ -731,6 +731,8 @@ export default function WorkspacePage() {
   const [wsLoading, setWsLoading] = useState(true);
   const [addingAgent, setAddingAgent] = useState(false);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+  const [currentModel, setCurrentModel] = useState<string>("claude-sonnet-4-6");
+  const [modelError, setModelError] = useState<string | null>(null);
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [showDeleteWs, setShowDeleteWs] = useState(false);
   const [showCreateAgent, setShowCreateAgent] = useState(false);
@@ -797,6 +799,12 @@ export default function WorkspacePage() {
     }
   }, [activeAgentId, agents]);
 
+  useEffect(() => {
+    setCurrentModel(activeAgent?.model ?? "claude-sonnet-4-6");
+    setModelError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAgent?.id]);
+
   // Close workspace menu on outside click
   useEffect(() => {
     if (!wsMenuOpen) return;
@@ -834,7 +842,7 @@ export default function WorkspacePage() {
 
   // Chat state — all agents connected simultaneously
   const agentIdList = useMemo(() => agents.map((a) => a.id), [agents]);
-  const { states: agentStates, sendMessage: sendAgentMessage, cancel: cancelAgent } = useWorkspaceAgents(
+  const { states: agentStates, sendMessage: sendAgentMessage, cancel: cancelAgent, setModel: setAgentModel } = useWorkspaceAgents(
     workspace ? workspaceId : null,
     agentIdList,
   );
@@ -843,6 +851,17 @@ export default function WorkspacePage() {
   const { messages, commands: rawCommands, isLoading, cancelling, connecting, error: agentError } = activeState;
   const sendMessage = useCallback((text: string) => { if (activeAgent) sendAgentMessage(activeAgent.id, text); }, [activeAgent, sendAgentMessage]);
   const cancel = useCallback(() => { if (activeAgent) cancelAgent(activeAgent.id); }, [activeAgent, cancelAgent]);
+
+  const handleModelChange = useCallback(async (model: string) => {
+    if (!activeAgent) return;
+    setModelError(null);
+    try {
+      await setAgentModel(activeAgent.id, model);
+      setCurrentModel(model);
+    } catch {
+      setModelError("Failed to switch model");
+    }
+  }, [activeAgent, setAgentModel]);
 
   const commands = rawCommands;
   const validCommandNames = useMemo(() => new Set(commands.map((c) => c.name)), [commands]);
@@ -1262,7 +1281,14 @@ export default function WorkspacePage() {
             activeAgentId={activeAgent?.id ?? null}
             onSelect={setActiveAgentId}
             onDelete={handleDeleteAgent}
+            activeModel={activeAgent ? currentModel : null}
+            onModelChange={handleModelChange}
           />
+          {modelError && (
+            <div className="shrink-0 px-3 py-1 text-[11px] text-red-400 bg-red-500/5 border-b border-[var(--color-border)]">
+              {modelError}
+            </div>
+          )}
 
           {!activeAgent ? (
             <div className="flex-1 border-t border-[var(--color-border)] bg-[var(--color-layer-1)] flex flex-col items-center justify-center gap-3 px-6">
