@@ -134,6 +134,98 @@ export function useWorkspaceFiles(
     [sdkBaseUrl],
   );
 
+  /* Upload files (base64-encoded) */
+  const uploadFiles = useCallback(
+    async (files: File[], directory?: string): Promise<{ ok: boolean; error?: string }> => {
+      const sbxId = sandboxIdRef.current;
+      if (!sdkBaseUrl || !sbxId) return { ok: false, error: "not connected" };
+      for (const file of files) {
+        const buf = await file.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        const base64 = btoa(binary);
+        const filePath = directory ? `${directory}/${file.name}` : file.name;
+        const resp = await fetch(
+          `${sdkBaseUrl}/sandboxes/${sbxId}/files/upload`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: filePath, content: base64 }),
+          },
+        );
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          return { ok: false, error: data.error ?? `HTTP ${resp.status}` };
+        }
+      }
+      return { ok: true };
+    },
+    [sdkBaseUrl],
+  );
+
+  /* Delete a file or directory */
+  const deleteFile = useCallback(
+    async (filePath: string): Promise<{ ok: boolean; error?: string }> => {
+      const sbxId = sandboxIdRef.current;
+      if (!sdkBaseUrl || !sbxId) return { ok: false, error: "not connected" };
+      const resp = await fetch(
+        `${sdkBaseUrl}/sandboxes/${sbxId}/files/delete`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: filePath }),
+        },
+      );
+      const data = await resp.json();
+      if (!resp.ok) return { ok: false, error: data.error ?? `HTTP ${resp.status}` };
+      return { ok: true };
+    },
+    [sdkBaseUrl],
+  );
+
+  /* Rename / move a file or directory */
+  const renameFile = useCallback(
+    async (filePath: string, newPath: string): Promise<{ ok: boolean; error?: string }> => {
+      const sbxId = sandboxIdRef.current;
+      if (!sdkBaseUrl || !sbxId) return { ok: false, error: "not connected" };
+      const resp = await fetch(
+        `${sdkBaseUrl}/sandboxes/${sbxId}/files/rename`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: filePath, new_path: newPath }),
+        },
+      );
+      const data = await resp.json();
+      if (!resp.ok) return { ok: false, error: data.error ?? `HTTP ${resp.status}` };
+      return { ok: true };
+    },
+    [sdkBaseUrl],
+  );
+
+  /* Download a file (triggers browser save) */
+  const downloadFile = useCallback(
+    async (filePath: string): Promise<void> => {
+      const sbxId = sandboxIdRef.current;
+      if (!sdkBaseUrl || !sbxId) return;
+      const resp = await fetch(
+        `${sdkBaseUrl}/sandboxes/${sbxId}/files/download?path=${encodeURIComponent(filePath)}`,
+      );
+      if (!resp.ok) return;
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filePath.split("/").pop() || "download";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    },
+    [sdkBaseUrl],
+  );
+
   /* Force-refresh tree now */
   const refresh = useCallback(async () => {
     const sbxId = sandboxIdRef.current;
@@ -141,5 +233,5 @@ export function useWorkspaceFiles(
     await fetchTree(sdkBaseUrl, sbxId);
   }, [sdkBaseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { tree, loading, error, readFile, editFile, refresh };
+  return { tree, loading, error, readFile, editFile, uploadFiles, deleteFile, renameFile, downloadFile, refresh };
 }

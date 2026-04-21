@@ -563,22 +563,70 @@ function SandboxTreeNode({
   expandedDirs,
   onToggleDir,
   onFileClick,
+  onDelete,
+  onRename,
+  onDownload,
   depth = 0,
 }: {
   node: FsTreeNode;
   expandedDirs: Set<string>;
   onToggleDir: (path: string) => void;
   onFileClick: (node: FsTreeNode) => void;
+  onDelete?: (path: string) => void;
+  onRename?: (path: string) => void;
+  onDownload?: (path: string) => void;
   depth?: number;
 }) {
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const isDir = node.type === "directory";
   const isExpanded = expandedDirs.has(node.path);
+
+  useEffect(() => {
+    if (!menuPos) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuPos(null);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuPos]);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuPos({ x: e.clientX, y: e.clientY });
+  };
+
+  const contextMenu = menuPos && (
+    <div
+      ref={menuRef}
+      className="fixed bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[120px] z-[9999]"
+      style={{ borderRadius: 6, left: menuPos.x, top: menuPos.y }}
+    >
+      {onRename && (
+        <button onClick={() => { setMenuPos(null); onRename(node.path); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
+          Rename
+        </button>
+      )}
+      {onDownload && !isDir && (
+        <button onClick={() => { setMenuPos(null); onDownload(node.path); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
+          Download
+        </button>
+      )}
+      {onDelete && (
+        <button onClick={() => { setMenuPos(null); onDelete(node.path); }} className="w-full text-left px-3 py-1.5 text-xs text-red-500 hover:bg-red-500/10">
+          Delete
+        </button>
+      )}
+    </div>
+  );
 
   if (isDir) {
     return (
       <div>
         <button
           onClick={() => onToggleDir(node.path)}
+          onContextMenu={handleContextMenu}
           className="group flex items-center gap-1.5 py-0.5 text-xs text-[var(--color-text)] hover:text-[var(--color-accent)] transition-colors text-left w-full min-w-0"
           style={{ paddingLeft: `${depth * 14}px` }}
         >
@@ -587,6 +635,7 @@ function SandboxTreeNode({
           </svg>
           <span className="font-[family-name:var(--font-ibm-plex-mono)] truncate font-medium">{node.name}</span>
         </button>
+        {contextMenu}
         {isExpanded && node.children && (
           <div>
             {node.children.map((child) => (
@@ -596,6 +645,9 @@ function SandboxTreeNode({
                 expandedDirs={expandedDirs}
                 onToggleDir={onToggleDir}
                 onFileClick={onFileClick}
+                onDelete={onDelete}
+                onRename={onRename}
+                onDownload={onDownload}
                 depth={depth + 1}
               />
             ))}
@@ -606,21 +658,25 @@ function SandboxTreeNode({
   }
 
   return (
-    <button
-      onClick={() => onFileClick(node)}
-      className="flex items-center gap-1.5 text-xs text-[var(--color-text)] hover:text-[var(--color-accent)] py-0.5 transition-colors w-full text-left"
-      style={{ paddingLeft: `${depth * 14}px` }}
-    >
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-50">
-        <path fillRule="evenodd" d="M3.75 1.5a.25.25 0 00-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25V4.664a.25.25 0 00-.073-.177l-2.914-2.914a.25.25 0 00-.177-.073H3.75zM2 1.75C2 .784 2.784 0 3.75 0h5.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0112.25 16h-8.5A1.75 1.75 0 012 14.25V1.75z" />
-      </svg>
-      <span className="font-[family-name:var(--font-ibm-plex-mono)] truncate">{node.name}</span>
-      {node.size != null && node.size > 0 && (
-        <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)] shrink-0">
-          {node.size < 1024 ? `${node.size} B` : node.size < 1024 * 1024 ? `${(node.size / 1024).toFixed(1)} KB` : `${(node.size / (1024 * 1024)).toFixed(1)} MB`}
-        </span>
-      )}
-    </button>
+    <>
+      <button
+        onClick={() => onFileClick(node)}
+        onContextMenu={handleContextMenu}
+        className="flex items-center gap-1.5 text-xs text-[var(--color-text)] hover:text-[var(--color-accent)] py-0.5 transition-colors w-full text-left"
+        style={{ paddingLeft: `${depth * 14}px` }}
+      >
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-50">
+          <path fillRule="evenodd" d="M3.75 1.5a.25.25 0 00-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25V4.664a.25.25 0 00-.073-.177l-2.914-2.914a.25.25 0 00-.177-.073H3.75zM2 1.75C2 .784 2.784 0 3.75 0h5.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0112.25 16h-8.5A1.75 1.75 0 012 14.25V1.75z" />
+        </svg>
+        <span className="font-[family-name:var(--font-ibm-plex-mono)] truncate">{node.name}</span>
+        {node.size != null && node.size > 0 && (
+          <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)] shrink-0">
+            {node.size < 1024 ? `${node.size} B` : node.size < 1024 * 1024 ? `${(node.size / 1024).toFixed(1)} KB` : `${(node.size / (1024 * 1024)).toFixed(1)} MB`}
+          </span>
+        )}
+      </button>
+      {contextMenu}
+    </>
   );
 }
 
@@ -871,10 +927,85 @@ export default function WorkspacePage() {
 
   // Live sandbox filesystem — keyed on workspace sandbox, not per-agent session,
   // so switching agents does not trigger a reload.
-  const { tree: fsTree, loading: fsLoading, error: fsError, readFile, editFile } = useWorkspaceFiles(
+  const { tree: fsTree, loading: fsLoading, error: fsError, readFile, editFile, uploadFiles, deleteFile, renameFile, downloadFile, refresh: fsRefresh } = useWorkspaceFiles(
     workspace?.sdk_base_url ?? null,
     workspace?.sdk_sandbox_id ?? null,
   );
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
+  const [draggingOver, setDraggingOver] = useState(false);
+
+  const handleUploadFiles = useCallback(async (files: FileList | File[]) => {
+    const result = await uploadFiles(Array.from(files));
+    if (!result.ok) alert("Upload failed: " + (result.error ?? "unknown"));
+    await fsRefresh();
+  }, [uploadFiles, fsRefresh]);
+
+  const handleUploadFolder = useCallback(async (files: FileList) => {
+    // webkitdirectory gives files with webkitRelativePath like "folder/sub/file.txt"
+    const mapped = Array.from(files).map((f) => {
+      const relativePath = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+      return new File([f], relativePath, { type: f.type });
+    });
+    const result = await uploadFiles(mapped);
+    if (!result.ok) alert("Upload failed: " + (result.error ?? "unknown"));
+    await fsRefresh();
+  }, [uploadFiles, fsRefresh]);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDraggingOver(false);
+    const items = e.dataTransfer.items;
+    const allFiles: File[] = [];
+
+    // Recursively read directory entries
+    async function readEntry(entry: FileSystemEntry, basePath: string): Promise<void> {
+      if (entry.isFile) {
+        const file = await new Promise<File>((resolve) => (entry as FileSystemFileEntry).file(resolve));
+        const path = basePath ? `${basePath}/${file.name}` : file.name;
+        allFiles.push(new File([file], path, { type: file.type }));
+      } else if (entry.isDirectory) {
+        const reader = (entry as FileSystemDirectoryEntry).createReader();
+        const entries = await new Promise<FileSystemEntry[]>((resolve) => reader.readEntries(resolve));
+        const dirPath = basePath ? `${basePath}/${entry.name}` : entry.name;
+        for (const child of entries) await readEntry(child, dirPath);
+      }
+    }
+
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry?.();
+        if (entry) {
+          await readEntry(entry, "");
+        } else if (items[i].kind === "file") {
+          const file = items[i].getAsFile();
+          if (file) allFiles.push(file);
+        }
+      }
+    }
+
+    if (allFiles.length > 0) {
+      const result = await uploadFiles(allFiles);
+      if (!result.ok) alert("Upload failed: " + (result.error ?? "unknown"));
+      await fsRefresh();
+    }
+  }, [uploadFiles, fsRefresh]);
+
+  const handleDeleteFile = useCallback(async (filePath: string) => {
+    if (!confirm(`Delete "${filePath}"?`)) return;
+    const result = await deleteFile(filePath);
+    if (!result.ok) alert("Delete failed: " + (result.error ?? "unknown"));
+    await fsRefresh();
+  }, [deleteFile, fsRefresh]);
+
+  const handleRenameFile = useCallback(async (filePath: string) => {
+    const newPath = prompt("New name:", filePath);
+    if (!newPath || newPath === filePath) return;
+    const result = await renameFile(filePath, newPath);
+    if (!result.ok) alert("Rename failed: " + (result.error ?? "unknown"));
+    await fsRefresh();
+  }, [renameFile, fsRefresh]);
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
     const result = await editFile(path, "", content);
@@ -1211,9 +1342,53 @@ export default function WorkspacePage() {
       {/* Split view */}
       <div ref={containerRef} className="flex-1 flex min-h-0">
         {/* Left: File System */}
-        <div className="shrink-0 flex flex-col bg-[var(--color-layer-2)]" style={{ width: `${leftWidth}%` }}>
+        <div
+          className={`shrink-0 flex flex-col bg-[var(--color-layer-2)] ${draggingOver ? "ring-2 ring-inset ring-[var(--color-accent)]" : ""}`}
+          style={{ width: `${leftWidth}%` }}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDraggingOver(true); }}
+          onDragLeave={(e) => { e.preventDefault(); setDraggingOver(false); }}
+          onDrop={handleDrop}
+        >
+          {/* File tree header */}
+          <div className="flex items-center justify-between px-5 pt-3 pb-1">
+            <span className="text-[10px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Files</span>
+            <div className="relative">
+              <button
+                onClick={() => setUploadMenuOpen((o) => !o)}
+                className="text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors"
+              >
+                Upload
+              </button>
+              {uploadMenuOpen && (
+                <div
+                  className="absolute right-0 mt-1 bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[140px] z-50"
+                  style={{ borderRadius: 6 }}
+                >
+                  <button
+                    onClick={() => { setUploadMenuOpen(false); fileInputRef.current?.click(); }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+                  >
+                    Files
+                  </button>
+                  <button
+                    onClick={() => { setUploadMenuOpen(false); folderInputRef.current?.click(); }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+                  >
+                    Folder
+                  </button>
+                </div>
+              )}
+            </div>
+            <input ref={fileInputRef} type="file" multiple className="hidden"
+              onChange={(e) => { if (e.target.files?.length) handleUploadFiles(e.target.files); e.target.value = ""; }}
+            />
+            {/* @ts-expect-error webkitdirectory is non-standard */}
+            <input ref={folderInputRef} type="file" webkitdirectory="" className="hidden"
+              onChange={(e) => { if (e.target.files?.length) handleUploadFolder(e.target.files); e.target.value = ""; }}
+            />
+          </div>
           {/* File tree */}
-          <div className="flex-1 overflow-y-auto min-h-0 px-5 pt-4 pb-5">
+          <div className="flex-1 overflow-y-auto min-h-0 px-5 pb-5">
             {fsLoading && (
               <div className="flex items-center justify-center py-8">
                 <div className="w-5 h-5 border-2 border-[var(--color-border)] border-t-[var(--color-accent)] rounded-full animate-spin" />
@@ -1223,7 +1398,7 @@ export default function WorkspacePage() {
               <p className="text-xs text-[var(--color-text-tertiary)] px-1 py-4">{fsError}</p>
             )}
             {!fsLoading && !fsError && fsTree.length === 0 && (
-              <p className="text-xs text-[var(--color-text-tertiary)] px-1 py-4">No files yet</p>
+              <p className="text-xs text-[var(--color-text-tertiary)] px-1 py-4">No files yet — drag and drop or click Upload</p>
             )}
             <div className="space-y-0.5">
               {fsTree.map((node) => (
@@ -1233,6 +1408,9 @@ export default function WorkspacePage() {
                   expandedDirs={expandedDirs}
                   onToggleDir={handleToggleDir}
                   onFileClick={handleFileClick}
+                  onDelete={handleDeleteFile}
+                  onRename={handleRenameFile}
+                  onDownload={downloadFile}
                 />
               ))}
             </div>
