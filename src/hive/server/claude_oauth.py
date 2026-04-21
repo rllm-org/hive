@@ -23,16 +23,31 @@ import uuid
 from dataclasses import dataclass, field
 
 # Hyperlink escape: \x1b]8;id=...;URL\x1b\\
-_URL_RE = re.compile(
+_URL_HYPERLINK_RE = re.compile(
     rb"\x1b\]8;id=[^;]*;(https://claude\.com/cai/oauth/authorize[^\x1b\x07]+)",
 )
+# Plain-text fallback (e.g. TERM=dumb, no OSC 8 support). URL terminates at
+# whitespace or an ANSI escape.
+_URL_PLAIN_RE = re.compile(
+    rb"(https://claude\.com/cai/oauth/authorize[^\s\x1b\x07]+)",
+)
+
+
+def _extract_url(buffer: bytes) -> str | None:
+    m = _URL_HYPERLINK_RE.search(buffer)
+    if m:
+        return m.group(1).decode("utf-8", "replace")
+    m = _URL_PLAIN_RE.search(buffer)
+    if m:
+        return m.group(1).decode("utf-8", "replace")
+    return None
 # Final token pattern. setup-token prints a single opaque string on success;
 # known format includes `sk-ant-oat01-...` but we accept any long URL-safe run.
 _TOKEN_RE = re.compile(rb"(sk-ant-oat01-[A-Za-z0-9_\-]{40,})")
 _ANSI_RE = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]")
 
 _SESSION_TTL_SEC = 600
-_URL_WAIT_SEC = 20
+_URL_WAIT_SEC = 45
 _FINISH_WAIT_SEC = 60
 
 _CLAUDE_CANDIDATE_PATHS = (
@@ -121,9 +136,9 @@ def _reader(session: ClaudeAuthSession) -> None:
             break
         session.buffer.extend(chunk)
         if session.auth_url is None:
-            m = _URL_RE.search(session.buffer)
-            if m:
-                session.auth_url = m.group(1).decode("utf-8", "replace")
+            url = _extract_url(session.buffer)
+            if url:
+                session.auth_url = url
         if session.token is None:
             m = _TOKEN_RE.search(session.buffer)
             if m:
@@ -178,7 +193,11 @@ def start_session(user_id: int) -> tuple[str, str]:
     with _SESSIONS_LOCK:
         _SESSIONS.pop(sid, None)
     _kill(session)
-    raise RuntimeError("timed out waiting for OAuth URL from `claude setup-token`")
+    tail = _ANSI_RE.sub(b"", bytes(session.buffer[-600:])).decode("utf-8", "replace")
+    raise RuntimeError(
+        f"timed out waiting for OAuth URL from `claude setup-token` after "
+        f"{_URL_WAIT_SEC}s. Tail of captured output: {tail!r}"
+    )
 
 
 def submit_code(session_id: str, user_id: int, code: str) -> str:

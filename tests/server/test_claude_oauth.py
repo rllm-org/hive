@@ -17,16 +17,26 @@ _CAPTURED_URL_FRAGMENT = (
 
 
 class TestUrlRegex:
-    def test_extracts_oauth_url(self):
-        m = claude_oauth._URL_RE.search(_CAPTURED_URL_FRAGMENT)
-        assert m is not None
-        url = m.group(1).decode()
+    def test_extracts_hyperlink_oauth_url(self):
+        url = claude_oauth._extract_url(_CAPTURED_URL_FRAGMENT)
+        assert url is not None
         assert url.startswith("https://claude.com/cai/oauth/authorize?")
         assert "code_challenge=" in url
         assert "client_id=" in url
 
+    def test_extracts_plain_text_oauth_url(self):
+        plain = (
+            b"Browser didn't open? Use the url below to sign in:\n"
+            b"https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a"
+            b"&code_challenge=abc&state=xyz\n"
+            b"Paste code here if prompted >"
+        )
+        url = claude_oauth._extract_url(plain)
+        assert url is not None
+        assert url.startswith("https://claude.com/cai/oauth/authorize?")
+
     def test_rejects_non_matching(self):
-        assert claude_oauth._URL_RE.search(b"no oauth url here") is None
+        assert claude_oauth._extract_url(b"no oauth url here") is None
 
 
 class TestTokenRegex:
