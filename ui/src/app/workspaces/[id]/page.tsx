@@ -155,52 +155,140 @@ function AgentAvatar({ seed, id, size = 20 }: { seed: string | null; id: string;
   );
 }
 
+const MODELS = [
+  { id: "claude-haiku-4-5-20251001", label: "Haiku",  tier: "Fast",     short: "haiku" },
+  { id: "claude-sonnet-4-6",         label: "Sonnet", tier: "Balanced",  short: "sonnet-4-6" },
+  { id: "claude-opus-4-6",           label: "Opus",   tier: "Powerful",  short: "opus-4-6" },
+] as const;
+
+type ModelId = (typeof MODELS)[number]["id"];
+
 function AgentTabs({
   agents,
   activeAgentId,
   onSelect,
   onDelete,
+  activeModel,
+  onModelChange,
 }: {
   agents: WorkspaceAgent[];
   activeAgentId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => Promise<void>;
+  activeModel: string | null;
+  onModelChange: (model: string) => Promise<void>;
 }) {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [modelChanging, setModelChanging] = useState(false);
+  const modelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!modelOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (modelRef.current && !modelRef.current.contains(e.target as Node)) {
+        setModelOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [modelOpen]);
 
   return (
     <>
-      <div className="shrink-0 flex items-end gap-0 px-3 pt-2 relative overflow-x-auto" style={{ marginBottom: -1 }}>
-        {agents.map((a) => {
-          const active = a.id === activeAgentId;
-          return (
-            <div
-              key={a.id}
-              onClick={() => onSelect(a.id)}
-              className={`group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 text-[12px] font-medium cursor-pointer transition-colors ${
-                active
-                  ? "bg-[var(--color-layer-1)] text-[var(--color-text)] border border-[var(--color-border)] border-b-transparent z-10"
-                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] opacity-60 hover:opacity-100 border border-transparent"
-              }`}
-              style={{ borderRadius: "6px 6px 0 0" }}
-            >
-              <AgentAvatar seed={a.avatar_seed} id={a.id} size={16} />
-              <span className="truncate max-w-[120px]">{a.id}</span>
-              <button
-                onClick={(e) => { e.stopPropagation(); setPendingDelete(a.id); }}
-                className={`w-4 h-4 ml-0.5 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all ${
-                  active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+      <div className="shrink-0 flex items-end gap-0 px-3 pt-2 relative" style={{ marginBottom: -1 }}>
+        <div className="flex items-end gap-0 flex-1 overflow-x-auto min-w-0">
+          {agents.map((a) => {
+            const active = a.id === activeAgentId;
+            return (
+              <div
+                key={a.id}
+                onClick={() => onSelect(a.id)}
+                className={`group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 text-[12px] font-medium cursor-pointer transition-colors ${
+                  active
+                    ? "bg-[var(--color-layer-1)] text-[var(--color-text)] border border-[var(--color-border)] border-b-transparent z-10"
+                    : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] opacity-60 hover:opacity-100 border border-transparent"
                 }`}
-                style={{ borderRadius: 3 }}
-                aria-label={`Close ${a.id}`}
+                style={{ borderRadius: "6px 6px 0 0" }}
               >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M2 2l6 6M8 2l-6 6" />
-                </svg>
-              </button>
-            </div>
-          );
-        })}
+                <AgentAvatar seed={a.avatar_seed} id={a.id} size={16} />
+                <span className="truncate max-w-[120px]">{a.id}</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setPendingDelete(a.id); }}
+                  className={`w-4 h-4 ml-0.5 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all ${
+                    active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                  }`}
+                  style={{ borderRadius: 3 }}
+                  aria-label={`Close ${a.id}`}
+                >
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M2 2l6 6M8 2l-6 6" />
+                  </svg>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {activeModel != null && (
+          <div ref={modelRef} className="flex items-center pb-1.5 pl-2 flex-shrink-0 relative">
+            <button
+              onClick={() => setModelOpen((v) => !v)}
+              disabled={modelChanging}
+              className={`flex items-center gap-1 px-2 py-1 text-[11px] border rounded font-mono transition-colors ${
+                modelOpen
+                  ? "border-[var(--color-accent)] text-[var(--color-text)] bg-[var(--color-surface)]"
+                  : "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[#444] hover:text-[var(--color-text)] bg-[var(--color-surface)]"
+              } disabled:opacity-50`}
+            >
+              {modelChanging ? (
+                <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+              ) : null}
+              {MODELS.find((m) => m.id === activeModel)?.short ?? activeModel}
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="opacity-50">
+                {modelOpen
+                  ? <path d="M18 15l-6-6-6 6" />
+                  : <path d="M6 9l6 6 6-6" />}
+              </svg>
+            </button>
+            {modelOpen && (
+              <div className="absolute top-full right-0 mt-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md shadow-lg min-w-[196px] z-50 overflow-hidden">
+                {MODELS.map((m) => {
+                  const isCurrent = m.id === activeModel;
+                  const tierStyle: Record<string, React.CSSProperties> = {
+                    Fast:     { background: "#1a3d2b", color: "#3ecf8e" },
+                    Balanced: { background: "#1f2e4a", color: "#60a5fa" },
+                    Powerful: { background: "#2d1f4a", color: "#c084fc" },
+                  };
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={async () => {
+                        if (isCurrent) { setModelOpen(false); return; }
+                        setModelOpen(false);
+                        setModelChanging(true);
+                        try { await onModelChange(m.id); } finally { setModelChanging(false); }
+                      }}
+                      className={`w-full text-left px-3 py-2 flex flex-col gap-0.5 hover:bg-[var(--color-layer-2)] transition-colors ${isCurrent ? "bg-[#1a1535]" : ""}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[12px] font-semibold text-[var(--color-text)] font-mono">{m.label}</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide" style={tierStyle[m.tier]}>
+                          {m.tier}
+                        </span>
+                        {isCurrent && (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2.5">
+                            <path d="M20 6L9 17l-5-5" />
+                          </svg>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-[var(--color-text-tertiary)]">{m.id}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       {pendingDelete && (
         <DeleteAgentModal
