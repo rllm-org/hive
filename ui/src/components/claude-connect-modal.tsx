@@ -9,13 +9,10 @@ interface ClaudeConnectModalProps {
 }
 
 export function ClaudeConnectModal({ onClose, onConnected }: ClaudeConnectModalProps) {
-  const { claudeStart, claudeSubmitCode } = useAuth();
-  const [authUrl, setAuthUrl] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [code, setCode] = useState("");
+  const { claudeSubmitToken } = useAuth();
+  const [token, setToken] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [starting, setStarting] = useState(true);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -24,34 +21,17 @@ export function ClaudeConnectModal({ onClose, onConnected }: ClaudeConnectModalP
     return () => window.removeEventListener("keydown", handleEsc);
   }, [onClose]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setStarting(true);
-    setError("");
-    claudeStart()
-      .then((data) => {
-        if (cancelled) return;
-        setSessionId(data.auth_session_id);
-        setAuthUrl(data.auth_url);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setError(e?.message ?? "failed to start Claude login");
-      })
-      .finally(() => { if (!cancelled) setStarting(false); });
-    return () => { cancelled = true; };
-  }, [claudeStart]);
-
   const submit = async () => {
-    if (!sessionId || !code.trim()) return;
+    const trimmed = token.trim();
+    if (!trimmed) return;
     setLoading(true);
     setError("");
     try {
-      await claudeSubmitCode(sessionId, code.trim());
+      await claudeSubmitToken(trimmed);
       onConnected?.();
       onClose();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "failed to submit code");
+      setError(e instanceof Error ? e.message : "failed to save token");
     } finally {
       setLoading(false);
     }
@@ -63,44 +43,44 @@ export function ClaudeConnectModal({ onClose, onConnected }: ClaudeConnectModalP
       onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
     >
-      <div className="w-full max-w-md rounded-lg bg-[var(--color-surface)] p-6 shadow-xl">
+      <div className="w-full max-w-lg rounded-lg bg-[var(--color-surface)] p-6 shadow-xl">
         <h2 className="mb-2 text-lg font-semibold">Connect your Claude account</h2>
-        <p className="mb-4 text-sm text-[var(--color-muted)]">
-          Hive runs agents on your Claude subscription. Log in once and every
-          workspace you create will use your Claude account.
+        <p className="mb-3 text-sm text-[var(--color-muted)]">
+          Hive runs agents on your Claude subscription. Generate a token once and paste it here —
+          every workspace you create will use your account.
         </p>
 
-        {starting && <p className="text-sm text-[var(--color-muted)]">Preparing login…</p>}
+        <ol className="mb-4 list-decimal space-y-2 pl-5 text-sm">
+          <li>
+            Install the Claude Code CLI if you haven&apos;t already:{" "}
+            <a
+              href="https://docs.anthropic.com/claude/docs/claude-code"
+              target="_blank" rel="noopener noreferrer"
+              className="text-[var(--color-accent)] underline"
+            >
+              setup guide ↗
+            </a>
+          </li>
+          <li>
+            Run this in your terminal:
+            <pre className="mt-1 overflow-x-auto rounded bg-[var(--color-layer-2)] p-2 text-xs font-mono">claude setup-token</pre>
+          </li>
+          <li>Approve in your browser; the terminal will print a token starting with <code>sk-ant-oat01-…</code></li>
+          <li>Paste the token below:</li>
+        </ol>
 
-        {!starting && authUrl && (
-          <>
-            <div className="mb-3">
-              <a
-                href={authUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded bg-[var(--color-accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
-              >
-                Open Claude login ↗
-              </a>
-              <p className="mt-2 text-xs text-[var(--color-muted)]">
-                A browser tab will open. Approve access, then copy the code Claude shows you.
-              </p>
-            </div>
-
-            <label className="mb-1 block text-sm font-medium">Paste code here</label>
-            <input
-              type="text"
-              autoComplete="off"
-              spellCheck={false}
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-              className="mb-3 w-full rounded border border-[var(--color-border)] bg-transparent px-3 py-2 text-sm"
-              placeholder="paste the code from the Claude page"
-            />
-          </>
-        )}
+        <label className="mb-1 block text-sm font-medium">Claude OAuth token</label>
+        <input
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          className="mb-3 w-full rounded border border-[var(--color-border)] bg-transparent px-3 py-2 font-mono text-sm"
+          placeholder="sk-ant-oat01-…"
+          autoFocus
+        />
 
         {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
 
@@ -113,10 +93,10 @@ export function ClaudeConnectModal({ onClose, onConnected }: ClaudeConnectModalP
           </button>
           <button
             onClick={submit}
-            disabled={loading || starting || !sessionId || !code.trim()}
+            disabled={loading || !token.trim()}
             className="rounded bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            {loading ? "Connecting…" : "Connect"}
+            {loading ? "Saving…" : "Connect"}
           </button>
         </div>
       </div>

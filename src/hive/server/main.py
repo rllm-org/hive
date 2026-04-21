@@ -899,39 +899,20 @@ async def auth_github_disconnect(user: dict = Depends(require_user)):
     return {"status": "disconnected"}
 
 
-@router.post("/auth/claude/start")
-async def auth_claude_start(user: dict = Depends(require_user)):
-    from . import claude_oauth
-    user_id = int(user["sub"])
-    try:
-        sid, url = await asyncio.to_thread(claude_oauth.start_session, user_id)
-    except RuntimeError as e:
-        raise HTTPException(502, str(e))
-    return {"auth_session_id": sid, "auth_url": url}
-
-
-@router.post("/auth/claude/code")
-async def auth_claude_code(body: dict[str, Any], user: dict = Depends(require_user)):
+@router.post("/auth/claude/token")
+async def auth_claude_token(body: dict[str, Any], user: dict = Depends(require_user)):
+    """Store a Claude OAuth token the user generated locally via `claude setup-token`."""
     import logging
-    from . import claude_oauth
     user_id = int(user["sub"])
-    sid = (body.get("auth_session_id") or "").strip()
-    code = (body.get("code") or "").strip()
-    if not sid or not code:
-        raise HTTPException(400, "auth_session_id and code required")
+    token = (body.get("token") or "").strip()
+    if not token:
+        raise HTTPException(400, "token required")
+    # Minimal shape check — sk-ant-oat01-… is the expected format from setup-token.
+    if not token.startswith("sk-ant-"):
+        raise HTTPException(400, "token does not look like a Claude OAuth token (expected sk-ant-…)")
+    if len(token) < 40:
+        raise HTTPException(400, "token is too short")
     try:
-        try:
-            token = await asyncio.to_thread(claude_oauth.submit_code, sid, user_id, code)
-        except LookupError:
-            raise HTTPException(404, "auth session not found or expired")
-        except PermissionError:
-            raise HTTPException(403, "auth session does not belong to this user")
-        except ValueError as e:
-            raise HTTPException(400, str(e))
-        except RuntimeError as e:
-            logging.exception("claude submit_code failed for user %s", user_id)
-            raise HTTPException(502, str(e))
-
         token_encrypted = _encrypt(token)
         created_at = now()
         expires_at = created_at + timedelta(days=350)
@@ -947,9 +928,7 @@ async def auth_claude_code(body: dict[str, Any], user: dict = Depends(require_us
     except HTTPException:
         raise
     except Exception as e:
-        # Last-resort: never let the route return non-JSON. Emit a full traceback
-        # into Railway's logs so we can see what actually happened.
-        logging.exception("auth/claude/code unexpected failure for user %s", user_id)
+        logging.exception("auth/claude/token failed for user %s", user_id)
         raise HTTPException(500, f"{type(e).__name__}: {e}")
 
 
