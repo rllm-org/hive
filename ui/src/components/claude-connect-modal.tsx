@@ -101,6 +101,9 @@ export function ClaudeConnectModal({ onClose, onConnected }: ClaudeConnectModalP
             />
           </div>
 
+          {token !== token.trim() && (
+            <p className="text-xs text-amber-500">Token has leading or trailing whitespace — it will be removed automatically.</p>
+          )}
           {error && <p className="text-xs text-red-500">{error}</p>}
 
           <button

@@ -256,9 +256,6 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showClaudeConnect, setShowClaudeConnect] = useState(false);
-  const [pendingType, setPendingType] = useState<"local" | "cloud" | null>(null);
-
   const handleCreate = async (type: "local" | "cloud") => {
     setSubmitting(true);
     setError(null);
@@ -268,15 +265,6 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
         headers: { "Content-Type": "application/json", ...getAuthHeader() },
         body: JSON.stringify({ name: name.trim(), type }),
       });
-      if (res.status === 402) {
-        const data = await res.json().catch(() => null);
-        if (data?.auth_required) {
-          setPendingType(type);
-          setShowClaudeConnect(true);
-          setSubmitting(false);
-          return;
-        }
-      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail ?? "Failed to create workspace");
       onCreated(data);
@@ -363,15 +351,6 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
       </div>
-      {showClaudeConnect && (
-        <ClaudeConnectModal
-          onClose={() => setShowClaudeConnect(false)}
-          onConnected={() => {
-            setShowClaudeConnect(false);
-            if (pendingType) handleCreate(pendingType);
-          }}
-        />
-      )}
     </div>
   );
 }
