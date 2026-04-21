@@ -263,8 +263,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ auth_session_id, code }),
     });
     if (!res.ok) {
-      const data = await res.json().catch(() => null);
-      throw new Error(data?.detail ?? "failed to submit Claude OAuth code");
+      const raw = await res.text().catch(() => "");
+      let detail: string | undefined;
+      try { detail = JSON.parse(raw)?.detail; } catch { /* not json */ }
+      const snippet = raw.length > 200 ? raw.slice(0, 200) + "…" : raw;
+      throw new Error(detail ?? `HTTP ${res.status}: ${snippet || "empty response"}`);
     }
     return res.json();
   }, []);

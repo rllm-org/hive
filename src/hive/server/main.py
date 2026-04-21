@@ -912,6 +912,7 @@ async def auth_claude_start(user: dict = Depends(require_user)):
 
 @router.post("/auth/claude/code")
 async def auth_claude_code(body: dict[str, Any], user: dict = Depends(require_user)):
+    import logging
     from . import claude_oauth
     user_id = int(user["sub"])
     sid = (body.get("auth_session_id") or "").strip()
@@ -924,8 +925,14 @@ async def auth_claude_code(body: dict[str, Any], user: dict = Depends(require_us
         raise HTTPException(404, "auth session not found or expired")
     except PermissionError:
         raise HTTPException(403, "auth session does not belong to this user")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     except RuntimeError as e:
+        logging.exception("claude submit_code failed for user %s: %s", user_id, e)
         raise HTTPException(502, str(e))
+    except Exception as e:  # last-resort: never let the route return non-JSON
+        logging.exception("claude submit_code unexpected failure: %s", e)
+        raise HTTPException(500, f"claude OAuth broker error: {type(e).__name__}: {e}")
     token_encrypted = _encrypt(token)
     created_at = now()
     expires_at = created_at + timedelta(days=350)

@@ -51,14 +51,27 @@ def _extract_url(buffer: bytes) -> str | None:
         if "redirect_uri=" in url:
             return url
     return None
-# Final token pattern. setup-token prints a single opaque string on success;
-# known format includes `sk-ant-oat01-...` but we accept any long URL-safe run.
-_TOKEN_RE = re.compile(rb"(sk-ant-oat01-[A-Za-z0-9_\-]{40,})")
+# Final token pattern. setup-token prints the OAuth token on success.
+# Accept the known `sk-ant-oat01-...` prefix first, then a broader sk-ant-
+# fallback, then a labelled line ("Token: ..." / "export CLAUDE_CODE_OAUTH_TOKEN=...").
+_TOKEN_RES = (
+    re.compile(rb"(sk-ant-oat01-[A-Za-z0-9_\-]{40,})"),
+    re.compile(rb"(sk-ant-[A-Za-z0-9_\-]{40,})"),
+    re.compile(rb"(?:[Tt]oken|CLAUDE_CODE_OAUTH_TOKEN)\s*[:=]\s*([A-Za-z0-9_.\-]{40,})"),
+)
 _ANSI_RE = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def _extract_token(buffer: bytes) -> str | None:
+    for rx in _TOKEN_RES:
+        m = rx.search(buffer)
+        if m:
+            return m.group(1).decode("utf-8", "replace")
+    return None
 
 _SESSION_TTL_SEC = 600
 _URL_WAIT_SEC = 45
-_FINISH_WAIT_SEC = 60
+_FINISH_WAIT_SEC = 30
 
 _CLAUDE_CANDIDATE_PATHS = (
     "/usr/local/bin/claude",
@@ -143,16 +156,18 @@ def _reader(session: ClaudeAuthSession) -> None:
         except OSError:
             break
         if not chunk:
-            break
+            # EOF — subprocess has exited. Mark done so submit_code stops waiting.
+            session.done.set()
+            return
         session.buffer.extend(chunk)
         if session.auth_url is None:
             url = _extract_url(session.buffer)
             if url:
                 session.auth_url = url
         if session.token is None:
-            m = _TOKEN_RE.search(session.buffer)
-            if m:
-                session.token = m.group(1).decode("utf-8", "replace")
+            tok = _extract_token(session.buffer)
+            if tok:
+                session.token = tok
                 session.done.set()
                 return
 
@@ -236,19 +251,26 @@ def submit_code(session_id: str, user_id: int, code: str) -> str:
     except OSError as e:
         raise RuntimeError(f"failed to write code to PTY: {e}") from e
 
-    if not session.done.wait(_FINISH_WAIT_SEC):
-        with _SESSIONS_LOCK:
-            _SESSIONS.pop(session_id, None)
-        _kill(session)
-        raise RuntimeError("timed out waiting for `claude setup-token` to return a token")
-
-    token = session.token
+    finished = session.done.wait(_FINISH_WAIT_SEC)
+    # Give the reader a moment to drain any final bytes after done was set.
+    time.sleep(0.2)
+    # Final sweep for token in case _extract_token's fallback regex matched after done.
+    token = session.token or _extract_token(bytes(session.buffer))
     with _SESSIONS_LOCK:
         _SESSIONS.pop(session_id, None)
     _kill(session)
+    if not finished:
+        tail = _ANSI_RE.sub(b"", bytes(session.buffer[-600:])).decode("utf-8", "replace")
+        raise RuntimeError(
+            f"`claude setup-token` didn't finish in {_FINISH_WAIT_SEC}s after submitting "
+            f"the code. Tail of output: {tail!r}"
+        )
     if not token:
-        tail = _ANSI_RE.sub(b"", bytes(session.buffer[-400:])).decode("utf-8", "replace")
-        raise RuntimeError(f"no token extracted from setup-token output. Tail: {tail!r}")
+        tail = _ANSI_RE.sub(b"", bytes(session.buffer[-600:])).decode("utf-8", "replace")
+        raise RuntimeError(
+            f"`claude setup-token` exited but no token was extracted. "
+            f"Tail of output: {tail!r}"
+        )
     return token
 
 

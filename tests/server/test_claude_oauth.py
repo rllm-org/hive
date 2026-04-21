@@ -53,12 +53,18 @@ class TestTokenRegex:
             b"Paste code here if prompted >\r\n"
             b"\x1b[2Ksk-ant-oat01-abcd1234EFGH_xyz-0987654321234567890abcd\r\nOK"
         )
-        m = claude_oauth._TOKEN_RE.search(sample)
-        assert m is not None
-        assert m.group(1).startswith(b"sk-ant-oat01-")
+        tok = claude_oauth._extract_token(sample)
+        assert tok is not None
+        assert tok.startswith("sk-ant-oat01-")
+
+    def test_extracts_labelled_token_fallback(self):
+        sample = b"Your token: claude_code_oauth_abcdefghij1234567890zzzzzzzzzzzzzzzzzzzz\n"
+        tok = claude_oauth._extract_token(sample)
+        assert tok is not None
+        assert tok.startswith("claude_code_oauth_")
 
     def test_no_match_on_plain_text(self):
-        assert claude_oauth._TOKEN_RE.search(b"just chatter") is None
+        assert claude_oauth._extract_token(b"just chatter") is None
 
 
 class TestSessionStore:
