@@ -155,64 +155,30 @@ function AgentAvatar({ seed, id, size = 20 }: { seed: string | null; id: string;
   );
 }
 
-const MODELS = [
-  { id: "claude-haiku-4-5-20251001", label: "Haiku",  tier: "Fast",     short: "haiku" },
-  { id: "claude-sonnet-4-6",         label: "Sonnet", tier: "Balanced",  short: "sonnet-4-6" },
-  { id: "claude-opus-4-6",           label: "Opus",   tier: "Powerful",  short: "opus-4-6" },
-] as const;
+interface ModelInfo {
+  id: string;
+  display_name?: string;
+  description?: string;
+}
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
-
-type ModelId = (typeof MODELS)[number]["id"];
-
-const TIER_STYLES: Record<string, React.CSSProperties> = {
-  Fast:     { background: "#1a3d2b", color: "#3ecf8e" },
-  Balanced: { background: "#1f2e4a", color: "#60a5fa" },
-  Powerful: { background: "#2d1f4a", color: "#c084fc" },
-};
 
 function AgentTabs({
   agents,
   activeAgentId,
   onSelect,
   onDelete,
-  activeModel = null,
-  onModelChange = async () => {},
 }: {
   agents: WorkspaceAgent[];
   activeAgentId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => Promise<void>;
-  activeModel?: string | null;
-  onModelChange?: (model: ModelId) => Promise<void>;
 }) {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
-  const [modelOpen, setModelOpen] = useState(false);
-  const [modelChanging, setModelChanging] = useState(false);
-  const modelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!modelOpen) return;
-    const mouseHandler = (e: MouseEvent) => {
-      if (modelRef.current && !modelRef.current.contains(e.target as Node)) {
-        setModelOpen(false);
-      }
-    };
-    const keyHandler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setModelOpen(false);
-    };
-    document.addEventListener("mousedown", mouseHandler);
-    document.addEventListener("keydown", keyHandler);
-    return () => {
-      document.removeEventListener("mousedown", mouseHandler);
-      document.removeEventListener("keydown", keyHandler);
-    };
-  }, [modelOpen]);
 
   return (
     <>
-      <div className="shrink-0 flex items-end gap-0 px-3 pt-2 relative" style={{ marginBottom: -1 }}>
-        <div className="flex items-end gap-0 flex-1 overflow-x-auto min-w-0">
+      <div className="shrink-0 flex items-end gap-0 px-3 pt-2 relative overflow-x-auto" style={{ marginBottom: -1 }}>
           {agents.map((a) => {
             const active = a.id === activeAgentId;
             return (
@@ -243,67 +209,6 @@ function AgentTabs({
               </div>
             );
           })}
-        </div>
-        {activeModel != null && (
-          <div ref={modelRef} className="flex items-center pb-1.5 pl-2 flex-shrink-0 relative">
-            <button
-              type="button"
-              onClick={() => setModelOpen((v) => !v)}
-              disabled={modelChanging}
-              aria-haspopup="listbox"
-              aria-expanded={modelOpen}
-              aria-label={`Model: ${MODELS.find((m) => m.id === activeModel)?.label ?? activeModel ?? "unknown"}`}
-              className={`flex items-center gap-1 px-2 py-1 text-[11px] border rounded font-mono transition-colors ${
-                modelOpen
-                  ? "border-[var(--color-accent)] text-[var(--color-text)] bg-[var(--color-surface)]"
-                  : "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[#444] hover:text-[var(--color-text)] bg-[var(--color-surface)]"
-              } disabled:opacity-50`}
-            >
-              {modelChanging ? (
-                <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
-              ) : null}
-              {MODELS.find((m) => m.id === activeModel)?.short ?? activeModel}
-              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="opacity-50">
-                {modelOpen
-                  ? <path d="M18 15l-6-6-6 6" />
-                  : <path d="M6 9l6 6 6-6" />}
-              </svg>
-            </button>
-            {modelOpen && (
-              <div className="absolute top-full right-0 mt-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md shadow-lg min-w-[196px] z-50 overflow-hidden">
-                {MODELS.map((m) => {
-                  const isCurrent = m.id === activeModel;
-                  return (
-                    <button
-                      type="button"
-                      key={m.id}
-                      onClick={async () => {
-                        if (isCurrent) { setModelOpen(false); return; }
-                        setModelOpen(false);
-                        setModelChanging(true);
-                        try { await onModelChange(m.id); } finally { setModelChanging(false); }
-                      }}
-                      className={`w-full text-left px-3 py-2 flex flex-col gap-0.5 hover:bg-[var(--color-layer-2)] transition-colors ${isCurrent ? "bg-[#1a1535]" : ""}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[12px] font-semibold text-[var(--color-text)] font-mono">{m.label}</span>
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide" style={TIER_STYLES[m.tier]}>
-                          {m.tier}
-                        </span>
-                        {isCurrent && (
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2.5">
-                            <path d="M20 6L9 17l-5-5" />
-                          </svg>
-                        )}
-                      </div>
-                      <span className="text-[11px] text-[var(--color-text-tertiary)]">{m.id}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
       </div>
       {pendingDelete && (
         <DeleteAgentModal
@@ -811,7 +716,28 @@ export default function WorkspacePage() {
   const [addingAgent, setAddingAgent] = useState(false);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
   const [currentModel, setCurrentModel] = useState<string>(DEFAULT_MODEL);
+  const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelError, setModelError] = useState<string | null>(null);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [modelChanging, setModelChanging] = useState(false);
+  const [modelHover, setModelHover] = useState(0);
+  const modelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/models`, { headers: getAuthHeader() })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.models) setModels(d.models); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!modelOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (modelRef.current && !modelRef.current.contains(e.target as Node)) setModelOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [modelOpen]);
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [showDeleteWs, setShowDeleteWs] = useState(false);
   const [showCreateAgent, setShowCreateAgent] = useState(false);
@@ -1481,8 +1407,6 @@ export default function WorkspacePage() {
             activeAgentId={activeAgent?.id ?? null}
             onSelect={setActiveAgentId}
             onDelete={handleDeleteAgent}
-            activeModel={activeAgent ? currentModel : null}
-            onModelChange={handleModelChange}
           />
           {modelError && (
             <div className="shrink-0 px-3 py-1 text-[11px] text-red-400 bg-red-500/5 border-b border-[var(--color-border)]">
@@ -1693,58 +1617,120 @@ export default function WorkspacePage() {
                   )}
                 </div>
               )}
-              <div className="relative bg-white dark:bg-[var(--color-surface)] shadow-sm px-4 py-2.5 flex items-end gap-2" style={{ borderRadius: 16, minHeight: 40 }}>
-                {/* Highlight overlay */}
-                <div
-                  aria-hidden
-                  className="absolute inset-x-4 top-2.5 bottom-2.5 right-12 text-sm whitespace-pre-wrap break-words pointer-events-none"
-                  style={{ lineHeight: "20px" }}
-                >
-                  <span className="text-[var(--color-text)]"><HighlightSlash text={input} validCommands={validCommandNames} /></span>
-                </div>
-                <textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={`Ask ${agentName} something...`}
-                  rows={1}
-                  className="flex-1 resize-none text-sm bg-transparent placeholder:text-[var(--color-text-tertiary)]"
-                  style={{
-                    outline: "none", boxShadow: "none",
-                    color: "transparent",
-                    caretColor: "var(--color-text)",
-                    padding: 0, margin: 0, border: "none",
-                    lineHeight: "20px",
-                  }}
-                />
-                {cancelling ? (
-                  <div className="shrink-0 w-5 h-5 flex items-center justify-center" title="Stopping…">
-                    <div className="w-4 h-4 border-2 border-[var(--color-border)] border-t-[var(--color-text-tertiary)] rounded-full animate-spin" />
+              {/* Model selector dropdown */}
+              {modelOpen && models.length > 0 && (
+                <div className="absolute bottom-full left-0 mb-1 flex items-end gap-1 z-50">
+                  <div className="bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 w-[200px]" style={{ borderRadius: 6 }}>
+                    <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)] font-medium">Model</div>
+                    {models.map((m, i) => {
+                      const isCurrent = m.id === currentModel;
+                      return (
+                        <button
+                          type="button"
+                          key={m.id}
+                          onMouseEnter={() => setModelHover(i)}
+                          onMouseDown={async (e) => {
+                            e.preventDefault();
+                            if (isCurrent) { setModelOpen(false); return; }
+                            setModelOpen(false);
+                            setModelChanging(true);
+                            try { await handleModelChange(m.id); } finally { setModelChanging(false); }
+                          }}
+                          className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors ${
+                            i === modelHover ? "bg-[var(--color-layer-2)]" : "hover:bg-[var(--color-layer-2)]"
+                          }`}
+                        >
+                          <span className="font-medium text-[var(--color-text)]">{m.display_name ?? m.id}</span>
+                          {isCurrent && (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="ml-auto text-[var(--color-text)]">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
-                ) : isLoading ? (
-                  <button
-                    type="button"
-                    onClick={cancel}
-                    className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-text)] text-white hover:opacity-80 transition-colors"
-                    title="Stop generating"
+                  {models[modelHover]?.description && (
+                    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg px-3 py-2.5 w-[220px] max-h-52 overflow-y-auto text-xs text-[var(--color-text-secondary)] leading-relaxed" style={{ borderRadius: 6 }}>
+                      {models[modelHover].description.replace(/\bOur\b/g, "Anthropic's")}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="relative bg-white dark:bg-[var(--color-surface)] shadow-sm flex flex-col" style={{ borderRadius: 16, minHeight: 40 }}>
+                {/* Text input row */}
+                <div className="flex items-end gap-2 px-4 py-2.5">
+                  {/* Highlight overlay */}
+                  <div
+                    aria-hidden
+                    className="absolute inset-x-4 top-2.5 right-12 text-sm whitespace-pre-wrap break-words pointer-events-none"
+                    style={{ lineHeight: "20px" }}
                   >
-                    <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 24 24">
-                      <rect x="6" y="6" width="12" height="12" rx="1" />
-                    </svg>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={(e) => handleSubmit(e as unknown as React.FormEvent)}
-                    disabled={!input.trim()}
-                    className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full bg-[var(--color-text)] text-white disabled:bg-[var(--color-layer-2)] disabled:text-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors"
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                )}
+                    <span className="text-[var(--color-text)]"><HighlightSlash text={input} validCommands={validCommandNames} /></span>
+                  </div>
+                  <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={`Ask ${agentName} something...`}
+                    rows={1}
+                    className="flex-1 resize-none text-sm bg-transparent placeholder:text-[var(--color-text-tertiary)]"
+                    style={{
+                      outline: "none", boxShadow: "none",
+                      color: "transparent",
+                      caretColor: "var(--color-text)",
+                      padding: 0, margin: 0, border: "none",
+                      lineHeight: "20px",
+                    }}
+                  />
+                </div>
+                {/* Bottom row: model selector (left) + send button (right) */}
+                <div className="flex items-center justify-between px-4 pb-2">
+                  {activeAgent ? (
+                    <div ref={modelRef}>
+                      <button
+                        type="button"
+                        onClick={() => { setModelOpen((v) => !v); setModelHover(0); }}
+                        disabled={modelChanging}
+                        className="flex items-center gap-1 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors disabled:opacity-50"
+                      >
+                        {modelChanging && <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />}
+                        {models.find((m) => m.id === currentModel)?.display_name ?? currentModel}
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-40">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : <div />}
+                  {cancelling ? (
+                    <div className="shrink-0 w-7 h-7 flex items-center justify-center" title="Stopping…">
+                      <div className="w-5 h-5 border-2 border-[var(--color-border)] border-t-[var(--color-text-tertiary)] rounded-full animate-spin" />
+                    </div>
+                  ) : isLoading ? (
+                    <button
+                      type="button"
+                      onClick={cancel}
+                      className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-[var(--color-text)] text-white hover:opacity-80 transition-colors"
+                      title="Stop generating"
+                    >
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                        <rect x="6" y="6" width="12" height="12" rx="1" />
+                      </svg>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => handleSubmit(e as unknown as React.FormEvent)}
+                      disabled={!input.trim()}
+                      className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-[var(--color-text)] text-white disabled:bg-[var(--color-layer-2)] disabled:text-[var(--color-text-tertiary)] disabled:cursor-not-allowed transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>

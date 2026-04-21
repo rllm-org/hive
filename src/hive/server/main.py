@@ -765,6 +765,52 @@ async def auth_config():
     return result
 
 
+_models_cache: dict[str, Any] | None = None
+_models_cache_at: float = 0
+_MODELS_CACHE_TTL = 3600  # 1 hour
+
+# Model IDs we support in workspaces
+_SUPPORTED_MODEL_IDS = {
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6",
+}
+
+
+@router.get("/models")
+async def list_models(user: dict = Depends(require_user)):
+    """Return available models with metadata from the Anthropic API."""
+    import time
+    global _models_cache, _models_cache_at
+
+    if _models_cache and (time.time() - _models_cache_at) < _MODELS_CACHE_TTL:
+        return _models_cache
+
+    user_id = int(user["sub"])
+    token = await _get_user_claude_token(user_id)
+    if not token:
+        # No token — return IDs only
+        return {"models": [{"id": mid} for mid in sorted(_SUPPORTED_MODEL_IDS)]}
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                "https://api.anthropic.com/v1/models",
+                headers={"x-api-key": token, "anthropic-version": "2023-06-01"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                models = [m for m in data.get("data", []) if m.get("id") in _SUPPORTED_MODEL_IDS]
+                result = {"models": models}
+                _models_cache = result
+                _models_cache_at = time.time()
+                return result
+    except Exception:
+        pass
+
+    return {"models": [{"id": mid} for mid in sorted(_SUPPORTED_MODEL_IDS)]}
+
+
 @router.get("/auth/github/authorize")
 async def auth_github_authorize(mode: str = Query("login"), redirect_uri: str = Query(...)):
     """Return the GitHub OAuth authorization URL with CSRF-safe state token."""
