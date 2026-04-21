@@ -6,7 +6,7 @@ import { LuArrowLeft } from "react-icons/lu";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiFetch, apiPostJson, apiDelete } from "@/lib/api";
-import { getAuthHeader } from "@/lib/auth";
+import { getAuthHeader, useAuth } from "@/lib/auth";
 import { TextShimmer } from "@/components/text-shimmer";
 import { AskUserWidget, type AskUserData } from "@/components/chat/ask-user-widget";
 
@@ -299,6 +299,7 @@ function CreateAgentModal({
   submitting: boolean;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const { claudeStatus } = useAuth();
   const [name, setName] = useState(() => {
     const set = new Set(existingNames);
     let x = 1;
@@ -306,6 +307,11 @@ function CreateAgentModal({
     return `agent-${x}`;
   });
   const [error, setError] = useState<string | null>(null);
+  const [claudeConnected, setClaudeConnected] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    claudeStatus().then((s) => setClaudeConnected(s.connected)).catch(() => {});
+  }, [claudeStatus]);
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -321,11 +327,16 @@ function CreateAgentModal({
       await onCreate(trimmed);
       onClose();
     } catch (err) {
+      if (err instanceof Error && err.message.includes("402")) {
+        window.location.href = "/me?tab=settings";
+        return;
+      }
       setError(err instanceof Error ? err.message : "Failed");
     }
   };
 
   return (
+    <>
     <div
       ref={overlayRef}
       className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30"
@@ -358,6 +369,40 @@ function CreateAgentModal({
             />
             <p className="text-xs text-[var(--color-text-tertiary)] mt-1.5">3–40 lowercase letters, digits, or hyphens.</p>
           </div>
+
+          {/* Options */}
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Options</label>
+            {claudeConnected === true ? (
+              <div className="flex items-center gap-3 p-3 border border-[var(--color-accent)] bg-[var(--color-accent)]/5">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/claude-icon.png" alt="Claude" width={28} height={28} className="rounded-full shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-[var(--color-text)]">Claude Code</div>
+                  <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5">Powered by your Claude subscription</div>
+                </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-emerald-500">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              </div>
+            ) : (
+              <button
+                onClick={() => window.location.href = "/me?tab=settings"}
+                className="w-full flex items-center gap-3 p-3 border border-dashed border-[var(--color-border)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)]/5 transition-colors text-left"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/claude-icon.png" alt="Claude" width={28} height={28} className="rounded-full shrink-0 opacity-60" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-[var(--color-text)]">Connect Claude</div>
+                  <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5">Link your Claude account in Settings to create agents</div>
+                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="shrink-0 text-[var(--color-text-tertiary)]">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
+              </button>
+            )}
+          </div>
+
           {error && <p className="text-xs text-red-500">{error}</p>}
           <div className="flex items-center justify-end gap-2 pt-2">
             <button
@@ -369,7 +414,7 @@ function CreateAgentModal({
             </button>
             <button
               onClick={submit}
-              disabled={submitting}
+              disabled={submitting || claudeConnected === false}
               className="px-4 py-2 text-sm font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
             >
               {submitting ? "Creating…" : "Create"}
@@ -378,6 +423,7 @@ function CreateAgentModal({
         </div>
       </div>
     </div>
+    </>
   );
 }
 import { WorkspaceEditor, type OpenFile } from "@/components/workspace-editor";
@@ -1112,7 +1158,21 @@ export default function WorkspacePage() {
           />
 
           {!activeAgent ? (
-            <div className="flex-1 border-t border-[var(--color-border)] bg-[var(--color-layer-1)]" />
+            <div className="flex-1 border-t border-[var(--color-border)] bg-[var(--color-layer-1)] flex flex-col items-center justify-center gap-3 px-6">
+              <svg className="w-10 h-10 text-[var(--color-text-tertiary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              <p className="text-sm text-[var(--color-text-tertiary)] text-center">No agents in this workspace yet</p>
+              <button
+                onClick={() => setShowCreateAgent(true)}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] transition-colors"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Add your first agent
+              </button>
+            </div>
           ) : (
             <>
           {/* Messages */}
