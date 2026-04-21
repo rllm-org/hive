@@ -930,12 +930,38 @@ async def auth_claude_token(body: dict[str, Any], user: dict = Depends(require_u
                 "created_at = EXCLUDED.created_at, expires_at = EXCLUDED.expires_at",
                 (user_id, token_encrypted, created_at, expires_at),
             )
+        await _rotate_sandbox_creds_for_user(user_id, token)
         return {"status": "connected", "connected_at": created_at.isoformat(), "expires_at": expires_at.isoformat()}
     except HTTPException:
         raise
     except Exception as e:
         logging.exception("auth/claude/token failed for user %s", user_id)
         raise HTTPException(500, f"{type(e).__name__}: {e}")
+
+
+async def _rotate_sandbox_creds_for_user(user_id: int, token: str | None) -> None:
+    """Push the fresh token (or None, to wipe) to every active sandbox the
+    user owns so existing workspaces pick up the new creds on next
+    supervisor spawn. Best-effort — failures are logged, not raised."""
+    import logging
+    from .agent_sdk_client import get_client
+    async with get_db() as conn:
+        rows = await (await conn.execute(
+            "SELECT sdk_sandbox_id FROM workspaces"
+            " WHERE user_id = %s AND sdk_sandbox_id IS NOT NULL",
+            (user_id,),
+        )).fetchall()
+    if not rows:
+        return
+    client = get_client()
+    for row in rows:
+        sid = row.get("sdk_sandbox_id")
+        if not sid:
+            continue
+        try:
+            await client.rotate_sandbox_creds(sid, token)
+        except Exception as e:
+            logging.warning("claude creds rotation failed for sandbox %s: %s", sid, e)
 
 
 @router.get("/auth/claude/status")
@@ -960,6 +986,7 @@ async def auth_claude_disconnect(user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         await conn.execute("DELETE FROM claude_oauth_tokens WHERE user_id = %s", (user_id,))
+    await _rotate_sandbox_creds_for_user(user_id, None)
     return {"status": "disconnected"}
 
 
@@ -2469,13 +2496,17 @@ def _default_provision_config() -> dict[str, Any]:
 _provisioning_in_flight: set[int] = set()
 
 
-async def _provision_workspace_sandbox(workspace_id: int) -> None:
+async def _provision_workspace_sandbox(workspace_id: int, user_id: int) -> None:
     """Background task: provision a sandbox and attach it to the workspace.
 
     Idempotent: skips if the row already has a sandbox_id, and coalesces
     concurrent calls for the same workspace so stranded rows (old cloud
     workspaces with NULL sandbox_id) get re-provisioned on demand without
     racing multiple provision calls.
+
+    Passes the user's Claude OAuth token to agent-sdk at provision time so
+    it's persisted on the sandbox row and every future supervisor spawn
+    (including auto-recovery after idle-reap) uses it.
     """
     from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
     import logging
@@ -2491,7 +2522,10 @@ async def _provision_workspace_sandbox(workspace_id: int) -> None:
         if not row or row.get("sdk_sandbox_id"):
             return
         client = get_client()
-        result = await client.provision_sandbox(**_default_provision_config())
+        oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
+        result = await client.provision_sandbox(
+            oauth_token=oauth_token, **_default_provision_config(),
+        )
         sandbox_id = result.get("sandbox_id")
         if not sandbox_id:
             raise RuntimeError(f"agent-sdk returned no sandbox_id: {result}")
@@ -2545,7 +2579,7 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
     workspace_id = row["id"]
 
     if ws_type == "cloud":
-        asyncio.create_task(_provision_workspace_sandbox(workspace_id))
+        asyncio.create_task(_provision_workspace_sandbox(workspace_id, user_id))
 
     return _serialize_workspace(row)
 
@@ -2563,7 +2597,7 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
             raise HTTPException(404, "workspace not found")
         agents = await _agents_in_workspace(conn, workspace_id)
     if row["type"] == "cloud" and not row.get("sdk_sandbox_id"):
-        asyncio.create_task(_provision_workspace_sandbox(workspace_id))
+        asyncio.create_task(_provision_workspace_sandbox(workspace_id, user_id))
     return _serialize_workspace(row, agents=agents)
 
 
@@ -2595,7 +2629,10 @@ async def _workspace_sdk_connect(
         if wrow.get("type") != "cloud":
             raise HTTPException(400, "workspace is not cloud-backed")
         try:
-            result = await client.provision_sandbox(**_default_provision_config())
+            result = await client.provision_sandbox(
+                oauth_token=user_oauth_token,
+                **_default_provision_config(),
+            )
             sandbox_id = result.get("sandbox_id")
             if not sandbox_id:
                 raise RuntimeError(f"agent-sdk returned no sandbox_id: {result}")

@@ -120,7 +120,8 @@ def _seed_claude_oauth(user_id: int, token: str = "sk-ant-oat01-test-token-value
 # --- tests -----------------------------------------------------------------
 
 def test_create_forwards_config_and_inserts_row(client, fake_sdk):
-    token, _ = _create_verified_user(client, "a@example.com", "pw123456", handle="alice")
+    token, user = _create_verified_user(client, "a@example.com", "pw123456", handle="alice")
+    _seed_claude_oauth(user["id"])
     _seed_task(slug="t1")
 
     r = client.post(
@@ -170,8 +171,9 @@ def test_message_forwards_interrupt_flag(client, fake_sdk):
 
 
 def test_foreign_session_is_404(client, fake_sdk):
-    t_a, _ = _create_verified_user(client, "ua@example.com", "pw123456", handle="useralpha")
+    t_a, user_a = _create_verified_user(client, "ua@example.com", "pw123456", handle="useralpha")
     t_b, _ = _create_verified_user(client, "ub@example.com", "pw123456", handle="userbeta")
+    _seed_claude_oauth(user_a["id"])
     _seed_task(slug="t3")
     sid = client.post(
         "/api/tasks/hive-mock-dev/t3/agent-chat/sessions",
@@ -190,7 +192,8 @@ def test_foreign_session_is_404(client, fake_sdk):
 
 
 def test_delete_marks_closed_and_destroys_sandbox(client, fake_sdk):
-    token, _ = _create_verified_user(client, "c@example.com", "pw123456", handle="carol")
+    token, user = _create_verified_user(client, "c@example.com", "pw123456", handle="carol")
+    _seed_claude_oauth(user["id"])
     _seed_task(slug="t4")
     sid = client.post(
         "/api/tasks/hive-mock-dev/t4/agent-chat/sessions",
@@ -210,7 +213,8 @@ def test_delete_marks_closed_and_destroys_sandbox(client, fake_sdk):
 
 
 def test_sse_pass_through(client, fake_sdk):
-    token, _ = _create_verified_user(client, "d@example.com", "pw123456", handle="dan")
+    token, user = _create_verified_user(client, "d@example.com", "pw123456", handle="dan")
+    _seed_claude_oauth(user["id"])
     _seed_task(slug="t5")
     sid = client.post(
         "/api/tasks/hive-mock-dev/t5/agent-chat/sessions",

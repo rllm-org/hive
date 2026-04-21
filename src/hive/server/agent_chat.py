@@ -149,8 +149,9 @@ async def create_session(
     if "agent_command" in body:
         config["agent_command"] = body["agent_command"]
 
+    oauth_token = await _require_claude_oauth(user_id)
     client = get_client()
-    upstream = await client.create_quick_session(**config)
+    upstream = await client.create_quick_session(oauth_token=oauth_token, **config)
     sdk_session_id = upstream.get("session_id")
     sdk_agent_id = upstream.get("agent_id")
     sdk_sandbox_id = upstream.get("sandbox_id")
@@ -198,10 +199,9 @@ async def get_session(sid: int, user: dict = _require_user()):
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
-    tok = await _resolve_oauth_token(user_id)
     upstream: dict[str, Any] = {}
     try:
-        upstream = await get_client().get_status(row["sdk_session_id"], oauth_token=tok)
+        upstream = await get_client().get_status(row["sdk_session_id"])
     except HTTPException as e:
         log.warning("get_status failed for sdk_session_id=%s: %s", row["sdk_session_id"], e.detail)
     view = _session_view(row)
@@ -214,8 +214,7 @@ async def get_log(sid: int, limit: int = Query(500, ge=1, le=2000), user: dict =
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
-    tok = await _resolve_oauth_token(user_id)
-    events = await get_client().get_log(row["sdk_session_id"], limit=limit, oauth_token=tok)
+    events = await get_client().get_log(row["sdk_session_id"], limit=limit)
     return {"events": events}
 
 
@@ -225,13 +224,12 @@ async def stream_events(sid: int, request: Request, user: dict = _require_user()
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
 
-    tok = await _resolve_oauth_token(user_id)
     client = get_client()
     sdk_sid = row["sdk_session_id"]
 
     async def gen():
         try:
-            async for chunk in client.stream_events(sdk_sid, oauth_token=tok):
+            async for chunk in client.stream_events(sdk_sid):
                 if await request.is_disconnected():
                     break
                 yield chunk
@@ -257,8 +255,7 @@ async def send_message(
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
 
-    tok = await _require_claude_oauth(user_id)
-    result = await get_client().send_message(row["sdk_session_id"], text, interrupt=interrupt, oauth_token=tok)
+    result = await get_client().send_message(row["sdk_session_id"], text, interrupt=interrupt)
 
     async with get_db() as conn:
         await conn.execute(
@@ -273,8 +270,7 @@ async def cancel(sid: int, user: dict = _require_user()):
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
-    tok = await _resolve_oauth_token(user_id)
-    return await get_client().cancel(row["sdk_session_id"], oauth_token=tok)
+    return await get_client().cancel(row["sdk_session_id"])
 
 
 @router.post("/agent-chat/sessions/{sid}/resume")
@@ -282,8 +278,7 @@ async def resume(sid: int, user: dict = _require_user()):
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
-    tok = await _require_claude_oauth(user_id)
-    return await get_client().resume(row["sdk_session_id"], oauth_token=tok)
+    return await get_client().resume(row["sdk_session_id"])
 
 
 @router.post("/agent-chat/sessions/{sid}/config")
@@ -291,8 +286,7 @@ async def set_config(sid: int, body: dict[str, Any] = Body(...), user: dict = _r
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
-    tok = await _resolve_oauth_token(user_id)
-    return await get_client().set_config(row["sdk_session_id"], oauth_token=tok, **body)
+    return await get_client().set_config(row["sdk_session_id"], **body)
 
 
 @router.delete("/agent-chat/sessions/{sid}", status_code=204)
