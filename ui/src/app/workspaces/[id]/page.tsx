@@ -566,8 +566,8 @@ function SandboxTreeNode({
   onDelete,
   onRename,
   onDownload,
-  onUploadFiles,
-  onUploadFolder,
+  onNewFile,
+  onNewFolder,
   depth = 0,
 }: {
   node: FsTreeNode;
@@ -577,8 +577,8 @@ function SandboxTreeNode({
   onDelete?: (path: string) => void;
   onRename?: (path: string) => void;
   onDownload?: (path: string) => void;
-  onUploadFiles?: (directory: string) => void;
-  onUploadFolder?: (directory: string) => void;
+  onNewFile?: (directory: string) => void;
+  onNewFolder?: (directory: string) => void;
   depth?: number;
 }) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
@@ -609,17 +609,17 @@ function SandboxTreeNode({
       className="fixed bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[120px] z-[9999]"
       style={{ borderRadius: 6, left: menuPos.x, top: menuPos.y }}
     >
-      {onUploadFiles && (
-        <button onClick={() => { setMenuPos(null); onUploadFiles(uploadDir); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
-          Upload files here
+      {onNewFile && (
+        <button onClick={() => { setMenuPos(null); onNewFile(uploadDir); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
+          New File
         </button>
       )}
-      {onUploadFolder && (
-        <button onClick={() => { setMenuPos(null); onUploadFolder(uploadDir); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
-          Upload folder here
+      {onNewFolder && (
+        <button onClick={() => { setMenuPos(null); onNewFolder(uploadDir); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
+          New Folder
         </button>
       )}
-      {(onUploadFiles || onUploadFolder) && (onRename || onDownload || onDelete) && (
+      {(onNewFile || onNewFolder) && (onRename || onDownload || onDelete) && (
         <div className="my-1 border-t border-[var(--color-border)]" />
       )}
       {onRename && (
@@ -667,8 +667,8 @@ function SandboxTreeNode({
                 onDelete={onDelete}
                 onRename={onRename}
                 onDownload={onDownload}
-                onUploadFiles={onUploadFiles}
-                onUploadFolder={onUploadFolder}
+                onNewFile={onNewFile}
+                onNewFolder={onNewFolder}
                 depth={depth + 1}
               />
             ))}
@@ -952,27 +952,7 @@ export default function WorkspacePage() {
     workspace?.sdk_base_url ?? null,
     workspace?.sdk_sandbox_id ?? null,
   );
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
-  const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
   const [draggingOver, setDraggingOver] = useState(false);
-
-  const handleUploadFiles = useCallback(async (files: FileList | File[]) => {
-    const result = await uploadFiles(Array.from(files));
-    if (!result.ok) alert("Upload failed: " + (result.error ?? "unknown"));
-    await fsRefresh();
-  }, [uploadFiles, fsRefresh]);
-
-  const handleUploadFolder = useCallback(async (files: FileList) => {
-    // webkitdirectory gives files with webkitRelativePath like "folder/sub/file.txt"
-    const mapped = Array.from(files).map((f) => {
-      const relativePath = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
-      return new File([f], relativePath, { type: f.type });
-    });
-    const result = await uploadFiles(mapped);
-    if (!result.ok) alert("Upload failed: " + (result.error ?? "unknown"));
-    await fsRefresh();
-  }, [uploadFiles, fsRefresh]);
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
@@ -1028,38 +1008,25 @@ export default function WorkspacePage() {
     await fsRefresh();
   }, [renameFile, fsRefresh]);
 
-  const uploadTargetDirRef = useRef("");
-  const contextFileInputRef = useRef<HTMLInputElement>(null);
-  const contextFolderInputRef = useRef<HTMLInputElement>(null);
-
-  const handleUploadFilesTo = useCallback((directory: string) => {
-    uploadTargetDirRef.current = directory;
-    contextFileInputRef.current?.click();
-  }, []);
-
-  const handleUploadFolderTo = useCallback((directory: string) => {
-    uploadTargetDirRef.current = directory;
-    contextFolderInputRef.current?.click();
-  }, []);
-
-  const handleContextFileChange = useCallback(async (files: FileList) => {
-    const dir = uploadTargetDirRef.current;
-    const mapped = Array.from(files).map((f) => new File([f], dir ? `${dir}/${f.name}` : f.name, { type: f.type }));
-    const result = await uploadFiles(mapped);
-    if (!result.ok) alert("Upload failed: " + (result.error ?? "unknown"));
+  const handleNewFile = useCallback(async (directory: string) => {
+    const name = prompt("File name:");
+    if (!name) return;
+    const filePath = directory ? `${directory}/${name}` : name;
+    const result = await editFile(filePath, "", "");
+    if (!result.ok) alert("Create failed: " + (result.error ?? "unknown"));
     await fsRefresh();
-  }, [uploadFiles, fsRefresh]);
+  }, [editFile, fsRefresh]);
 
-  const handleContextFolderChange = useCallback(async (files: FileList) => {
-    const dir = uploadTargetDirRef.current;
-    const mapped = Array.from(files).map((f) => {
-      const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
-      return new File([f], dir ? `${dir}/${rel}` : rel, { type: f.type });
-    });
-    const result = await uploadFiles(mapped);
-    if (!result.ok) alert("Upload failed: " + (result.error ?? "unknown"));
+  const handleNewFolder = useCallback(async (directory: string) => {
+    const name = prompt("Folder name:");
+    if (!name) return;
+    const folderPath = directory ? `${directory}/${name}` : name;
+    // Create folder by uploading an empty placeholder and deleting it
+    const placeholderPath = `${folderPath}/.keep`;
+    const result = await editFile(placeholderPath, "", "");
+    if (!result.ok) alert("Create failed: " + (result.error ?? "unknown"));
     await fsRefresh();
-  }, [uploadFiles, fsRefresh]);
+  }, [editFile, fsRefresh]);
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
     const result = await editFile(path, "", content);
@@ -1403,54 +1370,8 @@ export default function WorkspacePage() {
           onDragLeave={(e) => { e.preventDefault(); setDraggingOver(false); }}
           onDrop={handleDrop}
         >
-          {/* File tree header */}
-          <div className="flex items-center justify-between px-5 pt-3 pb-1">
-            <span className="text-[10px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-wider">Files</span>
-            <div className="relative">
-              <button
-                onClick={() => setUploadMenuOpen((o) => !o)}
-                className="text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] transition-colors"
-              >
-                Upload
-              </button>
-              {uploadMenuOpen && (
-                <div
-                  className="absolute right-0 mt-1 bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[140px] z-50"
-                  style={{ borderRadius: 6 }}
-                >
-                  <button
-                    onClick={() => { setUploadMenuOpen(false); fileInputRef.current?.click(); }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
-                  >
-                    Files
-                  </button>
-                  <button
-                    onClick={() => { setUploadMenuOpen(false); folderInputRef.current?.click(); }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
-                  >
-                    Folder
-                  </button>
-                </div>
-              )}
-            </div>
-            <input ref={fileInputRef} type="file" multiple className="hidden"
-              onChange={(e) => { if (e.target.files?.length) handleUploadFiles(e.target.files); e.target.value = ""; }}
-            />
-            {/* @ts-expect-error webkitdirectory is non-standard */}
-            <input ref={folderInputRef} type="file" webkitdirectory="" className="hidden"
-              onChange={(e) => { if (e.target.files?.length) handleUploadFolder(e.target.files); e.target.value = ""; }}
-            />
-            {/* Context menu upload inputs (target a specific directory) */}
-            <input ref={contextFileInputRef} type="file" multiple className="hidden"
-              onChange={(e) => { if (e.target.files?.length) handleContextFileChange(e.target.files); e.target.value = ""; }}
-            />
-            {/* @ts-expect-error webkitdirectory is non-standard */}
-            <input ref={contextFolderInputRef} type="file" webkitdirectory="" className="hidden"
-              onChange={(e) => { if (e.target.files?.length) handleContextFolderChange(e.target.files); e.target.value = ""; }}
-            />
-          </div>
           {/* File tree */}
-          <div className="flex-1 overflow-y-auto min-h-0 px-5 pb-5">
+          <div className="flex-1 overflow-y-auto min-h-0 px-5 pt-4 pb-5">
             {fsLoading && (
               <div className="flex items-center justify-center py-8">
                 <div className="w-5 h-5 border-2 border-[var(--color-border)] border-t-[var(--color-accent)] rounded-full animate-spin" />
@@ -1460,7 +1381,7 @@ export default function WorkspacePage() {
               <p className="text-xs text-[var(--color-text-tertiary)] px-1 py-4">{fsError}</p>
             )}
             {!fsLoading && !fsError && fsTree.length === 0 && (
-              <p className="text-xs text-[var(--color-text-tertiary)] px-1 py-4">No files yet — drag and drop or click Upload</p>
+              <p className="text-xs text-[var(--color-text-tertiary)] px-1 py-4">No files yet</p>
             )}
             <div className="space-y-0.5">
               {fsTree.map((node) => (
@@ -1473,8 +1394,8 @@ export default function WorkspacePage() {
                   onDelete={handleDeleteFile}
                   onRename={handleRenameFile}
                   onDownload={downloadFile}
-                  onUploadFiles={handleUploadFilesTo}
-                  onUploadFolder={handleUploadFolderTo}
+                  onNewFile={handleNewFile}
+                  onNewFolder={handleNewFolder}
                 />
               ))}
             </div>
