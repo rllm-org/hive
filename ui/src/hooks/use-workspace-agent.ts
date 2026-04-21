@@ -479,7 +479,7 @@ export function useWorkspaceAgents(
 
   const setModel = useCallback(async (agentId: string, model: string) => {
     const conn = connectionsRef.current[agentId];
-    if (!conn) return;
+    if (!conn) throw new Error("set_model: agent not connected");
     const res = await fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
