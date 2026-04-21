@@ -161,6 +161,8 @@ const MODELS = [
   { id: "claude-opus-4-6",           label: "Opus",   tier: "Powerful",  short: "opus-4-6" },
 ] as const;
 
+const DEFAULT_MODEL = "claude-sonnet-4-6";
+
 type ModelId = (typeof MODELS)[number]["id"];
 
 const TIER_STYLES: Record<string, React.CSSProperties> = {
@@ -731,7 +733,7 @@ export default function WorkspacePage() {
   const [wsLoading, setWsLoading] = useState(true);
   const [addingAgent, setAddingAgent] = useState(false);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
-  const [currentModel, setCurrentModel] = useState<string>("claude-sonnet-4-6");
+  const [currentModel, setCurrentModel] = useState<string>(DEFAULT_MODEL);
   const [modelError, setModelError] = useState<string | null>(null);
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [showDeleteWs, setShowDeleteWs] = useState(false);
@@ -800,7 +802,7 @@ export default function WorkspacePage() {
   }, [activeAgentId, agents]);
 
   useEffect(() => {
-    setCurrentModel(activeAgent?.model ?? "claude-sonnet-4-6");
+    setCurrentModel(activeAgent?.model ?? DEFAULT_MODEL);
     setModelError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAgent?.id]);
@@ -853,15 +855,16 @@ export default function WorkspacePage() {
   const cancel = useCallback(() => { if (activeAgent) cancelAgent(activeAgent.id); }, [activeAgent, cancelAgent]);
 
   const handleModelChange = useCallback(async (model: string) => {
-    if (!activeAgent) return;
+    if (!activeAgent?.id) return;
+    const targetId = activeAgent.id;
     setModelError(null);
     try {
-      await setAgentModel(activeAgent.id, model);
-      setCurrentModel(model);
-    } catch {
-      setModelError("Failed to switch model");
+      await setAgentModel(targetId, model);
+      setCurrentModel((prev) => (activeAgent?.id === targetId ? model : prev));
+    } catch (err) {
+      setModelError(err instanceof Error ? err.message : "Failed to switch model");
     }
-  }, [activeAgent, setAgentModel]);
+  }, [activeAgent?.id, setAgentModel]);
 
   const commands = rawCommands;
   const validCommandNames = useMemo(() => new Set(commands.map((c) => c.name)), [commands]);
