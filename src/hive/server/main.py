@@ -2530,13 +2530,6 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
     if ws_type == "persistent":
         raise HTTPException(400, "persistent workspaces are admin-only")
 
-    if ws_type == "cloud" and not HIVE_USE_SERVER_KEY and not await _get_user_claude_token(user_id):
-        # No Claude creds yet — front-end shows the connect modal and retries.
-        return JSONResponse(
-            {"auth_required": True, "reason": "claude_oauth"},
-            status_code=402,
-        )
-
     async with get_db() as conn:
         existing = await (await conn.execute(
             "SELECT 1 FROM workspaces WHERE user_id = %s AND name = %s", (user_id, name)
