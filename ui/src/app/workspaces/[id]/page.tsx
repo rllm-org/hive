@@ -819,6 +819,7 @@ export default function WorkspacePage() {
 
   // Slash command autocomplete — detect /word at cursor position
   const [cmdIndex, setCmdIndex] = useState(0);
+  const [cmdDismissed, setCmdDismissed] = useState(false);
   const getSlashWord = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return "";
@@ -828,11 +829,15 @@ export default function WorkspacePage() {
     return match ? match[0] : "";
   }, [input]);
   const slashWord = getSlashWord();
-  const showCommands = slashWord.length > 0 && commands.length > 0;
+  const showCommands = slashWord.length > 0 && commands.length > 0 && !cmdDismissed;
   const filteredCommands = showCommands
     ? commands.filter((c) => `/${c.name}`.startsWith(slashWord.toLowerCase()))
     : [];
-  useEffect(() => { setCmdIndex(0); }, [input]);
+  useEffect(() => {
+    setCmdIndex(0);
+    // Re-enable dropdown when user types a new slash
+    if (slashWord) setCmdDismissed(false);
+  }, [input, slashWord]);
 
   const lastUserIdx = messages.reduce((acc, msg, i) => msg.role === "user" ? i : acc, -1);
 
@@ -888,6 +893,7 @@ export default function WorkspacePage() {
   }, [input, sendMessage, updateSpacer]);
 
   const selectCommand = useCallback((cmd: string) => {
+    setCmdDismissed(true);
     const ta = textareaRef.current;
     if (!ta) { setInput(`/${cmd} `); return; }
     const pos = ta.selectionStart ?? input.length;
