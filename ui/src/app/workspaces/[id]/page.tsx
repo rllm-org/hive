@@ -1321,12 +1321,6 @@ export default function WorkspacePage() {
                         const ans = Array.isArray(a) ? a.join(", ") : a;
                         return pendingQuestions.length === 1 ? ans : `${q}: ${ans}`;
                       }).join("\n");
-                      // Unblock the MCP ask_user call with the answer
-                      fetch(`${API_BASE}/mcp/ask/respond`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", ...getAuthHeader() },
-                        body: JSON.stringify({ answer: text }),
-                      }).catch(() => {});
                       sendMessage(text);
                     }}
                   />

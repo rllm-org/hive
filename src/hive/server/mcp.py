@@ -1,8 +1,8 @@
 """Lightweight MCP server for registering hive tools with agents.
 
-Handles tool registration (initialize + tools/list) and blocking ask_user
-tool calls — the HTTP response is held open until the user responds via
-the chat UI.
+Handles tool registration (initialize + tools/list). Tool calls for
+ask_user return immediately — the agent is instructed to stop and wait
+for the user's response as the next message.
 """
 
 from __future__ import annotations
@@ -25,7 +25,9 @@ TOOLS = [
         "description": (
             "Ask the user one or more questions. Each question has options for the user to choose from. "
             "You can ask multiple questions at once — they will be shown as a paginated form. "
-            "Include 'Other...' as the last option to allow free-text input."
+            "Include 'Other...' as the last option to allow free-text input. "
+            "IMPORTANT: After calling this tool, you MUST stop generating and wait. "
+            "Do not write anything else. The user's answer will arrive as your next message."
         ),
         "inputSchema": {
             "type": "object",
@@ -61,29 +63,6 @@ TOOLS = [
     },
 ]
 
-# ---------------------------------------------------------------------------
-# Pending ask_user responses
-# ---------------------------------------------------------------------------
-
-ASK_USER_TIMEOUT = 600  # 10 minutes
-
-# ask_id -> asyncio.Future[str]
-_pending_asks: dict[str, asyncio.Future] = {}
-
-
-def submit_ask_response(ask_id: str, answer: str) -> bool:
-    """Resolve a pending ask_user call. Returns True if found."""
-    fut = _pending_asks.get(ask_id)
-    if fut and not fut.done():
-        fut.set_result(answer)
-        return True
-    return False
-
-
-def get_pending_ask_ids() -> list[str]:
-    """Return all pending (unresolved) ask IDs."""
-    return [k for k, f in _pending_asks.items() if not f.done()]
-
 
 # ---------------------------------------------------------------------------
 # SSE endpoint (for MCP SSE transport)
@@ -92,7 +71,7 @@ def get_pending_ask_ids() -> list[str]:
 @router.get("")
 async def mcp_sse_endpoint(request: Request):
     """SSE stream with endpoint event for MCP SSE transport."""
-    log.info("[mcp] GET SSE connect")
+    print("[mcp] GET SSE connect", flush=True)
     async def sse_stream():
         yield "event: endpoint\ndata: /api/mcp\n\n"
         while True:
@@ -133,66 +112,18 @@ async def mcp_endpoint(request: Request):
     if method == "tools/call":
         params = body.get("params", {})
         tool_name = params.get("name", "")
+        print(f"[mcp] tools/call: {tool_name}", flush=True)
 
         if tool_name == "ask_user":
-            return await _handle_ask_user(rpc_id, params)
+            return _jsonrpc_ok(rpc_id, {
+                "content": [{"type": "text", "text": "Waiting for user response. Stop generating now."}],
+            })
 
         return _jsonrpc_ok(rpc_id, {
             "content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}],
         })
 
     return _jsonrpc_error(rpc_id, -32601, f"Method not found: {method}")
-
-
-async def _handle_ask_user(rpc_id, params):
-    """Block until the user responds or timeout."""
-    ask_id = uuid.uuid4().hex[:12]
-    loop = asyncio.get_event_loop()
-    fut: asyncio.Future[str] = loop.create_future()
-    _pending_asks[ask_id] = fut
-
-    print(f"[mcp] ask_user blocking (ask_id={ask_id})", flush=True)
-
-    try:
-        answer = await asyncio.wait_for(fut, timeout=ASK_USER_TIMEOUT)
-        print(f"[mcp] ask_user resolved (ask_id={ask_id})", flush=True)
-        return _jsonrpc_ok(rpc_id, {
-            "content": [{"type": "text", "text": answer}],
-        })
-    except asyncio.TimeoutError:
-        print(f"[mcp] ask_user timed out (ask_id={ask_id})", flush=True)
-        return _jsonrpc_ok(rpc_id, {
-            "content": [{"type": "text", "text": "User did not respond in time."}],
-        })
-    finally:
-        _pending_asks.pop(ask_id, None)
-
-
-# ---------------------------------------------------------------------------
-# Response endpoint — called by the frontend when the user answers
-# ---------------------------------------------------------------------------
-
-@router.post("/ask/respond")
-async def ask_respond(request: Request):
-    """Submit an answer to a pending ask_user call.
-
-    Body: { "ask_id": "...", "answer": "..." }
-    If ask_id is omitted, resolves the most recent pending ask.
-    """
-    body = await request.json()
-    ask_id = body.get("ask_id")
-    answer = body.get("answer", "")
-
-    if not ask_id:
-        # Resolve the most recent pending ask
-        pending = get_pending_ask_ids()
-        if not pending:
-            return JSONResponse({"ok": False, "reason": "no pending ask"}, status_code=404)
-        ask_id = pending[-1]
-
-    if submit_ask_response(ask_id, answer):
-        return JSONResponse({"ok": True, "ask_id": ask_id})
-    return JSONResponse({"ok": False, "reason": "ask not found or already resolved"}, status_code=404)
 
 
 # ---------------------------------------------------------------------------
