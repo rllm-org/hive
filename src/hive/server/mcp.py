@@ -8,13 +8,10 @@ the chat UI.
 from __future__ import annotations
 
 import asyncio
-import logging
 import uuid
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-
-log = logging.getLogger("hive.mcp")
 
 router = APIRouter(prefix="/api/mcp")
 
@@ -118,7 +115,7 @@ async def mcp_endpoint(request: Request):
 
     rpc_id = body.get("id")
     method = body.get("method", "")
-    log.info("[mcp] %s (id=%s)", method, rpc_id)
+    print(f"[mcp] {method} (id={rpc_id})", flush=True)
 
     if method == "initialize":
         return _jsonrpc_ok(rpc_id, {
@@ -154,16 +151,16 @@ async def _handle_ask_user(rpc_id, params):
     fut: asyncio.Future[str] = loop.create_future()
     _pending_asks[ask_id] = fut
 
-    log.info("[mcp] ask_user blocking (ask_id=%s)", ask_id)
+    print(f"[mcp] ask_user blocking (ask_id={ask_id})", flush=True)
 
     try:
         answer = await asyncio.wait_for(fut, timeout=ASK_USER_TIMEOUT)
-        log.info("[mcp] ask_user resolved (ask_id=%s)", ask_id)
+        print(f"[mcp] ask_user resolved (ask_id={ask_id})", flush=True)
         return _jsonrpc_ok(rpc_id, {
             "content": [{"type": "text", "text": answer}],
         })
     except asyncio.TimeoutError:
-        log.warning("[mcp] ask_user timed out (ask_id=%s)", ask_id)
+        print(f"[mcp] ask_user timed out (ask_id={ask_id})", flush=True)
         return _jsonrpc_ok(rpc_id, {
             "content": [{"type": "text", "text": "User did not respond in time."}],
         })
