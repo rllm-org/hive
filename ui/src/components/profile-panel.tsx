@@ -730,17 +730,22 @@ export function ProfilePanel() {
                   </div>
                 </div>
 
-                {/* Claude */}
-                <div className="px-5 py-3 flex items-start gap-3 border-t border-[var(--color-border)]">
-                  <LuBot size={16} className="shrink-0 text-[var(--color-text-secondary)] mt-0.5" />
+              </div>
+            </div>
+
+            {/* Connected Services */}
+            <div>
+              <h3 className="text-base font-medium text-[var(--color-text)] mb-4">Connected Services</h3>
+              <div className="bg-[var(--color-surface)] border border-[var(--color-border)]">
+                <div className="px-5 py-3 flex items-start gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/claude-icon.png" alt="Claude" width={16} height={16} className="shrink-0 mt-0.5 rounded-full" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <div className="text-sm font-semibold text-[var(--color-text)]">Claude Account</div>
                         <div className="text-xs text-[var(--color-text-tertiary)] truncate">
-                          {claudeConn?.connected
-                            ? `Connected${claudeConn.connected_at ? ` on ${new Date(claudeConn.connected_at).toLocaleDateString()}` : ""}`
-                            : "Not connected — workspaces use your Claude subscription once you connect"}
+                          {claudeConn?.connected ? "Connected" : "Not connected"}
                         </div>
                       </div>
                       {claudeConn?.connected ? (

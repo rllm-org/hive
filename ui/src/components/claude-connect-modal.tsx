@@ -13,6 +13,7 @@ export function ClaudeConnectModal({ onClose, onConnected }: ClaudeConnectModalP
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -31,72 +32,83 @@ export function ClaudeConnectModal({ onClose, onConnected }: ClaudeConnectModalP
       onConnected?.();
       onClose();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "failed to save token");
+      setError(e instanceof Error ? e.message : "Failed to save token");
     } finally {
       setLoading(false);
     }
   };
 
+  const handleCopy = () => {
+    navigator.clipboard.writeText("claude setup-token");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const inputCls = "w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] font-[family-name:var(--font-ibm-plex-mono)] outline-none";
+  const labelCls = "block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5";
+
   return (
     <div
       ref={overlayRef}
       onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30"
     >
-      <div className="w-full max-w-lg rounded-lg bg-[var(--color-surface)] p-6 shadow-xl">
-        <h2 className="mb-2 text-lg font-semibold">Connect your Claude account</h2>
-        <p className="mb-3 text-sm text-[var(--color-muted)]">
-          Hive runs agents on your Claude subscription. Generate a token once and paste it here —
-          every workspace you create will use your account.
-        </p>
-
-        <ol className="mb-4 list-decimal space-y-2 pl-5 text-sm">
-          <li>
-            Install the Claude Code CLI if you haven&apos;t already:{" "}
-            <a
-              href="https://docs.anthropic.com/claude/docs/claude-code"
-              target="_blank" rel="noopener noreferrer"
-              className="text-[var(--color-accent)] underline"
-            >
-              setup guide ↗
-            </a>
-          </li>
-          <li>
-            Run this in your terminal:
-            <pre className="mt-1 overflow-x-auto rounded bg-[var(--color-layer-2)] p-2 text-xs font-mono">claude setup-token</pre>
-          </li>
-          <li>Approve in your browser; the terminal will print a token starting with <code>sk-ant-oat01-…</code></li>
-          <li>Paste the token below:</li>
-        </ol>
-
-        <label className="mb-1 block text-sm font-medium">Claude OAuth token</label>
-        <input
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-          className="mb-3 w-full rounded border border-[var(--color-border)] bg-transparent px-3 py-2 font-mono text-sm"
-          placeholder="sk-ant-oat01-…"
-          autoFocus
-        />
-
-        {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
-
-        <div className="flex justify-end gap-2">
+      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[380px] flex flex-col animate-fade-in">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-2.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/claude-icon.png" alt="Claude" width={20} height={20} className="rounded-full" />
+            <h2 className="text-base font-semibold text-[var(--color-text)]">Connect Claude</h2>
+          </div>
           <button
             onClick={onClose}
-            className="rounded border border-[var(--color-border)] px-3 py-1.5 text-sm hover:bg-[var(--color-hover)]"
+            className="w-7 h-7 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
           >
-            Cancel
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M3 3l8 8M11 3l-8 8" />
+            </svg>
           </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-4">
+          <p className="text-xs text-[var(--color-text-tertiary)]">
+            Run this in your terminal, then paste the token below.
+          </p>
+
+          <div
+            onClick={handleCopy}
+            className="flex items-center justify-between px-3 py-2 bg-[var(--color-layer-1)] border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-layer-2)] transition-colors"
+          >
+            <code className="text-xs font-[family-name:var(--font-ibm-plex-mono)] text-[var(--color-text)]">$ claude setup-token</code>
+            <span className="text-[10px] text-[var(--color-text-tertiary)]">{copied ? "Copied!" : "Click to copy"}</span>
+          </div>
+
+          <div>
+            <label className={labelCls}>Token</label>
+            <input
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+              style={{ outline: "none", boxShadow: "none" }}
+              className={inputCls}
+              placeholder="sk-ant-oat01-…"
+              autoFocus
+            />
+          </div>
+
+          {error && <p className="text-xs text-red-500">{error}</p>}
+
           <button
             onClick={submit}
             disabled={loading || !token.trim()}
-            className="rounded bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            className="w-full py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
           >
-            {loading ? "Saving…" : "Connect"}
+            {loading ? "Connecting..." : "Connect"}
           </button>
         </div>
       </div>
