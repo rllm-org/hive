@@ -485,7 +485,11 @@ export function useWorkspaceAgents(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model }),
     });
-    if (!res.ok) throw new Error(`set_model failed: ${res.status}`);
+    if (!res.ok) {
+      let detail = "";
+      try { const body = await res.json(); if (body.error) detail = `: ${body.error}`; } catch {}
+      throw new Error(`set_model failed (${res.status})${detail}`);
+    }
   }, []);
 
   return { states, sendMessage, cancel, setModel };
