@@ -266,6 +266,7 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
         body: JSON.stringify({ name: name.trim(), type }),
       });
       const data = await res.json();
+      if (res.status === 402) throw new Error("Connect your Claude account in Settings before creating a cloud workspace.");
       if (!res.ok) throw new Error(data.detail ?? "Failed to create workspace");
       onCreated(data);
     } catch (err) {
