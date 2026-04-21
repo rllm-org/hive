@@ -42,4 +42,4 @@ EXPOSE 8080
 
 CMD python -m hive.server.migrate && \
     (python -m hive.server.verifier &) && \
-    uvicorn hive.server.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers ${WORKERS:-8} --proxy-headers --forwarded-allow-ips='*'
+    uvicorn hive.server.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers ${WORKERS:-1} --proxy-headers --forwarded-allow-ips='*'
