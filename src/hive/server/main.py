@@ -35,6 +35,12 @@ ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 HIVE_SERVER_URL = os.environ.get("HIVE_SERVER", "")
 print(f"[STARTUP] HIVE_SERVER={repr(HIVE_SERVER_URL)}", flush=True)
 JWT_SECRET = os.environ.get("JWT_SECRET", "hive-dev-secret-change-me")
+# When true, skip per-user Claude OAuth and let agent-sdk fall back to its own
+# ANTHROPIC_API_KEY for every workspace. Useful when individual users have hit
+# their account's monthly cap and you want to temporarily route through the
+# shared server key instead.
+HIVE_USE_SERVER_KEY = os.environ.get("HIVE_USE_SERVER_KEY", "").lower() in ("1", "true", "yes")
+print(f"[STARTUP] HIVE_USE_SERVER_KEY={HIVE_USE_SERVER_KEY}", flush=True)
 
 # Derive a Fernet key from JWT_SECRET for encrypting GitHub tokens
 _fernet_key = base64.urlsafe_b64encode(hashlib.sha256(JWT_SECRET.encode()).digest())
@@ -2524,7 +2530,7 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
     if ws_type == "persistent":
         raise HTTPException(400, "persistent workspaces are admin-only")
 
-    if ws_type == "cloud" and not await _get_user_claude_token(user_id):
+    if ws_type == "cloud" and not HIVE_USE_SERVER_KEY and not await _get_user_claude_token(user_id):
         # No Claude creds yet — front-end shows the connect modal and retries.
         return JSONResponse(
             {"auth_required": True, "reason": "claude_oauth"},
@@ -2580,7 +2586,7 @@ async def _workspace_sdk_connect(
 
     client = get_client()
     base = AGENT_SDK_BASE_URL or ""
-    user_oauth_token = await _get_user_claude_token(user_id)
+    user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
 
     async with get_db() as conn:
         wrow = await (await conn.execute(
