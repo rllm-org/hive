@@ -163,20 +163,26 @@ const MODELS = [
 
 type ModelId = (typeof MODELS)[number]["id"];
 
+const TIER_STYLES: Record<string, React.CSSProperties> = {
+  Fast:     { background: "#1a3d2b", color: "#3ecf8e" },
+  Balanced: { background: "#1f2e4a", color: "#60a5fa" },
+  Powerful: { background: "#2d1f4a", color: "#c084fc" },
+};
+
 function AgentTabs({
   agents,
   activeAgentId,
   onSelect,
   onDelete,
-  activeModel,
-  onModelChange,
+  activeModel = null,
+  onModelChange = async () => {},
 }: {
   agents: WorkspaceAgent[];
   activeAgentId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => Promise<void>;
-  activeModel: string | null;
-  onModelChange: (model: string) => Promise<void>;
+  activeModel?: string | null;
+  onModelChange?: (model: ModelId) => Promise<void>;
 }) {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [modelOpen, setModelOpen] = useState(false);
@@ -185,13 +191,20 @@ function AgentTabs({
 
   useEffect(() => {
     if (!modelOpen) return;
-    const handler = (e: MouseEvent) => {
+    const mouseHandler = (e: MouseEvent) => {
       if (modelRef.current && !modelRef.current.contains(e.target as Node)) {
         setModelOpen(false);
       }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setModelOpen(false);
+    };
+    document.addEventListener("mousedown", mouseHandler);
+    document.addEventListener("keydown", keyHandler);
+    return () => {
+      document.removeEventListener("mousedown", mouseHandler);
+      document.removeEventListener("keydown", keyHandler);
+    };
   }, [modelOpen]);
 
   return (
@@ -232,8 +245,12 @@ function AgentTabs({
         {activeModel != null && (
           <div ref={modelRef} className="flex items-center pb-1.5 pl-2 flex-shrink-0 relative">
             <button
+              type="button"
               onClick={() => setModelOpen((v) => !v)}
               disabled={modelChanging}
+              aria-haspopup="listbox"
+              aria-expanded={modelOpen}
+              aria-label={`Model: ${MODELS.find((m) => m.id === activeModel)?.label ?? activeModel ?? "unknown"}`}
               className={`flex items-center gap-1 px-2 py-1 text-[11px] border rounded font-mono transition-colors ${
                 modelOpen
                   ? "border-[var(--color-accent)] text-[var(--color-text)] bg-[var(--color-surface)]"
@@ -254,13 +271,9 @@ function AgentTabs({
               <div className="absolute top-full right-0 mt-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md shadow-lg min-w-[196px] z-50 overflow-hidden">
                 {MODELS.map((m) => {
                   const isCurrent = m.id === activeModel;
-                  const tierStyle: Record<string, React.CSSProperties> = {
-                    Fast:     { background: "#1a3d2b", color: "#3ecf8e" },
-                    Balanced: { background: "#1f2e4a", color: "#60a5fa" },
-                    Powerful: { background: "#2d1f4a", color: "#c084fc" },
-                  };
                   return (
                     <button
+                      type="button"
                       key={m.id}
                       onClick={async () => {
                         if (isCurrent) { setModelOpen(false); return; }
@@ -272,7 +285,7 @@ function AgentTabs({
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[12px] font-semibold text-[var(--color-text)] font-mono">{m.label}</span>
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide" style={tierStyle[m.tier]}>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide" style={TIER_STYLES[m.tier]}>
                           {m.tier}
                         </span>
                         {isCurrent && (
