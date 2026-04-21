@@ -610,12 +610,12 @@ function SandboxTreeNode({
       style={{ borderRadius: 6, left: menuPos.x, top: menuPos.y }}
     >
       {onNewFile && (
-        <button onClick={() => { setMenuPos(null); onNewFile(uploadDir); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
+        <button onClick={() => { setMenuPos(null); onNewFile(uploadDir); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
           New File
         </button>
       )}
       {onNewFolder && (
-        <button onClick={() => { setMenuPos(null); onNewFolder(uploadDir); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
+        <button onClick={() => { setMenuPos(null); onNewFolder(uploadDir); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
           New Folder
         </button>
       )}
@@ -623,17 +623,17 @@ function SandboxTreeNode({
         <div className="my-1 border-t border-[var(--color-border)]" />
       )}
       {onRename && (
-        <button onClick={() => { setMenuPos(null); onRename(node.path); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
+        <button onClick={() => { setMenuPos(null); onRename(node.path); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
           Rename
         </button>
       )}
       {onDownload && !isDir && (
-        <button onClick={() => { setMenuPos(null); onDownload(node.path); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
+        <button onClick={() => { setMenuPos(null); onDownload(node.path); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
           Download
         </button>
       )}
       {onDelete && (
-        <button onClick={() => { setMenuPos(null); onDelete(node.path); }} className="w-full text-left px-3 py-1.5 text-xs text-red-500 hover:bg-red-500/10">
+        <button onClick={() => { setMenuPos(null); onDelete(node.path); }} className="w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-red-500/10">
           Delete
         </button>
       )}
@@ -953,6 +953,17 @@ export default function WorkspacePage() {
     workspace?.sdk_sandbox_id ?? null,
   );
   const [draggingOver, setDraggingOver] = useState(false);
+  const [bgMenuPos, setBgMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const bgMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!bgMenuPos) return;
+    const handler = (e: MouseEvent) => {
+      if (bgMenuRef.current && !bgMenuRef.current.contains(e.target as Node)) setBgMenuPos(null);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [bgMenuPos]);
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
@@ -1371,7 +1382,16 @@ export default function WorkspacePage() {
           onDrop={handleDrop}
         >
           {/* File tree */}
-          <div className="flex-1 overflow-y-auto min-h-0 px-5 pt-4 pb-5">
+          <div
+            className="flex-1 overflow-y-auto min-h-0 px-5 pt-4 pb-5"
+            onContextMenu={(e) => {
+              // Only trigger on the background itself, not on tree nodes
+              if (e.target === e.currentTarget || (e.target as HTMLElement).closest("[data-fs-bg]")) {
+                e.preventDefault();
+                setBgMenuPos({ x: e.clientX, y: e.clientY });
+              }
+            }}
+          >
             {fsLoading && (
               <div className="flex items-center justify-center py-8">
                 <div className="w-5 h-5 border-2 border-[var(--color-border)] border-t-[var(--color-accent)] rounded-full animate-spin" />
@@ -1381,7 +1401,21 @@ export default function WorkspacePage() {
               <p className="text-xs text-[var(--color-text-tertiary)] px-1 py-4">{fsError}</p>
             )}
             {!fsLoading && !fsError && fsTree.length === 0 && (
-              <p className="text-xs text-[var(--color-text-tertiary)] px-1 py-4">No files yet</p>
+              <p className="text-xs text-[var(--color-text-tertiary)] px-1 py-4" data-fs-bg>No files yet</p>
+            )}
+            {bgMenuPos && (
+              <div
+                ref={bgMenuRef}
+                className="fixed bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[140px] z-[9999]"
+                style={{ borderRadius: 6, left: bgMenuPos.x, top: bgMenuPos.y }}
+              >
+                <button onClick={() => { setBgMenuPos(null); handleNewFile(""); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
+                  New File
+                </button>
+                <button onClick={() => { setBgMenuPos(null); handleNewFolder(""); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
+                  New Folder
+                </button>
+              </div>
             )}
             <div className="space-y-0.5">
               {fsTree.map((node) => (
