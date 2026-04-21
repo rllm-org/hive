@@ -42,31 +42,31 @@ class FakeClient:
         ]
         self.destroyed: list[str] = []
 
-    async def create_quick_session(self, **cfg):
+    async def create_quick_session(self, oauth_token=None, **cfg):
         self.calls.append(("create_quick_session", (), cfg))
         return dict(self.quick_response)
 
-    async def get_status(self, sid):
+    async def get_status(self, sid, oauth_token=None):
         self.calls.append(("get_status", (sid,), {}))
         return {"session_id": sid, "agent_busy": False}
 
-    async def get_log(self, sid, limit=500):
+    async def get_log(self, sid, limit=500, oauth_token=None):
         self.calls.append(("get_log", (sid, limit), {}))
         return []
 
-    async def send_message(self, sid, text, interrupt=False):
+    async def send_message(self, sid, text, interrupt=False, oauth_token=None):
         self.calls.append(("send_message", (sid, text), {"interrupt": interrupt}))
         return {"rpc_id": "r1", "status": "ok"}
 
-    async def cancel(self, sid):
+    async def cancel(self, sid, oauth_token=None):
         self.calls.append(("cancel", (sid,), {}))
         return {"status": "ok"}
 
-    async def resume(self, sid):
+    async def resume(self, sid, oauth_token=None):
         self.calls.append(("resume", (sid,), {}))
         return {"status": "resumed"}
 
-    async def set_config(self, sid, **kwargs):
+    async def set_config(self, sid, oauth_token=None, **kwargs):
         self.calls.append(("set_config", (sid,), kwargs))
         return {"status": "ok"}
 
@@ -74,7 +74,7 @@ class FakeClient:
         self.calls.append(("destroy_sandbox", (sandbox_id,), {}))
         self.destroyed.append(sandbox_id)
 
-    async def stream_events(self, sid):
+    async def stream_events(self, sid, oauth_token=None):
         self.calls.append(("stream_events", (sid,), {}))
         for chunk in self.sse_chunks:
             yield chunk
@@ -102,6 +102,19 @@ def _seed_task(owner="hive-mock-dev", slug="smoke", owner_id=None):
             (slug, owner, "Test", "t", "https://example.com/x", owner_id, now()),
         ).fetchone()
         return row["id"]
+
+
+def _seed_claude_oauth(user_id: int, token: str = "sk-ant-oat01-test-token-value"):
+    """Seed a claude_oauth_tokens row so gated endpoints (send_message, resume)
+    don't 402 with auth_required in tests that aren't about the OAuth gate."""
+    from hive.server.main import _encrypt
+    with get_db_sync() as conn:
+        conn.execute(
+            "INSERT INTO claude_oauth_tokens (user_id, token_encrypted, created_at, expires_at)"
+            " VALUES (%s, %s, %s, NULL)"
+            " ON CONFLICT (user_id) DO UPDATE SET token_encrypted = EXCLUDED.token_encrypted",
+            (user_id, _encrypt(token), now()),
+        )
 
 
 # --- tests -----------------------------------------------------------------
@@ -136,7 +149,8 @@ def test_create_forwards_config_and_inserts_row(client, fake_sdk):
 
 
 def test_message_forwards_interrupt_flag(client, fake_sdk):
-    token, _ = _create_verified_user(client, "b@example.com", "pw123456", handle="bob")
+    token, user = _create_verified_user(client, "b@example.com", "pw123456", handle="bob")
+    _seed_claude_oauth(user["id"])
     _seed_task(slug="t2")
     sid = client.post(
         "/api/tasks/hive-mock-dev/t2/agent-chat/sessions",

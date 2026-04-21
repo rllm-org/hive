@@ -39,6 +39,33 @@ def _require_user():
     return Depends(require_user)
 
 
+async def _resolve_oauth_token(user_id: int) -> str | None:
+    """Fetch the user's stored Claude OAuth token for forwarding to agent-sdk.
+
+    Returns None when the global HIVE_USE_SERVER_KEY toggle is on (caller wants
+    the shared server key) or when the user hasn't connected Claude yet. The
+    caller should 402 in the latter case — see _require_claude_oauth.
+    """
+    from .main import _get_user_claude_token, HIVE_USE_SERVER_KEY
+    if HIVE_USE_SERVER_KEY:
+        return None
+    return await _get_user_claude_token(user_id)
+
+
+async def _require_claude_oauth(user_id: int) -> str | None:
+    """Same as _resolve_oauth_token but 402s if the user has no token and
+    the server-key override is off. Use on endpoints where we want to force
+    the user into the Connect Claude flow instead of silently falling back."""
+    from .main import HIVE_USE_SERVER_KEY
+    tok = await _resolve_oauth_token(user_id)
+    if tok is None and not HIVE_USE_SERVER_KEY:
+        raise HTTPException(
+            status_code=402,
+            detail={"auth_required": True, "reason": "claude_oauth"},
+        )
+    return tok
+
+
 async def _check_task_access(owner: str, slug: str, authorization: str) -> None:
     from .main import require_task_access
     await require_task_access(owner, slug, authorization)
@@ -171,9 +198,10 @@ async def get_session(sid: int, user: dict = _require_user()):
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
+    tok = await _resolve_oauth_token(user_id)
     upstream: dict[str, Any] = {}
     try:
-        upstream = await get_client().get_status(row["sdk_session_id"])
+        upstream = await get_client().get_status(row["sdk_session_id"], oauth_token=tok)
     except HTTPException as e:
         log.warning("get_status failed for sdk_session_id=%s: %s", row["sdk_session_id"], e.detail)
     view = _session_view(row)
@@ -186,7 +214,8 @@ async def get_log(sid: int, limit: int = Query(500, ge=1, le=2000), user: dict =
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
-    events = await get_client().get_log(row["sdk_session_id"], limit=limit)
+    tok = await _resolve_oauth_token(user_id)
+    events = await get_client().get_log(row["sdk_session_id"], limit=limit, oauth_token=tok)
     return {"events": events}
 
 
@@ -196,12 +225,13 @@ async def stream_events(sid: int, request: Request, user: dict = _require_user()
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
 
+    tok = await _resolve_oauth_token(user_id)
     client = get_client()
     sdk_sid = row["sdk_session_id"]
 
     async def gen():
         try:
-            async for chunk in client.stream_events(sdk_sid):
+            async for chunk in client.stream_events(sdk_sid, oauth_token=tok):
                 if await request.is_disconnected():
                     break
                 yield chunk
@@ -227,7 +257,8 @@ async def send_message(
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
 
-    result = await get_client().send_message(row["sdk_session_id"], text, interrupt=interrupt)
+    tok = await _require_claude_oauth(user_id)
+    result = await get_client().send_message(row["sdk_session_id"], text, interrupt=interrupt, oauth_token=tok)
 
     async with get_db() as conn:
         await conn.execute(
@@ -242,7 +273,8 @@ async def cancel(sid: int, user: dict = _require_user()):
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
-    return await get_client().cancel(row["sdk_session_id"])
+    tok = await _resolve_oauth_token(user_id)
+    return await get_client().cancel(row["sdk_session_id"], oauth_token=tok)
 
 
 @router.post("/agent-chat/sessions/{sid}/resume")
@@ -250,7 +282,8 @@ async def resume(sid: int, user: dict = _require_user()):
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
-    return await get_client().resume(row["sdk_session_id"])
+    tok = await _require_claude_oauth(user_id)
+    return await get_client().resume(row["sdk_session_id"], oauth_token=tok)
 
 
 @router.post("/agent-chat/sessions/{sid}/config")
@@ -258,7 +291,8 @@ async def set_config(sid: int, body: dict[str, Any] = Body(...), user: dict = _r
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await _load_owned_session(conn, sid, user_id)
-    return await get_client().set_config(row["sdk_session_id"], **body)
+    tok = await _resolve_oauth_token(user_id)
+    return await get_client().set_config(row["sdk_session_id"], oauth_token=tok, **body)
 
 
 @router.delete("/agent-chat/sessions/{sid}", status_code=204)

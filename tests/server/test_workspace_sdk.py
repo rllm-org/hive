@@ -22,6 +22,19 @@ def _wait_for_provision(client, headers, wid, timeout_s=2.0):
     return None
 
 
+def _seed_claude_oauth(user_id: int, token: str = "sk-ant-oat01-test-token-value"):
+    """Seed a claude_oauth_tokens row so workspace creation doesn't 402."""
+    from hive.server.db import now as db_now
+    from hive.server.main import _encrypt
+    with get_db_sync() as conn:
+        conn.execute(
+            "INSERT INTO claude_oauth_tokens (user_id, token_encrypted, created_at, expires_at)"
+            " VALUES (%s, %s, %s, NULL)"
+            " ON CONFLICT (user_id) DO UPDATE SET token_encrypted = EXCLUDED.token_encrypted",
+            (user_id, _encrypt(token), db_now()),
+        )
+
+
 @pytest.fixture
 def mock_agent_sdk(monkeypatch):
     m = MagicMock()
@@ -53,7 +66,8 @@ def mock_agent_sdk(monkeypatch):
 
 class TestWorkspaceSharedSandbox:
     def test_second_agent_uses_create_session(self, client, mock_agent_sdk):
-        token, _ = _create_verified_user(client, "ws-sdk@x.com", "password123", handle="ws-sdk-user")
+        token, user = _create_verified_user(client, "ws-sdk@x.com", "password123", handle="ws-sdk-user")
+        _seed_claude_oauth(user["id"])
         h = {"Authorization": f"Bearer {token}"}
         w = client.post("/api/workspaces", json={"name": "ws-sandbox", "type": "cloud"}, headers=h)
         assert w.status_code == 200
@@ -76,7 +90,8 @@ class TestWorkspaceSharedSandbox:
             assert args[0] == "sb-ws-shared"
 
     def test_delete_workspace_destroys_sandbox_once(self, client, mock_agent_sdk):
-        token, _ = _create_verified_user(client, "ws-del@x.com", "password123", handle="ws-del-user")
+        token, user = _create_verified_user(client, "ws-del@x.com", "password123", handle="ws-del-user")
+        _seed_claude_oauth(user["id"])
         h = {"Authorization": f"Bearer {token}"}
         wid = client.post("/api/workspaces", json={"name": "ws-del", "type": "cloud"}, headers=h).json()["id"]
         assert _wait_for_provision(client, h, wid) is not None
@@ -89,7 +104,8 @@ class TestWorkspaceSharedSandbox:
         assert mock_agent_sdk.destroy_sandbox.call_args[0][0] == "sb-ws-shared"
 
     def test_provision_failure_leaves_pending_workspace(self, client, mock_agent_sdk):
-        token, _ = _create_verified_user(client, "ws-fail@x.com", "password123", handle="ws-fail-user")
+        token, user = _create_verified_user(client, "ws-fail@x.com", "password123", handle="ws-fail-user")
+        _seed_claude_oauth(user["id"])
         h = {"Authorization": f"Bearer {token}"}
         mock_agent_sdk.provision_sandbox = AsyncMock(
             side_effect=HTTPException(status_code=502, detail="sdk down")
@@ -104,7 +120,8 @@ class TestWorkspaceSharedSandbox:
         assert ws.get("sdk_sandbox_id") is None
 
     def test_cloud_workspace_agent_has_cloud_type(self, client, mock_agent_sdk):
-        token, _ = _create_verified_user(client, "ws-type@x.com", "password123", handle="ws-type-user")
+        token, user = _create_verified_user(client, "ws-type@x.com", "password123", handle="ws-type-user")
+        _seed_claude_oauth(user["id"])
         h = {"Authorization": f"Bearer {token}"}
         wid = client.post("/api/workspaces", json={"name": "ws-type", "type": "cloud"}, headers=h).json()["id"]
         assert _wait_for_provision(client, h, wid) is not None
