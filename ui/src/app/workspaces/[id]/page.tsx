@@ -463,6 +463,96 @@ import type { ChatMessage } from "@/hooks/use-workspace-agent";
 
 const MAX_TEXTAREA_HEIGHT = 200;
 
+function FsPromptModal({ title, label, defaultValue, onClose, onSubmit }: {
+  title: string;
+  label: string;
+  defaultValue: string;
+  onClose: () => void;
+  onSubmit: (value: string) => void | Promise<void>;
+}) {
+  const [value, setValue] = useState(defaultValue);
+  const [submitting, setSubmitting] = useState(false);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [onClose]);
+
+  useEffect(() => {
+    // Select just the filename part (before extension) for easy renaming
+    if (inputRef.current) {
+      const dot = defaultValue.lastIndexOf(".");
+      if (dot > 0) {
+        inputRef.current.setSelectionRange(0, dot);
+      } else {
+        inputRef.current.select();
+      }
+    }
+  }, [defaultValue]);
+
+  const submit = async () => {
+    if (!value.trim()) return;
+    setSubmitting(true);
+    try { await onSubmit(value.trim()); } finally { setSubmitting(false); }
+  };
+
+  return (
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30"
+      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+    >
+      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[340px] flex flex-col animate-fade-in" style={{ borderRadius: 6 }}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)]">
+          <h2 className="text-sm font-semibold text-[var(--color-text)]">{title}</h2>
+          <button
+            onClick={onClose}
+            className="w-6 h-6 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
+          >
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M3 3l8 8M11 3l-8 8" />
+            </svg>
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">{label}</label>
+            <input
+              ref={inputRef}
+              type="text"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } }}
+              className="w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] font-[family-name:var(--font-ibm-plex-mono)]"
+              style={{ outline: "none", boxShadow: "none" }}
+              autoFocus
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={onClose}
+              disabled={submitting}
+              className="px-3 py-1.5 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] disabled:opacity-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={submit}
+              disabled={submitting || !value.trim()}
+              className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+            >
+              {submitting ? "..." : title === "Rename" ? "Rename" : "Create"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SandboxTreeNode({
   node,
   expandedDirs,
@@ -937,32 +1027,52 @@ export default function WorkspacePage() {
     await fsRefresh();
   }, [deleteFile, fsRefresh]);
 
-  const handleRenameFile = useCallback(async (filePath: string) => {
-    const newPath = prompt("New name:", filePath);
-    if (!newPath || newPath === filePath) return;
-    const result = await renameFile(filePath, newPath);
-    if (!result.ok) alert("Rename failed: " + (result.error ?? "unknown"));
-    await fsRefresh();
+  const [fsPrompt, setFsPrompt] = useState<{ title: string; label: string; value: string; onSubmit: (v: string) => Promise<void> } | null>(null);
+
+  const handleRenameFile = useCallback((filePath: string) => {
+    const fileName = filePath.includes("/") ? filePath.slice(filePath.lastIndexOf("/") + 1) : filePath;
+    const dir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/")) : "";
+    setFsPrompt({
+      title: "Rename",
+      label: "New name",
+      value: fileName,
+      onSubmit: async (name) => {
+        const newPath = dir ? `${dir}/${name}` : name;
+        if (newPath === filePath) return;
+        const result = await renameFile(filePath, newPath);
+        if (!result.ok) alert("Rename failed: " + (result.error ?? "unknown"));
+        await fsRefresh();
+      },
+    });
   }, [renameFile, fsRefresh]);
 
-  const handleNewFile = useCallback(async (directory: string) => {
-    const name = prompt("File name:");
-    if (!name) return;
-    const filePath = directory ? `${directory}/${name}` : name;
-    const result = await editFile(filePath, "", "");
-    if (!result.ok) alert("Create failed: " + (result.error ?? "unknown"));
-    await fsRefresh();
+  const handleNewFile = useCallback((directory: string) => {
+    setFsPrompt({
+      title: "New File",
+      label: "File name",
+      value: "",
+      onSubmit: async (name) => {
+        const filePath = directory ? `${directory}/${name}` : name;
+        const result = await editFile(filePath, "", "");
+        if (!result.ok) alert("Create failed: " + (result.error ?? "unknown"));
+        await fsRefresh();
+      },
+    });
   }, [editFile, fsRefresh]);
 
-  const handleNewFolder = useCallback(async (directory: string) => {
-    const name = prompt("Folder name:");
-    if (!name) return;
-    const folderPath = directory ? `${directory}/${name}` : name;
-    // Create folder by uploading an empty placeholder and deleting it
-    const placeholderPath = `${folderPath}/.keep`;
-    const result = await editFile(placeholderPath, "", "");
-    if (!result.ok) alert("Create failed: " + (result.error ?? "unknown"));
-    await fsRefresh();
+  const handleNewFolder = useCallback((directory: string) => {
+    setFsPrompt({
+      title: "New Folder",
+      label: "Folder name",
+      value: "",
+      onSubmit: async (name) => {
+        const folderPath = directory ? `${directory}/${name}` : name;
+        const placeholderPath = `${folderPath}/.keep`;
+        const result = await editFile(placeholderPath, "", "");
+        if (!result.ok) alert("Create failed: " + (result.error ?? "unknown"));
+        await fsRefresh();
+      },
+    });
   }, [editFile, fsRefresh]);
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
@@ -1284,6 +1394,16 @@ export default function WorkspacePage() {
             setShowDeleteWs(false);
             router.push("/me?tab=workspaces");
           }}
+        />
+      )}
+
+      {fsPrompt && (
+        <FsPromptModal
+          title={fsPrompt.title}
+          label={fsPrompt.label}
+          defaultValue={fsPrompt.value}
+          onClose={() => setFsPrompt(null)}
+          onSubmit={async (v) => { setFsPrompt(null); await fsPrompt.onSubmit(v); }}
         />
       )}
 
