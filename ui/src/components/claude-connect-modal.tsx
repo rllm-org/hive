@@ -23,7 +23,7 @@ export function ClaudeConnectModal({ onClose, onConnected }: ClaudeConnectModalP
   }, [onClose]);
 
   const submit = async () => {
-    const trimmed = token.trim();
+    const trimmed = token.replace(/\s/g, "");
     if (!trimmed) return;
     setLoading(true);
     setError("");
@@ -101,14 +101,14 @@ export function ClaudeConnectModal({ onClose, onConnected }: ClaudeConnectModalP
             />
           </div>
 
-          {token !== token.trim() && (
-            <p className="text-xs text-amber-500">Token has leading or trailing whitespace — it will be removed automatically.</p>
+          {/\s/.test(token) && (
+            <p className="text-xs text-amber-500">Whitespace detected — it will be stripped automatically.</p>
           )}
           {error && <p className="text-xs text-red-500">{error}</p>}
 
           <button
             onClick={submit}
-            disabled={loading || !token.trim()}
+            disabled={loading || !token.replace(/\s/g, "")}
             className="w-full py-2 text-sm font-medium bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
           >
             {loading ? "Connecting..." : "Connect"}
