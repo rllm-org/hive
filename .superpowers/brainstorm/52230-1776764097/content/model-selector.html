@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Selector Mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f0f0f;
+    color: #e8e8e8;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    padding: 32px 24px;
+  }
+  h2 { font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+  .subtitle { font-size: 12px; color: #666; margin-bottom: 32px; }
+
+  /* --- Hive-like variables --- */
+  :root {
+    --layer-1: #141414;
+    --layer-2: #1c1c1c;
+    --surface: #222;
+    --border: #2a2a2a;
+    --text: #e8e8e8;
+    --text-secondary: #999;
+    --text-tertiary: #555;
+    --accent: #7c6af7;
+    --mono: 'IBM Plex Mono', 'Fira Code', monospace;
+  }
+
+  .demo-label {
+    font-size: 11px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+    font-weight: 600;
+  }
+
+  /* ---- Agent tab strip ---- */
+  .agent-tabs-wrap {
+    background: var(--layer-2);
+    border: 1px solid var(--border);
+    border-radius: 8px 8px 0 0;
+    overflow: visible;
+    width: 100%;
+  }
+
+  .tabs-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 0;
+    padding: 8px 12px 0;
+    position: relative;
+    min-height: 38px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tabs-left {
+    display: flex;
+    align-items: flex-end;
+    gap: 0;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 6px 6px 0 0;
+    border: 1px solid transparent;
+    position: relative;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  .tab.active {
+    background: var(--layer-1);
+    border-color: var(--border);
+    border-bottom-color: var(--layer-1);
+    color: var(--text);
+    z-index: 2;
+    margin-bottom: -1px;
+  }
+
+  .tab.inactive {
+    color: var(--text-secondary);
+    opacity: 0.6;
+  }
+
+  .avatar {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #7c6af7, #e870d0);
+    flex-shrink: 0;
+  }
+  .avatar.green { background: linear-gradient(135deg, #3ecf8e, #2fb878); }
+
+  .close-btn {
+    width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 3px;
+    color: var(--text-tertiary);
+    opacity: 0.6;
+  }
+  .tab.active .close-btn { opacity: 1; }
+
+  /* ---- Model pill (right side) ---- */
+  .tabs-right {
+    display: flex;
+    align-items: center;
+    padding-bottom: 6px;
+    padding-right: 2px;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .model-pill {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    transition: border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+    position: relative;
+  }
+  .model-pill:hover { border-color: #444; color: var(--text); }
+  .model-pill.open { border-color: var(--accent); color: var(--text); }
+
+  .model-pill svg { flex-shrink: 0; }
+
+  /* ---- Dropdown ---- */
+  .model-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    min-width: 200px;
+    z-index: 100;
+    overflow: hidden;
+  }
+
+  .dropdown-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 9px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+  .dropdown-item:last-child { border-bottom: none; }
+  .dropdown-item:hover { background: #2a2a2a; }
+  .dropdown-item.current { background: #261f4d; }
+
+  .dropdown-item-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .dropdown-model-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .dropdown-tier {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .tier-fast { background: #1a3d2b; color: #3ecf8e; }
+  .tier-balanced { background: #1f2e4a; color: #60a5fa; }
+  .tier-powerful { background: #2d1f4a; color: #c084fc; }
+
+  .dropdown-desc {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 1px;
+  }
+
+  .check-icon {
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  /* ---- Chat body placeholder ---- */
+  .chat-body {
+    background: var(--layer-1);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-tertiary);
+    font-size: 12px;
+  }
+
+  /* ---- Layout ---- */
+  .demos {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .demo-block {
+    flex: 1;
+    min-width: 320px;
+    max-width: 480px;
+  }
+
+  .spacer { height: 16px; }
+</style>
+</head>
+<body>
+
+<h2>Model selector — agent tabs row</h2>
+<p class="subtitle">Right-aligned model pill in the tabs strip. Two states shown below.</p>
+
+<div class="spacer"></div>
+
+<div class="demos">
+
+  <!-- State 1: Pill closed -->
+  <div class="demo-block">
+    <div class="demo-label">Default — pill visible, dropdown closed</div>
+    <div class="agent-tabs-wrap">
+      <div class="tabs-row">
+        <div class="tabs-left">
+          <div class="tab active">
+            <div class="avatar"></div>
+            <span>agent-1</span>
+            <div class="close-btn">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 2l6 6M8 2l-6 6"/></svg>
+            </div>
+          </div>
+          <div class="tab inactive">
+            <div class="avatar green"></div>
+            <span>agent-2</span>
+          </div>
+        </div>
+        <div class="tabs-right">
+          <div class="model-pill">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:0.5">
+              <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+            </svg>
+            sonnet-4-6
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="opacity:0.5"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="chat-body">chat messages…</div>
+    </div>
+  </div>
+
+  <!-- State 2: Dropdown open -->
+  <div class="demo-block">
+    <div class="demo-label">Clicked — dropdown open</div>
+    <div class="agent-tabs-wrap">
+      <div class="tabs-row">
+        <div class="tabs-left">
+          <div class="tab active">
+            <div class="avatar"></div>
+            <span>agent-1</span>
+            <div class="close-btn">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 2l6 6M8 2l-6 6"/></svg>
+            </div>
+          </div>
+          <div class="tab inactive">
+            <div class="avatar green"></div>
+            <span>agent-2</span>
+          </div>
+        </div>
+        <div class="tabs-right">
+          <div class="model-pill open" style="position:relative">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+            </svg>
+            sonnet-4-6
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 15l-6-6-6 6"/></svg>
+
+            <!-- Dropdown -->
+            <div class="model-dropdown">
+              <div class="dropdown-item">
+                <div class="dropdown-item-top">
+                  <span class="dropdown-model-name">Haiku</span>
+                  <span class="dropdown-tier tier-fast">Fast</span>
+                </div>
+                <span class="dropdown-desc">claude-haiku-4-5 · lightweight &amp; quick</span>
+              </div>
+              <div class="dropdown-item current">
+                <div class="dropdown-item-top">
+                  <span class="dropdown-model-name">Sonnet</span>
+                  <span class="dropdown-tier tier-balanced">Balanced</span>
+                  <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                </div>
+                <span class="dropdown-desc">claude-sonnet-4-6 · current</span>
+              </div>
+              <div class="dropdown-item">
+                <div class="dropdown-item-top">
+                  <span class="dropdown-model-name">Opus</span>
+                  <span class="dropdown-tier tier-powerful">Powerful</span>
+                </div>
+                <span class="dropdown-desc">claude-opus-4-6 · most capable</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="chat-body">chat messages…</div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
