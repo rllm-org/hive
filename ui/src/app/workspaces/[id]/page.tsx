@@ -566,6 +566,8 @@ function SandboxTreeNode({
   onDelete,
   onRename,
   onDownload,
+  onUploadFiles,
+  onUploadFolder,
   depth = 0,
 }: {
   node: FsTreeNode;
@@ -575,6 +577,8 @@ function SandboxTreeNode({
   onDelete?: (path: string) => void;
   onRename?: (path: string) => void;
   onDownload?: (path: string) => void;
+  onUploadFiles?: (directory: string) => void;
+  onUploadFolder?: (directory: string) => void;
   depth?: number;
 }) {
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
@@ -597,12 +601,27 @@ function SandboxTreeNode({
     setMenuPos({ x: e.clientX, y: e.clientY });
   };
 
+  const uploadDir = isDir ? node.path : node.path.includes("/") ? node.path.slice(0, node.path.lastIndexOf("/")) : "";
+
   const contextMenu = menuPos && (
     <div
       ref={menuRef}
       className="fixed bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[120px] z-[9999]"
       style={{ borderRadius: 6, left: menuPos.x, top: menuPos.y }}
     >
+      {onUploadFiles && (
+        <button onClick={() => { setMenuPos(null); onUploadFiles(uploadDir); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
+          Upload files here
+        </button>
+      )}
+      {onUploadFolder && (
+        <button onClick={() => { setMenuPos(null); onUploadFolder(uploadDir); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
+          Upload folder here
+        </button>
+      )}
+      {(onUploadFiles || onUploadFolder) && (onRename || onDownload || onDelete) && (
+        <div className="my-1 border-t border-[var(--color-border)]" />
+      )}
       {onRename && (
         <button onClick={() => { setMenuPos(null); onRename(node.path); }} className="w-full text-left px-3 py-1.5 text-xs text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
           Rename
@@ -648,6 +667,8 @@ function SandboxTreeNode({
                 onDelete={onDelete}
                 onRename={onRename}
                 onDownload={onDownload}
+                onUploadFiles={onUploadFiles}
+                onUploadFolder={onUploadFolder}
                 depth={depth + 1}
               />
             ))}
@@ -1006,6 +1027,39 @@ export default function WorkspacePage() {
     if (!result.ok) alert("Rename failed: " + (result.error ?? "unknown"));
     await fsRefresh();
   }, [renameFile, fsRefresh]);
+
+  const uploadTargetDirRef = useRef("");
+  const contextFileInputRef = useRef<HTMLInputElement>(null);
+  const contextFolderInputRef = useRef<HTMLInputElement>(null);
+
+  const handleUploadFilesTo = useCallback((directory: string) => {
+    uploadTargetDirRef.current = directory;
+    contextFileInputRef.current?.click();
+  }, []);
+
+  const handleUploadFolderTo = useCallback((directory: string) => {
+    uploadTargetDirRef.current = directory;
+    contextFolderInputRef.current?.click();
+  }, []);
+
+  const handleContextFileChange = useCallback(async (files: FileList) => {
+    const dir = uploadTargetDirRef.current;
+    const mapped = Array.from(files).map((f) => new File([f], dir ? `${dir}/${f.name}` : f.name, { type: f.type }));
+    const result = await uploadFiles(mapped);
+    if (!result.ok) alert("Upload failed: " + (result.error ?? "unknown"));
+    await fsRefresh();
+  }, [uploadFiles, fsRefresh]);
+
+  const handleContextFolderChange = useCallback(async (files: FileList) => {
+    const dir = uploadTargetDirRef.current;
+    const mapped = Array.from(files).map((f) => {
+      const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+      return new File([f], dir ? `${dir}/${rel}` : rel, { type: f.type });
+    });
+    const result = await uploadFiles(mapped);
+    if (!result.ok) alert("Upload failed: " + (result.error ?? "unknown"));
+    await fsRefresh();
+  }, [uploadFiles, fsRefresh]);
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
     const result = await editFile(path, "", content);
@@ -1386,6 +1440,14 @@ export default function WorkspacePage() {
             <input ref={folderInputRef} type="file" webkitdirectory="" className="hidden"
               onChange={(e) => { if (e.target.files?.length) handleUploadFolder(e.target.files); e.target.value = ""; }}
             />
+            {/* Context menu upload inputs (target a specific directory) */}
+            <input ref={contextFileInputRef} type="file" multiple className="hidden"
+              onChange={(e) => { if (e.target.files?.length) handleContextFileChange(e.target.files); e.target.value = ""; }}
+            />
+            {/* @ts-expect-error webkitdirectory is non-standard */}
+            <input ref={contextFolderInputRef} type="file" webkitdirectory="" className="hidden"
+              onChange={(e) => { if (e.target.files?.length) handleContextFolderChange(e.target.files); e.target.value = ""; }}
+            />
           </div>
           {/* File tree */}
           <div className="flex-1 overflow-y-auto min-h-0 px-5 pb-5">
@@ -1411,6 +1473,8 @@ export default function WorkspacePage() {
                   onDelete={handleDeleteFile}
                   onRename={handleRenameFile}
                   onDownload={downloadFile}
+                  onUploadFiles={handleUploadFilesTo}
+                  onUploadFolder={handleUploadFolderTo}
                 />
               ))}
             </div>
