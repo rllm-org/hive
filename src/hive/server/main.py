@@ -920,31 +920,37 @@ async def auth_claude_code(body: dict[str, Any], user: dict = Depends(require_us
     if not sid or not code:
         raise HTTPException(400, "auth_session_id and code required")
     try:
-        token = await asyncio.to_thread(claude_oauth.submit_code, sid, user_id, code)
-    except LookupError:
-        raise HTTPException(404, "auth session not found or expired")
-    except PermissionError:
-        raise HTTPException(403, "auth session does not belong to this user")
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    except RuntimeError as e:
-        logging.exception("claude submit_code failed for user %s: %s", user_id, e)
-        raise HTTPException(502, str(e))
-    except Exception as e:  # last-resort: never let the route return non-JSON
-        logging.exception("claude submit_code unexpected failure: %s", e)
-        raise HTTPException(500, f"claude OAuth broker error: {type(e).__name__}: {e}")
-    token_encrypted = _encrypt(token)
-    created_at = now()
-    expires_at = created_at + timedelta(days=350)
-    async with get_db() as conn:
-        await conn.execute(
-            "INSERT INTO claude_oauth_tokens (user_id, token_encrypted, created_at, expires_at) "
-            "VALUES (%s, %s, %s, %s) "
-            "ON CONFLICT (user_id) DO UPDATE SET token_encrypted = EXCLUDED.token_encrypted, "
-            "created_at = EXCLUDED.created_at, expires_at = EXCLUDED.expires_at",
-            (user_id, token_encrypted, created_at, expires_at),
-        )
-    return {"status": "connected", "connected_at": created_at.isoformat(), "expires_at": expires_at.isoformat()}
+        try:
+            token = await asyncio.to_thread(claude_oauth.submit_code, sid, user_id, code)
+        except LookupError:
+            raise HTTPException(404, "auth session not found or expired")
+        except PermissionError:
+            raise HTTPException(403, "auth session does not belong to this user")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except RuntimeError as e:
+            logging.exception("claude submit_code failed for user %s", user_id)
+            raise HTTPException(502, str(e))
+
+        token_encrypted = _encrypt(token)
+        created_at = now()
+        expires_at = created_at + timedelta(days=350)
+        async with get_db() as conn:
+            await conn.execute(
+                "INSERT INTO claude_oauth_tokens (user_id, token_encrypted, created_at, expires_at) "
+                "VALUES (%s, %s, %s, %s) "
+                "ON CONFLICT (user_id) DO UPDATE SET token_encrypted = EXCLUDED.token_encrypted, "
+                "created_at = EXCLUDED.created_at, expires_at = EXCLUDED.expires_at",
+                (user_id, token_encrypted, created_at, expires_at),
+            )
+        return {"status": "connected", "connected_at": created_at.isoformat(), "expires_at": expires_at.isoformat()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Last-resort: never let the route return non-JSON. Emit a full traceback
+        # into Railway's logs so we can see what actually happened.
+        logging.exception("auth/claude/code unexpected failure for user %s", user_id)
+        raise HTTPException(500, f"{type(e).__name__}: {e}")
 
 
 @router.get("/auth/claude/status")
