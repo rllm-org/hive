@@ -477,7 +477,18 @@ export function useWorkspaceAgents(
     updateAgent(agentId, { cancelling: false });
   }, [updateAgent]);
 
-  return { states, sendMessage, cancel };
+  const setModel = useCallback(async (agentId: string, model: string) => {
+    const conn = connectionsRef.current[agentId];
+    if (!conn) return;
+    const res = await fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+    });
+    if (!res.ok) throw new Error(`set_model failed: ${res.status}`);
+  }, []);
+
+  return { states, sendMessage, cancel, setModel };
 }
 
 // ---------------------------------------------------------------------------
