@@ -1315,12 +1315,18 @@ export default function WorkspacePage() {
                         for (const q of pendingQuestions) next.add(q.id);
                         return next;
                       });
-                      // Send all answers as one message
+                      // Build answer text
                       const text = answers.map((a, i) => {
                         const q = pendingQuestions[i]?.data.question ?? "";
                         const ans = Array.isArray(a) ? a.join(", ") : a;
                         return pendingQuestions.length === 1 ? ans : `${q}: ${ans}`;
                       }).join("\n");
+                      // Unblock the MCP ask_user call with the answer
+                      fetch(`${API_BASE}/mcp/ask/respond`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", ...getAuthHeader() },
+                        body: JSON.stringify({ answer: text }),
+                      }).catch(() => {});
                       sendMessage(text);
                     }}
                   />
