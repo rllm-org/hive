@@ -119,6 +119,23 @@ class AgentSdkClient:
         except Exception as e:
             log.warning("destroy_sandbox %s failed: %s", sandbox_id, e)
 
+    async def list_sessions(self) -> list[dict[str, Any]]:
+        data = await self._json("GET", "/sessions")
+        return data if isinstance(data, list) else data.get("sessions", [])
+
+    async def volume_file_tree(self, volume_id: str, path: str = "") -> dict[str, Any]:
+        params = {"path": path} if path else {}
+        return await self._json("GET", f"/volumes/{volume_id}/files/tree", params=params)
+
+    async def volume_file_read(self, volume_id: str, path: str) -> dict[str, Any]:
+        return await self._json("GET", f"/volumes/{volume_id}/files/read", params={"path": path})
+
+    async def volume_file_edit(self, volume_id: str, path: str, old_string: str, new_string: str, replace_all: bool = False) -> dict[str, Any]:
+        body: dict[str, Any] = {"path": path, "old_string": old_string, "new_string": new_string}
+        if replace_all:
+            body["replace_all"] = True
+        return await self._json("POST", f"/volumes/{volume_id}/files/edit", json=body)
+
     async def delete_session(self, sid: str) -> None:
         try:
             await self._client.delete(f"/sessions/{sid}")
