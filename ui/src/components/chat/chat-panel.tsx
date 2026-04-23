@@ -261,6 +261,13 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
             </div>
           ) : (
           <>
+          {isWorkspaceMode && channels.length === 0 ? (
+            <div className="flex-1 min-w-0 flex flex-col items-center justify-center bg-[var(--color-surface)] rounded-tl-xl">
+              <LuFolder size={32} className="text-[var(--color-text-tertiary)] mb-3" />
+              <p className="text-sm font-medium text-[var(--color-text-secondary)]">No workspaces yet</p>
+              <p className="text-xs text-[var(--color-text-tertiary)] mt-1">Create one from the sidebar to get started.</p>
+            </div>
+          ) : (
           <ChannelMain
             taskPath={taskPath}
             selection={effectiveSelection}
@@ -275,6 +282,7 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
             mode={mode}
             workspaceId={workspaceId}
           />
+          )}
           {activeThreadTs && effectiveSelection.kind === "channel" && (
             <>
               <ResizeHandle
@@ -1068,28 +1076,43 @@ function ChatChannelView({
         <div className="flex-1 min-w-0 flex flex-col">
           {wsTab === "agents" && (
             <div className="flex-1 min-h-0 flex flex-col">
-              {selectedAgentId && activeAgentState ? (
-                activeAgentState.connecting ? (
-                  <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
-                    Connecting to {selectedAgentId}...
+              {agents && agents.length > 0 ? (
+                <>
+                  <div className="sticky top-0 z-10 px-3 pt-3 pb-2">
+                    <div className="inline-block border border-[var(--color-border)] rounded-lg">
+                      <AgentSelector
+                        agents={agents.map((a) => ({ id: a.id, avatar_seed: a.avatar_seed }))}
+                        activeId={selectedAgentId}
+                        onSelect={setSelectedAgentId}
+                      />
+                    </div>
                   </div>
-                ) : activeAgentState.error ? (
-                  <div className="flex-1 flex items-center justify-center text-[13px] text-red-500">
-                    {activeAgentState.error}
-                  </div>
-                ) : (
-                  <AgentChat
-                    agentId={selectedAgentId}
-                    messages={activeAgentState.messages}
-                    onSend={(text) => sendAgentMessage(selectedAgentId, text)}
-                    loading={activeAgentState.isLoading}
-                  />
-                )
+                  {selectedAgentId && activeAgentState ? (
+                    activeAgentState.connecting ? (
+                      <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+                        Connecting to {selectedAgentId}...
+                      </div>
+                    ) : activeAgentState.error ? (
+                      <div className="flex-1 flex items-center justify-center text-[13px] text-red-500">
+                        {activeAgentState.error}
+                      </div>
+                    ) : (
+                      <AgentChat
+                        agentId={selectedAgentId}
+                        messages={activeAgentState.messages}
+                        onSend={(text) => sendAgentMessage(selectedAgentId, text)}
+                        loading={activeAgentState.isLoading}
+                      />
+                    )
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+                      Select an agent above to start chatting.
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
-                  {agents && agents.length > 0
-                    ? "Select an agent from the badge above to start chatting."
-                    : "No agents in this workspace. Add one from the Members section."}
+                  No agents in this workspace. Add one from the Members section.
                 </div>
               )}
             </div>
@@ -1153,7 +1176,7 @@ function ChatChannelView({
         {showAgentsPanel && agents && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowAgentsPanel(false)} />
-            <AgentsPopup agents={agents} onClose={() => setShowAgentsPanel(false)} onOpenProfile={onOpenProfile} onSelectAgent={(id) => { setSelectedAgentId(id); setWsTab("agents"); }} />
+            <AgentsPopup agents={agents} onClose={() => setShowAgentsPanel(false)} onOpenProfile={onOpenProfile} />
           </>
         )}
       </div>
@@ -1589,7 +1612,7 @@ const PLACEHOLDER_MESSAGES: ChatMessage[] = [
   { role: "user", content: "Nice! Can you try SHAP values to explain the model?" },
 ];
 
-function AgentsPopup({ agents, onClose, onOpenProfile, onSelectAgent }: { agents: AgentSummary[]; onClose: () => void; onOpenProfile: (target: ProfileTarget) => void; onSelectAgent?: (id: string) => void }) {
+function AgentsPopup({ agents, onClose, onOpenProfile }: { agents: AgentSummary[]; onClose: () => void; onOpenProfile: (target: ProfileTarget) => void }) {
   const onlineAgents = agents.filter((a) => isOnline(a.last_seen_at));
   const offlineAgents = agents.filter((a) => !isOnline(a.last_seen_at));
 
@@ -1614,7 +1637,7 @@ function AgentsPopup({ agents, onClose, onOpenProfile, onSelectAgent }: { agents
               Online — {onlineAgents.length}
             </h4>
             {onlineAgents.map((a) => (
-              <AgentPanelRow key={a.id} agent={a} onClick={() => { onSelectAgent?.(a.id); onClose(); }} />
+              <AgentPanelRow key={a.id} agent={a} onClick={() => { onOpenProfile({ kind: "agent", id: a.id }); onClose(); }} />
             ))}
           </div>
         )}
@@ -1624,7 +1647,7 @@ function AgentsPopup({ agents, onClose, onOpenProfile, onSelectAgent }: { agents
               Offline — {offlineAgents.length}
             </h4>
             {offlineAgents.map((a) => (
-              <AgentPanelRow key={a.id} agent={a} onClick={() => { onSelectAgent?.(a.id); onClose(); }} />
+              <AgentPanelRow key={a.id} agent={a} onClick={() => { onOpenProfile({ kind: "agent", id: a.id }); onClose(); }} />
             ))}
           </div>
         )}

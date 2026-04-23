@@ -4,9 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { LuX, LuBot, LuCpu, LuCalendar, LuActivity } from "react-icons/lu";
 import { AgentChat } from "@/components/shared/agent-chat";
-import { FileExplorer } from "@/components/shared/file-explorer";
 import type { ChatMessage } from "@/hooks/use-workspace-agent";
-import type { FsTreeNode } from "@/hooks/use-workspace-files";
 import AgentProfilePage from "@/app/agents/[id]/page";
 import { useAgent, useUser, type AgentProfile, type UserProfile, type HarnessUsage } from "@/hooks/use-chat";
 import { getAgentColor } from "@/lib/agent-colors";
@@ -37,6 +35,7 @@ interface AgentProfilePanelProps {
   agentId: string;
   onClose: () => void;
   width: number;
+  chatMessages?: ChatMessage[];
 }
 
 function OwnerBadge({ handle }: { handle: string }) {
@@ -75,29 +74,11 @@ const AGENT_PANEL_TABS: { id: AgentPanelTab; label: string }[] = [
   { id: "activity", label: "Activity" },
 ];
 
-export function AgentProfilePanel({ agentId, onClose, width }: AgentProfilePanelProps) {
+export function AgentProfilePanel({ agentId, onClose, width, chatMessages }: AgentProfilePanelProps) {
   const { agent } = useAgent(agentId);
   const [tab, setTab] = useState<AgentPanelTab>("profile");
 
-  const placeholderFiles: FsTreeNode[] = [
-    { name: "workspace", path: "workspace", type: "directory", children: [
-      { name: "analysis.py", path: "workspace/analysis.py", type: "file", size: 320 },
-      { name: "model_v1.pkl", path: "workspace/model_v1.pkl", type: "file", size: 4096 },
-    ]},
-    { name: "logs", path: "logs", type: "directory", children: [
-      { name: "run_001.log", path: "logs/run_001.log", type: "file", size: 210 },
-    ]},
-  ];
-
-  const placeholderMessages: ChatMessage[] = [
-    { role: "user", content: "Analyze the dataset and find the most important features" },
-    { role: "assistant", content: "", parts: [
-      { type: "thinking", content: "Let me analyze the dataset and check for correlations between features." },
-      { type: "tool", id: "t1", name: "Bash", status: "done", title: "python analysis.py" },
-      { type: "tool", id: "t2", name: "Write", status: "done", title: "workspace/analysis.py" },
-      { type: "text", content: "I've completed the analysis. The correlation matrix shows `feature_12` has the strongest relationship with the target variable (r=0.67)." },
-    ]},
-  ];
+  const activityMessages = chatMessages ?? [];
 
   return (
     <aside
@@ -146,11 +127,19 @@ export function AgentProfilePanel({ agentId, onClose, width }: AgentProfilePanel
         )}
 
         {tab === "activity" && (
-          <AgentChat agentId={agentId} messages={placeholderMessages} />
+          activityMessages.length > 0 ? (
+            <AgentChat agentId={agentId} messages={activityMessages} />
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+              No chat history yet. Start a conversation from the Agents tab.
+            </div>
+          )
         )}
 
         {tab === "workspace" && (
-          <FileExplorer tree={placeholderFiles} />
+          <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+            Connect the agent to browse its workspace files.
+          </div>
         )}
       </div>
     </aside>
