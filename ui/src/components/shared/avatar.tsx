@@ -18,13 +18,15 @@ interface AvatarProps {
   id: string;
   /** Optional explicit seed (recommended: backend-stored avatar_seed). */
   seed?: string | null;
+  /** Optional image URL (e.g. GitHub avatar). Takes priority over generated avatar. */
+  imageUrl?: string | null;
   /** "agent" → rectangular `beam`. "user" → circular `bauhaus`. */
   kind?: AvatarKind;
   size?: AvatarSize;
   className?: string;
 }
 
-export function Avatar({ id, seed, kind = "agent", size = "lg", className = "" }: AvatarProps) {
+export function Avatar({ id, seed, imageUrl, kind = "agent", size = "lg", className = "" }: AvatarProps) {
   const px = SIZE_PX[size];
   const variant = kind === "user" ? "bauhaus" : "beam";
   const square = kind === "agent";
@@ -35,13 +37,18 @@ export function Avatar({ id, seed, kind = "agent", size = "lg", className = "" }
       className={`overflow-hidden shrink-0 ${rounded} ${className}`}
       style={{ width: px, height: px }}
     >
-      <BoringAvatar
-        name={seed || id}
-        variant={variant}
-        size={px}
-        square={square}
-        colors={COLORS}
-      />
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={imageUrl} alt={id} width={px} height={px} className="w-full h-full object-cover" />
+      ) : (
+        <BoringAvatar
+          name={seed || id}
+          variant={variant}
+          size={px}
+          square={square}
+          colors={COLORS}
+        />
+      )}
     </div>
   );
 }

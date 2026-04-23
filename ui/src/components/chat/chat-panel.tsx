@@ -21,7 +21,8 @@ import { MessageInput, EditMessageInline } from "@/components/chat/message-input
 import { CreateWorkspaceDialog } from "@/components/chat/create-workspace-dialog";
 import { Modal, ModalHeader, ModalBody } from "@/components/shared/modal";
 import { useAuth } from "@/lib/auth";
-import { apiPatch, apiPostJson, apiDelete } from "@/lib/api";
+import useSWR from "swr";
+import { apiFetch, apiPatch, apiPostJson, apiDelete } from "@/lib/api";
 
 interface ChatPanelProps {
   taskPath: string;
@@ -685,7 +686,7 @@ function MembersSectionHeader({ workspaceId, onAgentCreated }: { workspaceId?: n
   );
 }
 
-function UserAgentsGroup({ user, agents, onOpenProfile, sidebarRouter }: { user: { handle?: string | null } | null; agents: AgentSummary[]; onOpenProfile: (target: ProfileTarget) => void; sidebarRouter: ReturnType<typeof useRouter> }) {
+function UserAgentsGroup({ user, agents, onOpenProfile, sidebarRouter }: { user: { handle?: string | null; avatar_url?: string | null } | null; agents: AgentSummary[]; onOpenProfile: (target: ProfileTarget) => void; sidebarRouter: ReturnType<typeof useRouter> }) {
   const [expanded, setExpanded] = useState(true);
   const handle = user?.handle ?? "user";
   return (
@@ -695,7 +696,7 @@ function UserAgentsGroup({ user, agents, onOpenProfile, sidebarRouter }: { user:
           onClick={() => onOpenProfile({ kind: "user", handle })}
           className="flex items-center gap-2.5 flex-1 min-w-0"
         >
-          <Avatar id={handle} seed={null} kind="user" size="xs" />
+          <Avatar id={handle} seed={null} imageUrl={user?.avatar_url} kind="user" size="xs" />
           <span className="truncate">{handle}</span>
         </button>
         <button
@@ -1147,12 +1148,8 @@ function ChatChannelView({
             </>
           )}
 
-          {wsTab === "files" && (
-            <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
-              {agents && agents.length > 0
-                ? "Select an agent and connect to browse files."
-                : "Add an agent to this workspace to browse files."}
-            </div>
+          {wsTab === "files" && workspaceId && (
+            <WorkspaceFilesView workspaceId={workspaceId} />
           )}
 
           {wsTab === "tasks" && (
@@ -1185,6 +1182,50 @@ function ChatChannelView({
 }
 
 /* ──────────────────────────────────────────────── Workspace settings ──────────────────────────────────────────────── */
+
+function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
+  const { data, isLoading } = useSWR<{ tree: string }>(
+    `/workspaces/${workspaceId}/files/tree`,
+    apiFetch,
+    { refreshInterval: 15000 },
+  );
+
+  // Parse tree string into FsTreeNode[] (same format as agent-sdk volume tree)
+  const tree = useMemo(() => {
+    if (!data?.tree) return [];
+    const lines = (data.tree || "").split("\n").filter((l: string) => l.length > 0);
+    const root: Record<string, FsTreeNode> = {};
+    for (const line of lines) {
+      const isDir = line.endsWith("/");
+      const clean = isDir ? line.slice(0, -1) : line;
+      const name = clean.split("/").pop() || clean;
+      root[clean] = { name, path: clean, type: isDir ? "directory" : "file" };
+    }
+    return Object.values(root);
+  }, [data]);
+
+  if (isLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+        Loading files...
+      </div>
+    );
+  }
+
+  if (tree.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+        No shared files in this workspace yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <FileExplorer tree={tree} />
+    </div>
+  );
+}
 
 function WorkspaceSettings({ workspaceId, workspaceName }: { workspaceId: number; workspaceName: string }) {
   const router = useRouter();
