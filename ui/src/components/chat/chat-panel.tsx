@@ -8,6 +8,7 @@ import { getAgentColor } from "@/lib/agent-colors";
 import { Avatar } from "@/components/shared";
 import BoringAvatar from "boring-avatars";
 import { AgentChat } from "@/components/shared/agent-chat";
+import { AgentTabBar } from "@/components/shared/agent-tab-bar";
 import { FileExplorer } from "@/components/shared/file-explorer";
 import { AgentSelector } from "@/components/shared/agent-selector";
 import { useWorkspaceAgents, type ChatMessage } from "@/hooks/use-workspace-agent";
@@ -20,7 +21,7 @@ import { MessageInput, EditMessageInline } from "@/components/chat/message-input
 import { CreateWorkspaceDialog } from "@/components/chat/create-workspace-dialog";
 import { Modal, ModalHeader, ModalBody } from "@/components/shared/modal";
 import { useAuth } from "@/lib/auth";
-import { apiPatch, apiPostJson } from "@/lib/api";
+import { apiPatch, apiPostJson, apiDelete } from "@/lib/api";
 
 interface ChatPanelProps {
   taskPath: string;
@@ -1067,52 +1068,28 @@ function ChatChannelView({
         <div className="flex-1 min-w-0 flex flex-col">
           {wsTab === "agents" && (
             <div className="flex-1 min-h-0 flex flex-col">
-              {agents && agents.length > 0 ? (
-                <>
-                  {/* Agent selector tabs */}
-                  <div className="shrink-0 px-4 pt-2 flex items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-                    {agents.map((a) => (
-                      <button
-                        key={a.id}
-                        onClick={() => setSelectedAgentId(a.id)}
-                        className={`flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium border-b-2 transition-colors ${
-                          selectedAgentId === a.id
-                            ? "border-[var(--color-accent)] text-[var(--color-text)]"
-                            : "border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-                        }`}
-                      >
-                        <Avatar id={a.id} seed={null} kind="agent" size="xs" />
-                        {a.id}
-                      </button>
-                    ))}
+              {selectedAgentId && activeAgentState ? (
+                activeAgentState.connecting ? (
+                  <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+                    Connecting to {selectedAgentId}...
                   </div>
-                  {/* Agent chat */}
-                  {selectedAgentId && activeAgentState ? (
-                    activeAgentState.connecting ? (
-                      <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
-                        Connecting to {selectedAgentId}...
-                      </div>
-                    ) : activeAgentState.error ? (
-                      <div className="flex-1 flex items-center justify-center text-[13px] text-red-500">
-                        {activeAgentState.error}
-                      </div>
-                    ) : (
-                      <AgentChat
-                        agentId={selectedAgentId}
-                        messages={activeAgentState.messages}
-                        onSend={(text) => sendAgentMessage(selectedAgentId, text)}
-                        loading={activeAgentState.isLoading}
-                      />
-                    )
-                  ) : selectedAgentId ? (
-                    <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
-                      Connecting to {selectedAgentId}...
-                    </div>
-                  ) : null}
-                </>
+                ) : activeAgentState.error ? (
+                  <div className="flex-1 flex items-center justify-center text-[13px] text-red-500">
+                    {activeAgentState.error}
+                  </div>
+                ) : (
+                  <AgentChat
+                    agentId={selectedAgentId}
+                    messages={activeAgentState.messages}
+                    onSend={(text) => sendAgentMessage(selectedAgentId, text)}
+                    loading={activeAgentState.isLoading}
+                  />
+                )
               ) : (
                 <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
-                  No agents in this workspace. Add one from the Members section.
+                  {agents && agents.length > 0
+                    ? "Select an agent from the badge above to start chatting."
+                    : "No agents in this workspace. Add one from the Members section."}
                 </div>
               )}
             </div>
@@ -1167,10 +1144,8 @@ function ChatChannelView({
             </div>
           )}
 
-          {wsTab === "settings" && (
-            <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
-              Settings view coming soon
-            </div>
+          {wsTab === "settings" && workspaceId && (
+            <WorkspaceSettings workspaceId={workspaceId} workspaceName={channelName} />
           )}
         </div>
 
@@ -1178,9 +1153,81 @@ function ChatChannelView({
         {showAgentsPanel && agents && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowAgentsPanel(false)} />
-            <AgentsPopup agents={agents} onClose={() => setShowAgentsPanel(false)} onOpenProfile={onOpenProfile} />
+            <AgentsPopup agents={agents} onClose={() => setShowAgentsPanel(false)} onOpenProfile={onOpenProfile} onSelectAgent={(id) => { setSelectedAgentId(id); setWsTab("agents"); }} />
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────── Workspace settings ──────────────────────────────────────────────── */
+
+function WorkspaceSettings({ workspaceId, workspaceName }: { workspaceId: number; workspaceName: string }) {
+  const router = useRouter();
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setError("");
+    try {
+      await apiDelete(`/workspaces/${workspaceId}`);
+      router.push("/");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete workspace");
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="space-y-6">
+        {/* Danger Zone */}
+        <div>
+          <h3 className="text-base font-medium text-[var(--color-text)] mb-4">Danger Zone</h3>
+          <div className="bg-[var(--color-surface)] border border-[var(--color-border)]">
+            <div className="px-5 py-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm text-[var(--color-text)]">Delete workspace</div>
+                <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                  Permanently delete this workspace and all its messages. Agents with runs will be preserved but unlinked.
+                </div>
+              </div>
+              {!showConfirm ? (
+                <button
+                  onClick={() => setShowConfirm(true)}
+                  className="shrink-0 px-3 py-1.5 text-xs font-medium text-red-500 border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                >
+                  Delete
+                </button>
+              ) : (
+                <div className="shrink-0 flex items-center gap-2">
+                  <button
+                    onClick={() => setShowConfirm(false)}
+                    disabled={deleting}
+                    className="px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="px-3 py-1.5 text-xs font-medium text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 transition-colors"
+                  >
+                    {deleting ? "Deleting..." : "Confirm"}
+                  </button>
+                </div>
+              )}
+            </div>
+            {error && (
+              <div className="px-5 pb-3">
+                <p className="text-xs text-red-500">{error}</p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1542,7 +1589,7 @@ const PLACEHOLDER_MESSAGES: ChatMessage[] = [
   { role: "user", content: "Nice! Can you try SHAP values to explain the model?" },
 ];
 
-function AgentsPopup({ agents, onClose, onOpenProfile }: { agents: AgentSummary[]; onClose: () => void; onOpenProfile: (target: ProfileTarget) => void }) {
+function AgentsPopup({ agents, onClose, onOpenProfile, onSelectAgent }: { agents: AgentSummary[]; onClose: () => void; onOpenProfile: (target: ProfileTarget) => void; onSelectAgent?: (id: string) => void }) {
   const onlineAgents = agents.filter((a) => isOnline(a.last_seen_at));
   const offlineAgents = agents.filter((a) => !isOnline(a.last_seen_at));
 
@@ -1567,7 +1614,7 @@ function AgentsPopup({ agents, onClose, onOpenProfile }: { agents: AgentSummary[
               Online — {onlineAgents.length}
             </h4>
             {onlineAgents.map((a) => (
-              <AgentPanelRow key={a.id} agent={a} onClick={() => { onOpenProfile({ kind: "agent", id: a.id }); onClose(); }} />
+              <AgentPanelRow key={a.id} agent={a} onClick={() => { onSelectAgent?.(a.id); onClose(); }} />
             ))}
           </div>
         )}
@@ -1577,7 +1624,7 @@ function AgentsPopup({ agents, onClose, onOpenProfile }: { agents: AgentSummary[
               Offline — {offlineAgents.length}
             </h4>
             {offlineAgents.map((a) => (
-              <AgentPanelRow key={a.id} agent={a} onClick={() => { onOpenProfile({ kind: "agent", id: a.id }); onClose(); }} />
+              <AgentPanelRow key={a.id} agent={a} onClick={() => { onSelectAgent?.(a.id); onClose(); }} />
             ))}
           </div>
         )}
