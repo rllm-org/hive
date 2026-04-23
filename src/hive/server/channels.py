@@ -664,7 +664,8 @@ async def post_workspace_message(
                 raise HTTPException(400, "cannot reply to a thread reply; reply to the top-level message")
         author_agent = author_id if kind == "agent" else None
         mentions = await mentions_for_message(
-            text, conn, channel["id"], thread_ts, kind, author_agent
+            text, conn, channel["id"], thread_ts, kind, author_agent,
+            workspace_id=workspace_id,
         )
         agent_col = author_id if kind == "agent" else None
         user_col = author_id if kind == "user" else None
@@ -688,7 +689,7 @@ async def post_workspace_message(
             (channel["id"], msg_ts),
         )).fetchone()
     # Dispatch mentions to agents in background
-    thread_for_reply = thread_ts or msg_ts  # reply in existing thread, or start new one
+    thread_for_reply = thread_ts or msg_ts
     if mentions:
         asyncio.create_task(_dispatch_workspace_mentions(
             workspace_id, mentions, text, thread_for_reply, kind, author_id,
@@ -792,6 +793,7 @@ async def edit_workspace_message(
         mentions = await mentions_for_message(
             new_text, conn, channel["id"], tt, kind, author_agent,
             exclude_message_ts=ts if tt else None,
+            workspace_id=workspace_id,
         )
         await conn.execute(
             "UPDATE messages SET text = %s, mentions = %s, edited_at = %s"

@@ -3,7 +3,7 @@ import re
 _MENTION_RE = re.compile(r"@([a-z0-9][a-z0-9-]{0,30})", re.IGNORECASE)
 
 
-async def parse_mentions(text: str, conn) -> list[str]:
+async def parse_mentions(text: str, conn, workspace_id: int | None = None) -> list[str]:
     seen: list[str] = []
     seen_set: set[str] = set()
     for match in _MENTION_RE.finditer(text):
@@ -15,14 +15,28 @@ async def parse_mentions(text: str, conn) -> list[str]:
     if not seen:
         return []
     placeholders = ",".join(["%s"] * len(seen))
-    agent_rows = await (await conn.execute(
-        f"SELECT id FROM agents WHERE id IN ({placeholders})",
-        seen,
-    )).fetchall()
-    user_rows = await (await conn.execute(
-        f"SELECT handle FROM users WHERE handle IN ({placeholders})",
-        seen,
-    )).fetchall()
+    if workspace_id is not None:
+        # Workspace-scoped: only agents in this workspace + workspace owner
+        agent_rows = await (await conn.execute(
+            f"SELECT id FROM agents WHERE id IN ({placeholders}) AND workspace_id = %s",
+            [*seen, workspace_id],
+        )).fetchall()
+        user_rows = await (await conn.execute(
+            f"SELECT u.handle FROM users u"
+            f" JOIN workspaces w ON w.user_id = u.id"
+            f" WHERE u.handle IN ({placeholders}) AND w.id = %s",
+            [*seen, workspace_id],
+        )).fetchall()
+    else:
+        # Task-scoped: any agent or user
+        agent_rows = await (await conn.execute(
+            f"SELECT id FROM agents WHERE id IN ({placeholders})",
+            seen,
+        )).fetchall()
+        user_rows = await (await conn.execute(
+            f"SELECT handle FROM users WHERE handle IN ({placeholders})",
+            seen,
+        )).fetchall()
     valid = {r["id"] for r in agent_rows} | {r["handle"] for r in user_rows}
     return [n for n in seen if n in valid]
 
@@ -35,8 +49,9 @@ async def mentions_for_message(
     author_kind: str,
     author_agent_id: str | None,
     exclude_message_ts: str | None = None,
+    workspace_id: int | None = None,
 ) -> list[str]:
-    parsed = await parse_mentions(text, conn)
+    parsed = await parse_mentions(text, conn, workspace_id=workspace_id)
     if thread_ts is None:
         return parsed
     q = (
