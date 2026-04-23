@@ -2677,11 +2677,14 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         config["mcp_servers"] = {
             "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
         }
-    upstream = await client.create_quick_session(**config)
-    session_id = upstream.get("session_id")
-    sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
+    # Step 1: create session (no sandbox yet)
+    upstream = await client.create_session_lazy(**config)
+    session_id = upstream.get("id") or upstream.get("session_id")
     if not session_id:
-        raise HTTPException(502, f"Failed to provision agent session: {upstream}")
+        raise HTTPException(502, f"Failed to create agent session: {upstream}")
+    # Step 2: provision sandbox and wait until ready
+    resume_resp = await client.resume(session_id)
+    sandbox_id = resume_resp.get("current_sandbox_id") or resume_resp.get("sandbox_id")
 
     async with get_db() as conn:
         await conn.execute(
@@ -2775,9 +2778,10 @@ async def connect_workspace_agent(
 
     upstream = await client.create_session_lazy(**config)
     session_id = upstream.get("id") or upstream.get("session_id")
-    sandbox_id = upstream.get("current_sandbox_id") or upstream.get("sandbox_id")
     if not session_id:
         raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
+    resume_resp = await client.resume(session_id)
+    sandbox_id = resume_resp.get("current_sandbox_id") or resume_resp.get("sandbox_id")
 
     async with get_db() as conn:
         await conn.execute(
