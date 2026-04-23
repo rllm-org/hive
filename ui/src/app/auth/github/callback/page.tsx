@@ -20,11 +20,11 @@ function GitHubCallbackInner() {
     const state = searchParams.get("state") || "login";
     const installationId = searchParams.get("installation_id");
     const isConnect = !!(installationId || state === "connect");
-    const dest = installationId ? "/me?create=1" : "/me";
+    const dest = installationId ? "/profile?create=1" : "/";
 
     // Redirect from GitHub App installation (repo selection) — no code needed
     if (installationId && !code) {
-      router.push("/me?create=1");
+      router.push("/profile?create=1");
       return;
     }
 

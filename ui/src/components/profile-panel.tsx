@@ -362,9 +362,9 @@ export function ProfilePanel() {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const t = params.get("tab");
-      if (t && ["workspaces", "agents", "settings"].includes(t)) return t as ProfileTab;
+      if (t && ["agents", "settings"].includes(t)) return t as ProfileTab;
     }
-    return "workspaces";
+    return "agents";
   });
   const [showClaim, setShowClaim] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
@@ -411,7 +411,6 @@ export function ProfilePanel() {
   if (!user) return null;
 
   const tabs: { id: ProfileTab; label: string }[] = [
-    { id: "workspaces", label: "Workspaces" },
     { id: "agents", label: "Agents" },
     { id: "settings", label: "Settings" },
   ];

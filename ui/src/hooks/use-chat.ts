@@ -81,6 +81,8 @@ export interface AgentProfile {
   model: string;
   avatar_seed: string | null;
   workspace_id: number | null;
+  role: string | null;
+  description: string | null;
   /** Per harness/model run counts, derived from the runs table. */
   harnesses: HarnessUsage[];
 }
@@ -121,6 +123,8 @@ export interface AgentSummary {
   model: string;
   avatar_seed: string | null;
   last_seen_at: string | null;
+  role: string | null;
+  description: string | null;
 }
 
 export function useAgents(query: string, enabled: boolean) {
@@ -145,6 +149,29 @@ export function useTaskAgents(taskPath: string) {
   return { agents: data?.agents ?? [], loading: isLoading };
 }
 
+/** Fetch user's workspaces as Channel-shaped items for the sidebar. */
+export function useWorkspaceChannels() {
+  const { data, isLoading, mutate } = useSWR<{ workspaces: Array<{ id: number; name: string; created_at: string }> }>(
+    "/workspaces",
+    apiFetch,
+    { refreshInterval: POLL_MS, revalidateOnFocus: true },
+  );
+  const channels: Channel[] = (data?.workspaces ?? []).map((w) => ({
+    id: w.id,
+    task_id: 0,
+    name: w.name,
+    is_default: false,
+    created_by: null,
+    created_at: w.created_at,
+  }));
+  return {
+    channels,
+    loading: isLoading,
+    refetch: () => mutate(),
+    workspaces: data?.workspaces ?? [],
+  };
+}
+
 /** @param taskPath - "owner/slug" identifier */
 export function useChannels(taskPath: string) {
   const { data, isLoading, mutate } = useSWR<ChannelsResponse>(
@@ -154,6 +181,36 @@ export function useChannels(taskPath: string) {
   );
   return {
     channels: data?.channels ?? [],
+    loading: isLoading,
+    refetch: () => mutate(),
+  };
+}
+
+/** Fetch messages for a workspace. */
+export function useWorkspaceMessages(workspaceId: number | null) {
+  const key = workspaceId != null ? `/workspaces/${workspaceId}/messages` : null;
+  const { data, isLoading, mutate } = useSWR<MessagesResponse>(key, apiFetch, {
+    refreshInterval: POLL_MS,
+    revalidateOnFocus: true,
+  });
+  return {
+    channel: data?.channel ?? null,
+    messages: data?.messages ?? [],
+    hasMore: data?.has_more ?? false,
+    loading: isLoading,
+    refetch: () => mutate(),
+  };
+}
+
+/** Fetch agents in a workspace. */
+export function useWorkspaceAgentsList(workspaceId: number | null) {
+  const { data, isLoading, mutate } = useSWR<{ agents: AgentSummary[] }>(
+    workspaceId != null ? `/workspaces/${workspaceId}/agents` : null,
+    apiFetch,
+    { refreshInterval: POLL_MS, revalidateOnFocus: true },
+  );
+  return {
+    agents: data?.agents ?? [],
     loading: isLoading,
     refetch: () => mutate(),
   };
@@ -179,6 +236,22 @@ export function useMessages(taskPath: string, channelName: string | null) {
 export function useThread(taskPath: string, channelName: string | null, ts: string | null) {
   const key = taskPath && channelName && ts
     ? `/tasks/${taskPath}/channels/${channelName}/messages/${ts}/replies`
+    : null;
+  const { data, isLoading, mutate } = useSWR<RepliesResponse>(key, apiFetch, {
+    refreshInterval: POLL_MS,
+    revalidateOnFocus: true,
+  });
+  return {
+    parent: data?.parent ?? null,
+    replies: data?.replies ?? [],
+    loading: isLoading,
+    refetch: () => mutate(),
+  };
+}
+
+export function useWorkspaceThread(workspaceId: number | null, ts: string | null) {
+  const key = workspaceId != null && ts
+    ? `/workspaces/${workspaceId}/messages/${ts}/replies`
     : null;
   const { data, isLoading, mutate } = useSWR<RepliesResponse>(key, apiFetch, {
     refreshInterval: POLL_MS,

@@ -9,6 +9,10 @@ import { apiFetch, apiPostJson, apiDelete } from "@/lib/api";
 import { getAuthHeader, useAuth } from "@/lib/auth";
 import { TextShimmer } from "@/components/text-shimmer";
 import { AskUserWidget, type AskUserData } from "@/components/chat/ask-user-widget";
+import { ThinkingBlock } from "@/components/shared/thinking-block";
+import { ToolCallCard } from "@/components/shared/tool-call-card";
+import { FileTree, FsPromptModal } from "@/components/shared/file-tree";
+import { AgentTabBar } from "@/components/shared/agent-tab-bar";
 
 const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
 import BoringAvatar from "boring-avatars";
@@ -29,132 +33,6 @@ function HighlightSlash({ text, validCommands }: { text: string; validCommands: 
 
 import type { MessagePart } from "@/hooks/use-workspace-agent";
 
-function ThinkingBlock({ content, active }: { content: string; active: boolean }) {
-  const [manualToggle, setManualToggle] = useState<boolean | null>(null);
-  const startRef = useRef<number | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  const contentRef = useRef<HTMLDivElement>(null);
-
-  // Start timer when thinking begins
-  useEffect(() => {
-    if (active && startRef.current === null) {
-      startRef.current = Date.now();
-    }
-    if (!active && startRef.current !== null) {
-      setElapsed(Math.round((Date.now() - startRef.current) / 1000));
-      startRef.current = null;
-    }
-  }, [active]);
-
-  // Live counter while active
-  useEffect(() => {
-    if (!active) return;
-    const interval = setInterval(() => {
-      if (startRef.current) setElapsed(Math.round((Date.now() - startRef.current) / 1000));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [active]);
-
-  // Auto-scroll thinking content to bottom while streaming
-  useEffect(() => {
-    if (active && contentRef.current) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight;
-    }
-  }, [active, content]);
-
-  const isOpen = manualToggle ?? active;
-  const label = active ? "Thinking" : elapsed > 0 ? `Thought for ${elapsed}s` : "Thought";
-
-  return (
-    <div className="group/th">
-      <button
-        type="button"
-        onClick={() => setManualToggle(isOpen ? false : true)}
-        className="flex items-center gap-1.5 text-sm text-[var(--color-text-tertiary)] cursor-pointer hover:text-[var(--color-text-secondary)]"
-      >
-        {active ? <TextShimmer className="text-sm [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-text)]" duration={2}>{label}</TextShimmer> : <span>{label}</span>}
-        <svg className={`w-3 h-3 transition-all opacity-0 group-hover/th:opacity-100 ${isOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {isOpen && (
-        <div ref={contentRef} className="mt-1 whitespace-pre-wrap text-sm leading-relaxed max-h-60 overflow-y-auto text-[var(--color-text-tertiary)]">
-          {content}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ToolCallCard({ part, active }: { part: Extract<MessagePart, { type: "tool" }>; active?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const hasDetails = part.input != null || part.output != null;
-
-  const formatValue = (v: unknown): string => {
-    if (v == null) return "";
-    if (typeof v === "string") return v;
-    try { return JSON.stringify(v, null, 2); } catch { return String(v); }
-  };
-
-  return (
-    <div className="not-prose border border-[var(--color-border)] bg-[var(--color-surface)] text-xs" style={{ borderRadius: 8 }}>
-      <button
-        type="button"
-        onClick={() => hasDetails && setOpen(!open)}
-        className={`group/tc w-full flex items-center gap-2 px-3 py-1.5 text-left ${hasDetails ? "cursor-pointer hover:bg-[var(--color-layer-1)]" : "cursor-default"}`}
-        style={{ borderRadius: open ? "8px 8px 0 0" : 8 }}
-      >
-        <svg className="w-3.5 h-3.5 shrink-0 text-[var(--color-text-tertiary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-          {part.name === "Bash" ? (
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
-          ) : (
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-          )}
-        </svg>
-        {(part.status === "pending" || active) ? (
-          <TextShimmer className="text-xs [--base-color:var(--color-text-tertiary)] [--base-gradient-color:var(--color-text)]" duration={1.5}>{part.title || part.name || "Running…"}</TextShimmer>
-        ) : (
-          <span className="truncate text-[var(--color-text-secondary)]">{part.title || part.name}</span>
-        )}
-        {part.status === "error" && <span className="text-red-500 shrink-0">failed</span>}
-        {hasDetails && (
-          <svg className={`ml-auto w-3 h-3 shrink-0 text-[var(--color-text-tertiary)] transition-all ${open ? "rotate-180 opacity-100" : "opacity-0 group-hover/tc:opacity-100"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        )}
-      </button>
-      {open && (
-        <div className="border-t border-[var(--color-border)] px-3 py-2 space-y-2">
-          {part.input != null && (
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-tertiary)] mb-0.5">input</div>
-              <pre className="whitespace-pre-wrap break-all font-[family-name:var(--font-ibm-plex-mono)] text-[11px] leading-snug max-h-40 overflow-y-auto text-[var(--color-text)]">
-                {formatValue(part.input)}
-              </pre>
-            </div>
-          )}
-          {part.output != null && (
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-tertiary)] mb-0.5">output</div>
-              <pre className="whitespace-pre-wrap break-all font-[family-name:var(--font-ibm-plex-mono)] text-[11px] leading-snug max-h-40 overflow-y-auto text-[var(--color-text)]">
-                {formatValue(part.output)}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AgentAvatar({ seed, id, size = 20 }: { seed: string | null; id: string; size?: number }) {
-  return (
-    <div className="overflow-hidden shrink-0" style={{ width: size, height: size, borderRadius: 4 }}>
-      <BoringAvatar name={seed || id} variant="beam" size={size} square colors={AVATAR_COLORS} />
-    </div>
-  );
-}
-
 interface ModelInfo {
   id: string;
   display_name?: string;
@@ -162,138 +40,6 @@ interface ModelInfo {
 }
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
-
-function AgentTabs({
-  agents,
-  activeAgentId,
-  onSelect,
-  onDelete,
-}: {
-  agents: WorkspaceAgent[];
-  activeAgentId: string | null;
-  onSelect: (id: string) => void;
-  onDelete: (id: string) => Promise<void>;
-}) {
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
-
-  return (
-    <>
-      <div className="shrink-0 flex items-end gap-0 px-3 pt-2 relative overflow-x-auto" style={{ marginBottom: -1 }}>
-          {agents.map((a) => {
-            const active = a.id === activeAgentId;
-            return (
-              <div
-                key={a.id}
-                onClick={() => onSelect(a.id)}
-                className={`group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 text-[12px] font-medium cursor-pointer transition-colors ${
-                  active
-                    ? "bg-[var(--color-layer-1)] text-[var(--color-text)] border border-[var(--color-border)] border-b-transparent z-10"
-                    : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] opacity-60 hover:opacity-100 border border-transparent"
-                }`}
-                style={{ borderRadius: "6px 6px 0 0" }}
-              >
-                <AgentAvatar seed={a.avatar_seed} id={a.id} size={16} />
-                <span className="truncate max-w-[120px]">{a.id}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setPendingDelete(a.id); }}
-                  className={`w-4 h-4 ml-0.5 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all ${
-                    active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                  }`}
-                  style={{ borderRadius: 3 }}
-                  aria-label={`Close ${a.id}`}
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M2 2l6 6M8 2l-6 6" />
-                  </svg>
-                </button>
-              </div>
-            );
-          })}
-      </div>
-      {pendingDelete && (
-        <DeleteAgentModal
-          agentId={pendingDelete}
-          onClose={() => setPendingDelete(null)}
-          onConfirm={async () => {
-            const id = pendingDelete;
-            setPendingDelete(null);
-            await onDelete(id);
-          }}
-        />
-      )}
-    </>
-  );
-}
-
-function DeleteAgentModal({
-  agentId,
-  onClose,
-  onConfirm,
-}: {
-  agentId: string;
-  onClose: () => void;
-  onConfirm: () => void | Promise<void>;
-}) {
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
-  }, [onClose]);
-
-  const submit = async () => {
-    setSubmitting(true);
-    try { await onConfirm(); } finally { setSubmitting(false); }
-  };
-
-  return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30"
-      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
-    >
-      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[420px] flex flex-col animate-fade-in" style={{ borderRadius: 6 }}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
-          <h2 className="text-base font-semibold text-[var(--color-text)]">Delete Agent</h2>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M3 3l8 8M11 3l-8 8" />
-            </svg>
-          </button>
-        </div>
-        <div className="px-6 py-5 space-y-3">
-          <p className="text-sm text-[var(--color-text-secondary)]">
-            Delete agent <span className="font-semibold text-[var(--color-text)] font-[family-name:var(--font-ibm-plex-mono)]">{agentId}</span>?
-          </p>
-          <p className="text-xs text-[var(--color-text-tertiary)]">
-            This will tear down the agent&apos;s sandbox and remove its chat history. If the agent has public runs, its profile will be kept but unlinked.
-          </p>
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <button
-              onClick={onClose}
-              disabled={submitting}
-              className="px-4 py-2 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] disabled:opacity-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={submit}
-              disabled={submitting}
-              className="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 transition-colors"
-            >
-              {submitting ? "Deleting…" : "Delete"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function CreateAgentModal({
   existingNames,
@@ -336,7 +82,7 @@ function CreateAgentModal({
       onClose();
     } catch (err) {
       if (err instanceof Error && err.message.includes("402")) {
-        window.location.href = "/me?tab=settings";
+        window.location.href = "/profile?tab=settings";
         return;
       }
       setError(err instanceof Error ? err.message : "Failed");
@@ -395,7 +141,7 @@ function CreateAgentModal({
               </div>
             ) : (
               <button
-                onClick={() => window.location.href = "/me?tab=settings"}
+                onClick={() => window.location.href = "/profile?tab=settings"}
                 className="w-full flex items-center gap-3 p-3 border border-dashed border-[var(--color-border)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)]/5 transition-colors text-left"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -444,8 +190,10 @@ interface WorkspaceAgent {
   harness: string;
   model: string;
   avatar_seed: string | null;
-  sdk_session_id: string | null;
-  sdk_base_url: string | null;
+  sandbox_id: string | null;
+  session_id: string | null;
+  role: string | null;
+  description: string | null;
   last_seen_at: string | null;
 }
 
@@ -455,246 +203,13 @@ interface Workspace {
   type: "local" | "cloud" | "persistent";
   agents: WorkspaceAgent[];
   created_at: string;
-  sdk_sandbox_id: string | null;
-  sdk_base_url: string | null;
 }
 
 import type { ChatMessage } from "@/hooks/use-workspace-agent";
 
 const MAX_TEXTAREA_HEIGHT = 200;
 
-function FsPromptModal({ title, label, defaultValue, onClose, onSubmit }: {
-  title: string;
-  label: string;
-  defaultValue: string;
-  onClose: () => void;
-  onSubmit: (value: string) => void | Promise<void>;
-}) {
-  const [value, setValue] = useState(defaultValue);
-  const [submitting, setSubmitting] = useState(false);
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
-  }, [onClose]);
-
-  useEffect(() => {
-    // Select just the filename part (before extension) for easy renaming
-    if (inputRef.current) {
-      const dot = defaultValue.lastIndexOf(".");
-      if (dot > 0) {
-        inputRef.current.setSelectionRange(0, dot);
-      } else {
-        inputRef.current.select();
-      }
-    }
-  }, [defaultValue]);
-
-  const submit = async () => {
-    if (!value.trim()) return;
-    setSubmitting(true);
-    try { await onSubmit(value.trim()); } finally { setSubmitting(false); }
-  };
-
-  return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30"
-      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
-    >
-      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[340px] flex flex-col animate-fade-in" style={{ borderRadius: 6 }}>
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)]">
-          <h2 className="text-sm font-semibold text-[var(--color-text)]">{title}</h2>
-          <button
-            onClick={onClose}
-            className="w-6 h-6 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
-          >
-            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M3 3l8 8M11 3l-8 8" />
-            </svg>
-          </button>
-        </div>
-        <div className="px-5 py-4 space-y-3">
-          <div>
-            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">{label}</label>
-            <input
-              ref={inputRef}
-              type="text"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } }}
-              className="w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] font-[family-name:var(--font-ibm-plex-mono)]"
-              style={{ outline: "none", boxShadow: "none" }}
-              autoFocus
-            />
-          </div>
-          <div className="flex items-center justify-end gap-2">
-            <button
-              onClick={onClose}
-              disabled={submitting}
-              className="px-3 py-1.5 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] disabled:opacity-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={submit}
-              disabled={submitting || !value.trim()}
-              className="px-3 py-1.5 text-sm font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
-            >
-              {submitting ? "..." : title === "Rename" ? "Rename" : "Create"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SandboxTreeNode({
-  node,
-  expandedDirs,
-  onToggleDir,
-  onFileClick,
-  onDelete,
-  onRename,
-  onDownload,
-  onNewFile,
-  onNewFolder,
-  depth = 0,
-}: {
-  node: FsTreeNode;
-  expandedDirs: Set<string>;
-  onToggleDir: (path: string) => void;
-  onFileClick: (node: FsTreeNode) => void;
-  onDelete?: (path: string) => void;
-  onRename?: (path: string) => void;
-  onDownload?: (path: string) => void;
-  onNewFile?: (directory: string) => void;
-  onNewFolder?: (directory: string) => void;
-  depth?: number;
-}) {
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const isDir = node.type === "directory";
-  const isExpanded = expandedDirs.has(node.path);
-
-  useEffect(() => {
-    if (!menuPos) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuPos(null);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [menuPos]);
-
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setMenuPos({ x: e.clientX, y: e.clientY });
-  };
-
-  const uploadDir = isDir ? node.path : node.path.includes("/") ? node.path.slice(0, node.path.lastIndexOf("/")) : "";
-
-  const contextMenu = menuPos && (
-    <div
-      ref={menuRef}
-      className="fixed bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[120px] z-[9999]"
-      style={{ borderRadius: 6, left: menuPos.x, top: menuPos.y }}
-    >
-      {onNewFile && (
-        <button onClick={() => { setMenuPos(null); onNewFile(uploadDir); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
-          New File
-        </button>
-      )}
-      {onNewFolder && (
-        <button onClick={() => { setMenuPos(null); onNewFolder(uploadDir); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
-          New Folder
-        </button>
-      )}
-      {(onNewFile || onNewFolder) && (onRename || onDownload || onDelete) && (
-        <div className="my-1 border-t border-[var(--color-border)]" />
-      )}
-      {onRename && (
-        <button onClick={() => { setMenuPos(null); onRename(node.path); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
-          Rename
-        </button>
-      )}
-      {onDownload && !isDir && (
-        <button onClick={() => { setMenuPos(null); onDownload(node.path); }} className="w-full text-left px-3 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-layer-1)]">
-          Download
-        </button>
-      )}
-      {onDelete && (
-        <button onClick={() => { setMenuPos(null); onDelete(node.path); }} className="w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-red-500/10">
-          Delete
-        </button>
-      )}
-    </div>
-  );
-
-  if (isDir) {
-    return (
-      <div>
-        <button
-          onClick={() => onToggleDir(node.path)}
-          onContextMenu={handleContextMenu}
-          className="group flex items-center gap-1.5 py-0.5 text-xs text-[var(--color-text)] hover:text-[var(--color-accent)] transition-colors text-left w-full min-w-0"
-          style={{ paddingLeft: `${depth * 14}px` }}
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-50">
-            <path fillRule="evenodd" d="M1.75 1A1.75 1.75 0 000 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0016 13.25v-8.5A1.75 1.75 0 0014.25 3H7.5a.25.25 0 01-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75z" />
-          </svg>
-          <span className="font-[family-name:var(--font-ibm-plex-mono)] truncate font-medium">{node.name}</span>
-        </button>
-        {contextMenu}
-        {isExpanded && node.children && (
-          <div>
-            {node.children.map((child) => (
-              <SandboxTreeNode
-                key={child.path}
-                node={child}
-                expandedDirs={expandedDirs}
-                onToggleDir={onToggleDir}
-                onFileClick={onFileClick}
-                onDelete={onDelete}
-                onRename={onRename}
-                onDownload={onDownload}
-                onNewFile={onNewFile}
-                onNewFolder={onNewFolder}
-                depth={depth + 1}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <>
-      <button
-        onClick={() => onFileClick(node)}
-        onContextMenu={handleContextMenu}
-        className="flex items-center gap-1.5 text-xs text-[var(--color-text)] hover:text-[var(--color-accent)] py-0.5 transition-colors w-full text-left"
-        style={{ paddingLeft: `${depth * 14}px` }}
-      >
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-50">
-          <path fillRule="evenodd" d="M3.75 1.5a.25.25 0 00-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25V4.664a.25.25 0 00-.073-.177l-2.914-2.914a.25.25 0 00-.177-.073H3.75zM2 1.75C2 .784 2.784 0 3.75 0h5.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0112.25 16h-8.5A1.75 1.75 0 012 14.25V1.75z" />
-        </svg>
-        <span className="font-[family-name:var(--font-ibm-plex-mono)] truncate">{node.name}</span>
-        {node.size != null && node.size > 0 && (
-          <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)] shrink-0">
-            {node.size < 1024 ? `${node.size} B` : node.size < 1024 * 1024 ? `${(node.size / 1024).toFixed(1)} KB` : `${(node.size / (1024 * 1024)).toFixed(1)} MB`}
-          </span>
-        )}
-      </button>
-      {contextMenu}
-    </>
-  );
-}
 
 function DeleteWorkspaceModal({ workspace, onClose, onDeleted }: { workspace: Workspace; onClose: () => void; onDeleted: () => void }) {
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -795,10 +310,10 @@ function DeleteWorkspaceModal({ workspace, onClose, onDeleted }: { workspace: Wo
   );
 }
 
-export default function WorkspacePage() {
+export default function WorkspacePage({ embeddedWorkspaceId }: { embeddedWorkspaceId?: string } = {}) {
   const params = useParams();
   const router = useRouter();
-  const workspaceId = params.id as string;
+  const workspaceId = embeddedWorkspaceId ?? (params?.id as string);
 
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [wsError, setWsError] = useState<string | null>(null);
@@ -849,7 +364,7 @@ export default function WorkspacePage() {
     return () => { cancelled = true; };
   }, [workspaceId]);
 
-  const isProvisioning = workspace?.type === "cloud" && !workspace?.sdk_sandbox_id;
+  const isProvisioning = false; // sandbox provisioning is now lazy via /connect
 
   useEffect(() => {
     if (!isProvisioning) return;
@@ -941,7 +456,7 @@ export default function WorkspacePage() {
     workspace ? workspaceId : null,
     agentIdList,
   );
-  const emptyState: AgentState = { messages: [], commands: [], isLoading: false, cancelling: false, connecting: false, error: null, sdkBaseUrl: null, sdkSessionId: null };
+  const emptyState: AgentState = { messages: [], commands: [], isLoading: false, cancelling: false, connecting: false, error: null, sdkBaseUrl: null, sessionId: null, sandboxId: null };
   const activeState: AgentState = activeAgent ? agentStates[activeAgent.id] ?? emptyState : emptyState;
   const { messages, commands: rawCommands, isLoading, cancelling, connecting, error: agentError } = activeState;
   const sendMessage = useCallback((text: string) => { if (activeAgent) sendAgentMessage(activeAgent.id, text); }, [activeAgent, sendAgentMessage]);
@@ -962,11 +477,11 @@ export default function WorkspacePage() {
   const commands = rawCommands;
   const validCommandNames = useMemo(() => new Set(commands.map((c) => c.name)), [commands]);
 
-  // Live sandbox filesystem — keyed on workspace sandbox, not per-agent session,
-  // so switching agents does not trigger a reload.
+  // Live sandbox filesystem — uses the active agent's sandbox for file browsing
+  const activeAgentState = activeAgent ? agentStates[activeAgent.id] : null;
   const { tree: fsTree, loading: fsLoading, error: fsError, readFile, editFile, uploadFiles, deleteFile, renameFile, downloadFile, refresh: fsRefresh } = useWorkspaceFiles(
-    workspace?.sdk_base_url ?? null,
-    workspace?.sdk_sandbox_id ?? null,
+    activeAgentState?.sdkBaseUrl ?? null,
+    activeAgentState?.sandboxId ?? null,
   );
   const [draggingOver, setDraggingOver] = useState(false);
   const [bgMenuPos, setBgMenuPos] = useState<{ x: number; y: number } | null>(null);
@@ -1316,7 +831,7 @@ export default function WorkspacePage() {
       <div className="h-full flex flex-col items-center justify-center gap-3">
         <p className="text-sm text-[var(--color-text-tertiary)]">{wsError ?? "Workspace not found"}</p>
         <button
-          onClick={() => router.push("/me?tab=workspaces")}
+          onClick={() => router.push("/profile?tab=workspaces")}
           className="text-sm text-[var(--color-accent)] hover:underline"
         >
           Back to Workspaces
@@ -1325,12 +840,15 @@ export default function WorkspacePage() {
     );
   }
 
+  const isEmbedded = !!embeddedWorkspaceId;
+
   return (
     <div className="h-full flex flex-col relative">
-      {/* Header */}
+      {/* Header — hidden when embedded */}
+      {!isEmbedded && (
       <div className="shrink-0 h-[52px] px-4 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-3">
         <button
-          onClick={() => router.push("/me?tab=workspaces")}
+          onClick={() => router.push("/profile?tab=workspaces")}
           className="flex items-center gap-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
         >
           <LuArrowLeft size={14} />
@@ -1377,6 +895,7 @@ export default function WorkspacePage() {
           )}
         </div>
       </div>
+      )}
 
       {showCreateAgent && (
         <CreateAgentModal
@@ -1392,7 +911,7 @@ export default function WorkspacePage() {
           onClose={() => setShowDeleteWs(false)}
           onDeleted={() => {
             setShowDeleteWs(false);
-            router.push("/me?tab=workspaces");
+            router.push("/profile?tab=workspaces");
           }}
         />
       )}
@@ -1464,20 +983,17 @@ export default function WorkspacePage() {
               </div>
             )}
             <div className="space-y-0.5">
-              {fsTree.map((node) => (
-                <SandboxTreeNode
-                  key={node.path}
-                  node={node}
-                  expandedDirs={expandedDirs}
-                  onToggleDir={handleToggleDir}
-                  onFileClick={handleFileClick}
-                  onDelete={handleDeleteFile}
-                  onRename={handleRenameFile}
-                  onDownload={downloadFile}
-                  onNewFile={handleNewFile}
-                  onNewFolder={handleNewFolder}
-                />
-              ))}
+              <FileTree
+                nodes={fsTree}
+                expandedDirs={expandedDirs}
+                onToggleDir={handleToggleDir}
+                onFileClick={handleFileClick}
+                onDelete={handleDeleteFile}
+                onRename={handleRenameFile}
+                onDownload={downloadFile}
+                onNewFile={handleNewFile}
+                onNewFolder={handleNewFolder}
+              />
             </div>
           </div>
         </div>
@@ -1522,11 +1038,11 @@ export default function WorkspacePage() {
           style={{ ...(openFiles.length === 0 ? { height: "100%" } : { width: `${chatWidth}%`, height: "100%" }), fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
         >
           {/* Agent tabs */}
-          <AgentTabs
-            agents={agents}
-            activeAgentId={activeAgent?.id ?? null}
+          <AgentTabBar
+            agents={agents.map(a => ({ id: a.id, avatar_seed: a.avatar_seed }))}
+            activeId={activeAgent?.id ?? null}
             onSelect={setActiveAgentId}
-            onDelete={handleDeleteAgent}
+            onClose={handleDeleteAgent}
           />
           {modelError && (
             <div className="shrink-0 px-3 py-1 text-[11px] text-red-400 bg-red-500/5 border-b border-[var(--color-border)]">

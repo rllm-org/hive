@@ -712,8 +712,9 @@ function useChatEditor({ placeholder, initialContent = "", onSubmit, onChange }:
 /* ─────────────── MessageInput component ─────────────── */
 
 interface MessageInputProps {
-  taskPath: string;
-  channelName: string;
+  taskPath?: string;
+  channelName?: string;
+  workspaceId?: number;
   threadTs?: string;
   placeholder: string;
   onSent: () => void;
@@ -722,12 +723,13 @@ interface MessageInputProps {
 export function MessageInput({
   taskPath,
   channelName,
+  workspaceId,
   threadTs,
   placeholder,
   onSent,
 }: MessageInputProps) {
   const { user } = useAuth();
-  const key = draftKey(taskPath, channelName, threadTs);
+  const key = draftKey(taskPath ?? `ws-${workspaceId}`, channelName ?? "main", threadTs);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sendingRef = useRef(false);
@@ -757,7 +759,11 @@ export function MessageInput({
     try {
       const body: { text: string; thread_ts?: string } = { text };
       if (threadTs) body.thread_ts = threadTs;
-      await apiPostJson(`/tasks/${taskPath}/channels/${channelName}/messages`, body);
+      if (workspaceId != null) {
+        await apiPostJson(`/workspaces/${workspaceId}/messages`, body);
+      } else {
+        await apiPostJson(`/tasks/${taskPath}/channels/${channelName}/messages`, body);
+      }
       editor.commands.clearContent();
       messageDrafts.delete(key);
       onSent();

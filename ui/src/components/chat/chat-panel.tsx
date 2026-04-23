@@ -1,17 +1,26 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type ComponentType } from "react";
-import { LuHash, LuX, LuMessageSquare, LuChevronRight, LuInfo, LuActivity, LuTerminal, LuPencil, LuPlus, LuBot } from "react-icons/lu";
-import { useAgent, useChannels, useMessages, useThread, useTaskAgents, type Channel, type Message, type ThreadParticipant, type AgentSummary } from "@/hooks/use-chat";
+import { LuHash, LuX, LuMessageSquare, LuChevronRight, LuInfo, LuActivity, LuTerminal, LuPencil, LuPlus, LuBot, LuFolder, LuMonitor, LuTrophy, LuFileText, LuSettings, LuUsers, LuBox, LuChartNoAxesCombined } from "react-icons/lu";
+import { useRouter, usePathname } from "next/navigation";
+import { useAgent, useChannels, useWorkspaceChannels, useWorkspaceMessages, useWorkspaceAgentsList, useWorkspaceThread, useMessages, useThread, useTaskAgents, type Channel, type Message, type ThreadParticipant, type AgentSummary } from "@/hooks/use-chat";
 import { getAgentColor } from "@/lib/agent-colors";
+import { Avatar } from "@/components/shared";
+import BoringAvatar from "boring-avatars";
+import { AgentChat } from "@/components/shared/agent-chat";
+import { FileExplorer } from "@/components/shared/file-explorer";
+import { AgentSelector } from "@/components/shared/agent-selector";
+import { useWorkspaceAgents, type ChatMessage } from "@/hooks/use-workspace-agent";
+import type { FsTreeNode } from "@/hooks/use-workspace-files";
 import { isOnline } from "@/lib/time";
 import { RenderMessage } from "@/components/chat/render-message";
 import { ResizeHandle, useResizableWidth } from "@/components/shared/resize-handle";
 import { AgentLink, AgentProfilePanel, UserLink, UserProfilePanel, type ProfileTarget } from "@/components/chat/agent-profile";
 import { MessageInput, EditMessageInline } from "@/components/chat/message-input";
-import { CreateChannelDialog } from "@/components/chat/create-channel-dialog";
+import { CreateWorkspaceDialog } from "@/components/chat/create-workspace-dialog";
+import { Modal, ModalHeader, ModalBody } from "@/components/shared/modal";
 import { useAuth } from "@/lib/auth";
-import { apiPatch } from "@/lib/api";
+import { apiPatch, apiPostJson } from "@/lib/api";
 
 interface ChatPanelProps {
   taskPath: string;
@@ -19,9 +28,22 @@ interface ChatPanelProps {
   aboutContent?: ReactNode;
   runsContent?: ReactNode;
   sandboxContent?: ReactNode;
+  /** When true, skip the outer chrome (padding, rounded corners, spacer) — used when the parent already provides the blue background. */
+  embedded?: boolean;
+  /** When provided, replaces the entire content area (right of sidebar) with this node. Sidebar still renders. */
+  contentOverride?: ReactNode;
+  /** URL-driven workspace selection — overrides localStorage */
+  activeWorkspace?: string;
+  /** Team slug for URL navigation (e.g. user handle) */
+  team?: string;
+  /** "workspace" shows tabs (Agents/Messages/Files/etc), "task" shows messages directly */
+  mode?: "workspace" | "task";
+  /** Workspace ID for agent creation (workspace mode only) */
+  workspaceId?: number;
 }
 
-const HIVE_SIDEBAR_BG = "#264d80"; // hive accent-hover, used as Slack-style dark sidebar
+const HIVE_SIDEBAR_BG = "#2a5583"; // darker blue sidebar
+const TASK_SIDEBAR_BG = "#3a3f47"; // gray sidebar for task views
 const AgentMapContext = createContext<Map<string, string>>(new Map());
 const GROUP_GAP_MS = 5 * 60 * 1000;
 
@@ -36,6 +58,10 @@ interface SystemViewDef {
 }
 
 const SYSTEM_VIEWS: SystemViewDef[] = [
+  { id: "sandbox", label: "Sandbox", Icon: LuTerminal },
+];
+
+const TASK_SYSTEM_VIEWS: SystemViewDef[] = [
   { id: "about", label: "About", Icon: LuInfo },
   { id: "runs", label: "Runs", Icon: LuActivity },
   { id: "sandbox", label: "Sandbox", Icon: LuTerminal },
@@ -71,36 +97,72 @@ function saveSelection(taskPath: string, sel: Selection): void {
   }
 }
 
-export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, sandboxContent }: ChatPanelProps) {
-  const { channels, loading: channelsLoading, refetch: refetchChannels } = useChannels(taskPath);
-  const { agents: taskAgents } = useTaskAgents(taskPath);
+export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, sandboxContent, embedded, contentOverride, activeWorkspace, team, mode = "workspace", workspaceId: workspaceIdProp }: ChatPanelProps) {
+  // In workspace mode, fetch real workspaces; in task mode, fetch task channels
+  const taskChannelsHook = useChannels(mode === "task" ? taskPath : "");
+  const workspaceChannelsHook = useWorkspaceChannels();
+  const isWorkspaceMode = mode === "workspace";
+  const { channels, loading: channelsLoading, refetch: refetchChannels } = isWorkspaceMode
+    ? workspaceChannelsHook
+    : taskChannelsHook;
+  // Resolve workspaceId from the active workspace name
+  const workspaceId = workspaceIdProp ?? (isWorkspaceMode
+    ? workspaceChannelsHook.workspaces.find((w) => w.name === activeWorkspace)?.id
+    : undefined);
+  const { agents: taskAgents } = useTaskAgents(mode === "task" ? taskPath : "");
+  const { agents: wsAgents, refetch: refetchWsAgents } = useWorkspaceAgentsList(isWorkspaceMode ? (workspaceId ?? null) : null);
+  const displayAgents = isWorkspaceMode ? wsAgents : taskAgents;
   const { user } = useAuth();
+  const router = useRouter();
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const showSandbox = sandboxContent != null;
   const visibleSystemViews = useMemo(
-    () => SYSTEM_VIEWS.filter((v) => v.id !== "sandbox" || showSandbox),
-    [showSandbox],
+    () => {
+      const base = mode === "task" ? TASK_SYSTEM_VIEWS : SYSTEM_VIEWS;
+      return base.filter((v) => v.id !== "sandbox" || showSandbox);
+    },
+    [showSandbox, mode],
   );
 
   const [selection, setSelection] = useState<Selection>(() => {
-    return loadSelection(taskPath) ?? { kind: "system", view: "about" };
+    if (activeWorkspace) return { kind: "channel", name: activeWorkspace };
+    const saved = loadSelection(taskPath);
+    if (saved) return saved;
+    if (mode === "task") return { kind: "system", view: "about" };
+    return { kind: "channel", name: "general" };
   });
   const [activeThreadTs, setActiveThreadTs] = useState<string | null>(null);
   const [activeProfile, setActiveProfile] = useState<ProfileTarget | null>(null);
 
-  // If saved selection is no longer valid (channel deleted, sandbox revoked), fall back to About
+  // Sync selection when activeWorkspace prop changes (URL navigation)
+  useEffect(() => {
+    if (activeWorkspace) {
+      setSelection({ kind: "channel", name: activeWorkspace });
+      setActiveThreadTs(null);
+    }
+  }, [activeWorkspace]);
+
+  // If saved selection is no longer valid (channel deleted, sandbox revoked), fall back
   const effectiveSelection: Selection = useMemo(() => {
     if (selection.kind === "system") {
       if (selection.view === "sandbox" && !showSandbox) {
-        return { kind: "system", view: "about" };
+        return channels.length > 0 ? { kind: "channel", name: channels[0].name } : { kind: "channel", name: "general" };
       }
       return selection;
     }
     if (channels.some((c) => c.name === selection.name)) {
       return selection;
     }
-    return { kind: "system", view: "about" };
+    return channels.length > 0 ? { kind: "channel", name: channels[0].name } : { kind: "channel", name: "general" };
   }, [selection, channels, showSandbox]);
+
+  // When on /{team} without a workspace slug, redirect to /{team}/{first-workspace}
+  useEffect(() => {
+    if (team && !activeWorkspace && !channelsLoading && channels.length > 0) {
+      const target = effectiveSelection.kind === "channel" ? effectiveSelection.name : channels[0].name;
+      router.replace(`/${team}/${target}`);
+    }
+  }, [team, activeWorkspace, channelsLoading, channels, effectiveSelection, router]);
 
   const handleSelectSystem = useCallback(
     (view: SystemView) => {
@@ -118,8 +180,11 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
       setSelection(next);
       setActiveThreadTs(null);
       saveSelection(taskPath, next);
+      if (team) {
+        router.push(`/${team}/${name}`);
+      }
     },
-    [taskPath],
+    [taskPath, team, router],
   );
 
   const sidebarResize = useResizableWidth({
@@ -137,9 +202,9 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
     storageKey: "hive:chat:threadWidth",
   });
   const profileResize = useResizableWidth({
-    initial: 360,
+    initial: 400,
     min: 300,
-    max: 560,
+    max: 1200,
     edge: "left",
     storageKey: "hive:chat:profileWidth",
   });
@@ -153,18 +218,18 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
     setActiveThreadTs(null);
   }, []);
 
-  const agentMap = useMemo(() => new Map(taskAgents.map((a) => [a.id, a.type])), [taskAgents]);
+  const agentMap = useMemo(() => new Map(displayAgents.map((a) => [a.id, a.type])), [displayAgents]);
 
   return (
     <AgentMapContext.Provider value={agentMap}>
-    <div className="flex-1 min-h-0 flex flex-col overflow-hidden pt-1 bg-[var(--color-surface)]">
+    <div className={`flex-1 min-h-0 flex flex-col overflow-hidden ${embedded ? "" : "pt-1 bg-[var(--color-surface)]"}`}>
       {/* Inner blue chrome — top + left only; right and bottom continue to the page edge */}
       <div
-        className="flex-1 min-h-0 flex flex-col rounded-tl-2xl overflow-hidden"
-        style={{ backgroundColor: HIVE_SIDEBAR_BG }}
+        className={`flex-1 min-h-0 flex flex-col overflow-hidden ${embedded ? "" : "rounded-tl-2xl"}`}
+        style={{ backgroundColor: mode === "task" ? TASK_SIDEBAR_BG : HIVE_SIDEBAR_BG }}
       >
         {/* Thin horizontal top bar — same hive blue, visually one piece with the sidebar */}
-        <div className="shrink-0 h-[10px] w-full" />
+        {!embedded && <div className="shrink-0 h-[10px] w-full" />}
 
         {/* Sidebar + content */}
         <div className="flex-1 min-h-0 flex">
@@ -172,20 +237,29 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
             header={sidebarHeader}
             systemViews={visibleSystemViews}
             channels={channels}
-            agents={taskAgents}
-            selection={effectiveSelection}
+            agents={displayAgents}
+            selection={contentOverride ? { kind: "channel", name: "" } : effectiveSelection}
             loading={channelsLoading}
             onSelectSystem={handleSelectSystem}
             onSelectChannel={handleSelectChannel}
             onCreateChannel={user ? () => setCreateChannelOpen(true) : undefined}
             onOpenProfile={handleOpenProfile}
             width={sidebarResize.width}
+            mode={mode}
+            workspaceId={workspaceId}
+            onAgentCreated={refetchWsAgents}
           />
           <ResizeHandle
             isDragging={sidebarResize.isDragging}
             onMouseDown={sidebarResize.onMouseDown}
             variant="dark"
           />
+          {contentOverride ? (
+            <div className="flex-1 min-w-0 overflow-hidden rounded-tl-xl">
+              {contentOverride}
+            </div>
+          ) : (
+          <>
           <ChannelMain
             taskPath={taskPath}
             selection={effectiveSelection}
@@ -195,6 +269,10 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
             aboutContent={aboutContent}
             runsContent={runsContent}
             sandboxContent={sandboxContent}
+            embedded={embedded}
+            agents={displayAgents}
+            mode={mode}
+            workspaceId={workspaceId}
           />
           {activeThreadTs && effectiveSelection.kind === "channel" && (
             <>
@@ -209,6 +287,7 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
                 onClose={() => setActiveThreadTs(null)}
                 onOpenProfile={handleOpenProfile}
                 width={threadResize.width}
+                workspaceId={workspaceId}
               />
             </>
           )}
@@ -233,10 +312,13 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
               )}
             </>
           )}
+          </>
+          )}
       </div>
       </div>
-      <CreateChannelDialog
+      <CreateWorkspaceDialog
         open={createChannelOpen}
+        mode={isWorkspaceMode ? "workspace" : "task"}
         taskPath={taskPath}
         onClose={() => setCreateChannelOpen(false)}
         onCreated={(name) => {
@@ -251,6 +333,8 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
 
 /* ──────────────────────────────────────────────── Sidebar ──────────────────────────────────────────────── */
 
+type SidebarMode = "workspace" | "task";
+
 function ChannelSidebar({
   header,
   systemViews,
@@ -263,6 +347,9 @@ function ChannelSidebar({
   onCreateChannel,
   onOpenProfile,
   width,
+  mode: rawMode,
+  workspaceId,
+  onAgentCreated,
 }: {
   header?: ReactNode;
   systemViews: SystemViewDef[];
@@ -275,7 +362,11 @@ function ChannelSidebar({
   onCreateChannel?: () => void;
   onOpenProfile: (target: ProfileTarget) => void;
   width: number;
+  mode?: SidebarMode;
+  workspaceId?: number;
+  onAgentCreated?: () => void;
 }) {
+  const mode: SidebarMode = rawMode ?? "workspace";
   // Sort agents: online first, then by last_seen_at desc
   const sortedAgents = useMemo(() => {
     return [...agents].sort((a, b) => {
@@ -287,14 +378,85 @@ function ChannelSidebar({
       return bTime - aTime;
     });
   }, [agents]);
+  const { user: authUser } = useAuth();
+  const sidebarRouter = useRouter();
+  const sidebarPathname = usePathname();
+
+  // Task mode: simpler sidebar with system views + channels (no Workspaces/Members sections)
+  if (mode === "task") {
+    return (
+      <aside
+        className="hidden md:flex flex-col shrink-0"
+        style={{ width, backgroundColor: TASK_SIDEBAR_BG }}
+      >
+        {header && <div className="shrink-0">{header}</div>}
+        <div className="flex-1 overflow-y-auto pt-2 pb-3">
+          {/* System views (About, Runs, Sandbox) — same indentation as channels */}
+          <div className="space-y-0.5">
+            {systemViews.map((v) => (
+              <SidebarSystemItem
+                key={v.id}
+                label={v.label}
+                Icon={v.Icon}
+                isActive={selection.kind === "system" && selection.view === v.id}
+                onClick={() => onSelectSystem(v.id)}
+                indent="pl-[26px]"
+              />
+            ))}
+          </div>
+          {/* Divider */}
+          <div className="mx-4 my-3 h-px bg-white/15" />
+          {/* Channels section header (task mode) */}
+          <div className="group/header flex w-[calc(100%-16px)] items-center gap-2.5 h-[30px] mx-2 pl-2 pr-2 text-[15px] text-white/75">
+            <LuHash size={14} className="shrink-0 opacity-80" />
+            <span className="truncate flex-1">Channels</span>
+            {onCreateChannel && (
+              <button
+                onClick={onCreateChannel}
+                aria-label="Create channel"
+                title="Create channel"
+                className="opacity-0 group-hover/header:opacity-100 w-5 h-5 flex items-center justify-center rounded text-white/70 hover:bg-white/10 hover:text-white transition-all"
+              >
+                <LuPlus size={14} />
+              </button>
+            )}
+          </div>
+          {/* Channel items */}
+          <div className="space-y-0.5">
+            {loading && channels.length === 0 ? (
+              <div className="px-6 py-2 text-[13px] text-white/50">Loading…</div>
+            ) : channels.length === 0 ? (
+              <div className="px-6 py-2 text-[13px] text-white/50">No channels.</div>
+            ) : (
+              channels.map((c) => (
+                <SidebarChannelItem
+                  key={c.id}
+                  name={c.name}
+                  isActive={selection.kind === "channel" && selection.name === c.name}
+                  onClick={() => onSelectChannel(c.name)}
+                  icon={LuHash}
+                />
+              ))
+            )}
+          </div>
+        </div>
+      </aside>
+    );
+  }
+
+  // Workspace mode: full sidebar with Workspaces + Members
   return (
     <aside
       className="hidden md:flex flex-col shrink-0"
       style={{ width, backgroundColor: HIVE_SIDEBAR_BG }}
     >
+      {/* User handle */}
+      <div className="shrink-0 h-[48px] px-5 pt-2 flex items-center">
+        <span className="text-[20px] font-bold text-white truncate">{authUser?.handle ?? "Hive"}</span>
+      </div>
       {header && <div className="shrink-0">{header}</div>}
-      <div className="flex-1 overflow-y-auto pt-1 pb-3">
-        {/* System views (About, Runs, Sandbox) */}
+      <div className="flex-1 overflow-y-auto pt-2 pb-3">
+        {/* System views */}
         <div className="space-y-0.5">
           {systemViews.map((v) => (
             <SidebarSystemItem
@@ -306,17 +468,15 @@ function ChannelSidebar({
             />
           ))}
         </div>
-        {/* Divider */}
-        <div className="mx-4 my-4 h-px bg-white/15" />
-        {/* Channels section header */}
-        <div className="group/header flex w-[calc(100%-16px)] items-center gap-2.5 h-[30px] mx-2 pl-4 pr-2 text-[15px] text-white/75">
-          <LuHash size={14} className="shrink-0 opacity-80" />
-          <span className="truncate flex-1">Channels</span>
+        {/* Workspaces section header */}
+        <div className="group/header flex w-[calc(100%-16px)] items-center gap-2.5 h-[30px] mx-2 pl-2 pr-2 text-[15px] text-white/75">
+          <LuMonitor size={14} className="shrink-0 opacity-80" />
+          <span className="truncate flex-1">Workspaces</span>
           {onCreateChannel && (
             <button
               onClick={onCreateChannel}
-              aria-label="Create channel"
-              title="Create channel"
+              aria-label="Create workspace"
+              title="Create workspace"
               className="opacity-0 group-hover/header:opacity-100 w-5 h-5 flex items-center justify-center rounded text-white/70 hover:bg-white/10 hover:text-white transition-all"
             >
               <LuPlus size={14} />
@@ -328,7 +488,7 @@ function ChannelSidebar({
           {loading && channels.length === 0 ? (
             <div className="px-6 py-2 text-[13px] text-white/50">Loading…</div>
           ) : channels.length === 0 ? (
-            <div className="px-6 py-2 text-[13px] text-white/50">No channels.</div>
+            <div className="px-6 py-2 text-[13px] text-white/50">No workspaces.</div>
           ) : (
             channels.map((c) => (
               <SidebarChannelItem
@@ -342,10 +502,211 @@ function ChannelSidebar({
         </div>
         {/* Divider */}
         <div className="mx-4 my-4 h-px bg-white/15" />
-        {/* Agents section */}
-        <AgentsSidebarSection agents={sortedAgents} onOpenProfile={onOpenProfile} />
+        {/* Members section — users with their agents nested underneath */}
+        <MembersSectionHeader workspaceId={workspaceId} onAgentCreated={onAgentCreated} />
+        <UserAgentsGroup user={authUser} agents={sortedAgents} onOpenProfile={onOpenProfile} sidebarRouter={sidebarRouter} />
       </div>
     </aside>
+  );
+}
+
+const _ADJ = ["swift","bold","calm","bright","keen","warm","cool","sharp","gentle","witty","brave","vivid","kind","agile","lucid"];
+const _NOUN = ["phoenix","falcon","atlas","comet","cipher","horizon","pulse","spark","prism","orbit","nova","ember","drift","quill","sage"];
+function _randomHandle() {
+  const a = _ADJ[Math.floor(Math.random() * _ADJ.length)];
+  const n = _NOUN[Math.floor(Math.random() * _NOUN.length)];
+  return `${a}-${n}`;
+}
+
+function MembersSectionHeader({ workspaceId, onAgentCreated }: { workspaceId?: number; onAgentCreated?: () => void }) {
+  const [showModal, setShowModal] = useState(false);
+  const [tab, setTab] = useState<"user" | "agent">("agent");
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [agentName, setAgentName] = useState("");
+  const [agentRole, setAgentRole] = useState("");
+  const [agentDesc, setAgentDesc] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
+
+  const resetForm = () => {
+    setAgentName(_randomHandle());
+    setAgentRole("");
+    setAgentDesc("");
+    setCreateError("");
+    setShowCreateForm(false);
+  };
+
+  const handleCreate = async () => {
+    if (!workspaceId || !agentName.trim()) return;
+    setCreating(true);
+    setCreateError("");
+    try {
+      await apiPostJson(`/workspaces/${workspaceId}/agents`, {
+        name: agentName.trim().toLowerCase(),
+        role: agentRole.trim() || undefined,
+        description: agentDesc.trim() || undefined,
+      });
+      resetForm();
+      setShowModal(false);
+      onAgentCreated?.();
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create agent");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="group/members flex w-[calc(100%-16px)] items-center gap-2.5 h-[30px] mx-2 pl-2 pr-2 text-[15px] text-white/75">
+        <LuUsers size={14} className="shrink-0 opacity-80" />
+        <span className="truncate flex-1">Members</span>
+        <button
+          onClick={() => { setShowModal(true); setTab("agent"); resetForm(); }}
+          className="w-5 h-5 flex items-center justify-center rounded text-white/70 hover:bg-white/10 hover:text-white transition-all opacity-0 group-hover/members:opacity-100"
+        >
+          <LuPlus size={14} />
+        </button>
+      </div>
+      <Modal open={showModal} onClose={() => setShowModal(false)} zIndex={10000}>
+        <ModalHeader onClose={() => setShowModal(false)}>Add Members</ModalHeader>
+
+        {/* Tabs */}
+        <div className="flex border-b border-[var(--color-border)]">
+          <button
+            onClick={() => setTab("agent")}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              tab === "agent"
+                ? "border-[var(--color-accent)] text-[var(--color-text)]"
+                : "border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+            }`}
+          >
+            <LuBot size={14} />
+            Invite Agent
+          </button>
+          <button
+            onClick={() => setTab("user")}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              tab === "user"
+                ? "border-[var(--color-accent)] text-[var(--color-text)]"
+                : "border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+            }`}
+          >
+            <LuUsers size={14} />
+            Invite User
+          </button>
+        </div>
+
+        <ModalBody>
+          {tab === "user" && (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <LuUsers size={32} className="text-[var(--color-text-tertiary)] mb-3" />
+              <p className="text-sm font-medium text-[var(--color-text-secondary)]">Coming soon</p>
+              <p className="text-xs text-[var(--color-text-tertiary)] mt-1">User invites will be supported in a future update.</p>
+            </div>
+          )}
+          {tab === "agent" && !showCreateForm && (
+            <div className="space-y-3">
+              <div className="w-full flex items-center gap-3 p-3 border border-[var(--color-border)] opacity-40 cursor-not-allowed text-left">
+                <LuBot size={20} className="text-[var(--color-text-secondary)] shrink-0" />
+                <div>
+                  <div className="text-sm font-medium text-[var(--color-text)]">Add existing agent</div>
+                  <div className="text-xs text-[var(--color-text-tertiary)]">Coming soon</div>
+                </div>
+              </div>
+              <button
+                onClick={() => { setAgentName(_randomHandle()); setShowCreateForm(true); }}
+                className="w-full flex items-center gap-3 p-3 border border-[var(--color-border)] hover:bg-[var(--color-layer-1)] transition-colors text-left"
+              >
+                <LuPlus size={20} className="text-[var(--color-text-secondary)] shrink-0" />
+                <div>
+                  <div className="text-sm font-medium text-[var(--color-text)]">Create new agent</div>
+                </div>
+              </button>
+            </div>
+          )}
+          {tab === "agent" && showCreateForm && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Agent Handle</label>
+                <input
+                  type="text"
+                  value={agentName}
+                  onChange={(e) => setAgentName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                  placeholder="e.g. claude-orchestrator"
+                  className="w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
+                  style={{ outline: "none", boxShadow: "none" }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Agent Role</label>
+                <input
+                  type="text"
+                  value={agentRole}
+                  onChange={(e) => setAgentRole(e.target.value)}
+                  placeholder="e.g. Orchestrator, Reviewer, Coder"
+                  className="w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)]"
+                  style={{ outline: "none", boxShadow: "none" }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Agent Description</label>
+                <textarea
+                  rows={3}
+                  value={agentDesc}
+                  onChange={(e) => setAgentDesc(e.target.value)}
+                  placeholder="What does this agent do?"
+                  className="w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] resize-none"
+                  style={{ outline: "none", boxShadow: "none" }}
+                />
+              </div>
+              {createError && <p className="text-xs text-red-500">{createError}</p>}
+              <button
+                onClick={handleCreate}
+                disabled={creating || !agentName.trim() || !workspaceId}
+                className="w-full py-2 text-sm font-medium text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] disabled:opacity-50 transition-colors"
+              >
+                {creating ? "Creating..." : "Create Agent"}
+              </button>
+            </div>
+          )}
+        </ModalBody>
+      </Modal>
+    </>
+  );
+}
+
+function UserAgentsGroup({ user, agents, onOpenProfile, sidebarRouter }: { user: { handle?: string | null } | null; agents: AgentSummary[]; onOpenProfile: (target: ProfileTarget) => void; sidebarRouter: ReturnType<typeof useRouter> }) {
+  const [expanded, setExpanded] = useState(true);
+  const handle = user?.handle ?? "user";
+  return (
+    <div className="space-y-0.5">
+      <div className={`${SIDEBAR_ITEM_BASE} pl-5 text-white group/user`}>
+        <button
+          onClick={() => onOpenProfile({ kind: "user", handle })}
+          className="flex items-center gap-2.5 flex-1 min-w-0"
+        >
+          <Avatar id={handle} seed={null} kind="user" size="xs" />
+          <span className="truncate">{handle}</span>
+        </button>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover/user:opacity-100 text-white/60 hover:text-white hover:bg-white/10 transition-all"
+        >
+          <LuChevronRight size={12} className={`transition-transform ${expanded ? "rotate-90" : ""}`} />
+        </button>
+      </div>
+      {expanded && agents.map((a) => (
+        <button
+          key={a.id}
+          onClick={() => onOpenProfile({ kind: "agent", id: a.id })}
+          className={`${SIDEBAR_ITEM_BASE} pl-9 text-[13px] text-white/75 hover:bg-white/10 hover:text-white`}
+        >
+          <Avatar id={a.id} seed={null} kind="agent" size="xs" />
+          <span className={`truncate ${isOnline(a.last_seen_at) ? "text-white" : ""}`}>{a.id}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -357,17 +718,19 @@ function SidebarSystemItem({
   Icon,
   isActive,
   onClick,
+  indent = "pl-4",
 }: {
   label: string;
   Icon: ComponentType<{ size?: number; className?: string }>;
   isActive: boolean;
   onClick: () => void;
+  indent?: string;
 }) {
   if (isActive) {
     return (
       <button
         onClick={onClick}
-        className={`${SIDEBAR_ITEM_BASE} pl-4 bg-white text-[#1D1C1D] font-bold`}
+        className={`${SIDEBAR_ITEM_BASE} ${indent} bg-white text-[#1D1C1D] font-bold`}
       >
         <Icon size={14} className="shrink-0 opacity-80" />
         <span className="truncate">{label}</span>
@@ -377,7 +740,7 @@ function SidebarSystemItem({
   return (
     <button
       onClick={onClick}
-      className={`${SIDEBAR_ITEM_BASE} pl-4 text-white/75 hover:bg-white/10 hover:text-white`}
+      className={`${SIDEBAR_ITEM_BASE} ${indent} text-white/75 hover:bg-white/10 hover:text-white`}
     >
       <Icon size={14} className="shrink-0 opacity-80" />
       <span className="truncate">{label}</span>
@@ -389,19 +752,21 @@ function SidebarChannelItem({
   name,
   isActive,
   onClick,
+  icon: IconOverride,
 }: {
   name: string;
   isActive: boolean;
   onClick: () => void;
+  icon?: ComponentType<{ size?: number; className?: string }>;
 }) {
-  // Chat channels are nested under the "Channels" header, so indent them more
+  const Icon = IconOverride ?? LuFolder;
   if (isActive) {
     return (
       <button
         onClick={onClick}
         className={`${SIDEBAR_ITEM_BASE} pl-5 bg-white text-[#1D1C1D] font-bold`}
       >
-        <LuHash size={14} className="shrink-0 opacity-80" />
+        <Icon size={14} className="shrink-0 opacity-80" />
         <span className="truncate">{name}</span>
       </button>
     );
@@ -411,7 +776,7 @@ function SidebarChannelItem({
       onClick={onClick}
       className={`${SIDEBAR_ITEM_BASE} pl-5 text-white/75 hover:bg-white/10 hover:text-white`}
     >
-      <LuHash size={14} className="shrink-0 opacity-80" />
+      <Icon size={14} className="shrink-0 opacity-80" />
       <span className="truncate">{name}</span>
     </button>
   );
@@ -426,7 +791,7 @@ function AgentsSidebarSection({ agents, onOpenProfile }: { agents: AgentSummary[
 
   return (
     <>
-      <div className="flex w-[calc(100%-16px)] items-center gap-2.5 h-[30px] mx-2 pl-4 pr-2 text-[15px] text-white/75">
+      <div className="flex w-[calc(100%-16px)] items-center gap-2.5 h-[30px] mx-2 pl-2 pr-2 text-[15px] text-white/75">
         <LuBot size={14} className="shrink-0 opacity-80" />
         <span className="truncate flex-1">Agents</span>
       </div>
@@ -455,27 +820,26 @@ function AgentsSidebarSection({ agents, onOpenProfile }: { agents: AgentSummary[
 
 function SidebarAgentItem({ agent, onClick }: { agent: AgentSummary; onClick: () => void }) {
   const online = isOnline(agent.last_seen_at);
-  const color = getAgentColor(agent.id);
-  const initials = agent.id.slice(0, 2).toUpperCase();
   return (
     <button
       onClick={onClick}
       className={`${SIDEBAR_ITEM_BASE} pl-5 text-[13px] text-white/75 hover:bg-white/10 hover:text-white`}
+      title={[agent.role, agent.description].filter(Boolean).join(" — ") || agent.id}
     >
       <div className="relative shrink-0">
-        <div
-          className="w-5 h-5 rounded text-white text-[9px] font-bold flex items-center justify-center"
-          style={{ backgroundColor: color }}
-        >
-          {initials}
-        </div>
+        <Avatar id={agent.id} seed={null} kind="agent" size="xs" />
         <span className="absolute -bottom-0.5 -right-0.5">
           <span className={`block w-2.5 h-2.5 rounded-full border-[1.5px] ${
-            online ? "bg-green-500 border-[#264d80]" : "bg-[#264d80] border-white/40"
+            online ? "bg-green-500 border-[#2a5583]" : "bg-[#3b6ea5] border-white/40"
           }`} />
         </span>
       </div>
-      <span className={`truncate ${online ? "text-white" : ""}`}>{agent.id}</span>
+      <div className="flex flex-col min-w-0 flex-1">
+        <span className={`truncate text-[13px] leading-tight ${online ? "text-white" : ""}`}>{agent.id}</span>
+        {agent.role && (
+          <span className="truncate text-[10px] leading-tight text-white/40">{agent.role}</span>
+        )}
+      </div>
     </button>
   );
 }
@@ -491,6 +855,10 @@ function ChannelMain({
   aboutContent,
   runsContent,
   sandboxContent,
+  embedded,
+  agents,
+  mode = "workspace",
+  workspaceId,
 }: {
   taskPath: string;
   selection: Selection;
@@ -500,14 +868,19 @@ function ChannelMain({
   aboutContent?: ReactNode;
   runsContent?: ReactNode;
   sandboxContent?: ReactNode;
+  embedded?: boolean;
+  agents?: AgentSummary[];
+  mode?: "workspace" | "task";
+  workspaceId?: number;
 }) {
+  const rounding = "rounded-tl-xl";
   if (selection.kind === "system") {
     let content: ReactNode;
     if (selection.view === "about") content = aboutContent ?? <SystemViewEmpty view="about" />;
     else if (selection.view === "runs") content = runsContent ?? <SystemViewEmpty view="runs" />;
     else content = sandboxContent ?? <SystemViewEmpty view="sandbox" />;
     return (
-      <div className="flex-1 min-w-0 flex flex-col bg-[var(--color-surface)] overflow-hidden rounded-tl-2xl">
+      <div className={`flex-1 min-w-0 flex flex-col bg-[var(--color-surface)] overflow-hidden ${rounding}`}>
         {content}
       </div>
     );
@@ -519,6 +892,10 @@ function ChannelMain({
       activeThreadTs={activeThreadTs}
       onOpenThread={onOpenThread}
       onOpenProfile={onOpenProfile}
+      embedded={embedded}
+      agents={agents}
+      mode={mode}
+      workspaceId={workspaceId}
     />
   );
 }
@@ -531,27 +908,62 @@ function SystemViewEmpty({ view }: { view: SystemView }) {
   );
 }
 
+type WorkspaceTab = "agents" | "messages" | "files" | "tasks" | "artifacts" | "settings";
+
+const WORKSPACE_TABS: { id: WorkspaceTab; label: string; Icon: ComponentType<{ size?: number; className?: string }> }[] = [
+  { id: "agents", label: "Agents", Icon: LuBot },
+  { id: "messages", label: "Messages", Icon: LuMessageSquare },
+  { id: "artifacts", label: "Artifacts", Icon: LuBox },
+  { id: "files", label: "Files", Icon: LuFileText },
+  { id: "tasks", label: "Tasks", Icon: LuChartNoAxesCombined },
+  { id: "settings", label: "Settings", Icon: LuSettings },
+];
+
 function ChatChannelView({
   taskPath,
   channelName,
   activeThreadTs,
   onOpenThread,
   onOpenProfile,
+  embedded,
+  agents,
+  mode = "workspace",
+  workspaceId,
 }: {
   taskPath: string;
   channelName: string;
   activeThreadTs: string | null;
   onOpenThread: (ts: string) => void;
   onOpenProfile: (target: ProfileTarget) => void;
+  embedded?: boolean;
+  agents?: AgentSummary[];
+  mode?: "workspace" | "task";
+  workspaceId?: number;
 }) {
-  const { messages, loading, refetch } = useMessages(taskPath, channelName);
+  const isWs = mode === "workspace" && workspaceId != null;
+  const taskMsgs = useMessages(isWs ? "" : taskPath, isWs ? null : channelName);
+  const wsMsgs = useWorkspaceMessages(isWs ? workspaceId : null);
+  const { messages, loading, refetch } = isWs ? wsMsgs : taskMsgs;
   const { user } = useAuth();
+  const [wsTab, setWsTab] = useState<WorkspaceTab>("agents");
+  const [showAgentsPanel, setShowAgentsPanel] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(agents?.[0]?.id ?? null);
+  const agentIds = useMemo(() => selectedAgentId ? [selectedAgentId] : [], [selectedAgentId]);
+  const { states: agentStates, sendMessage: sendAgentMessage, cancel: cancelAgent } = useWorkspaceAgents(
+    isWs ? String(workspaceId) : null,
+    agentIds,
+  );
+  const activeAgentState = selectedAgentId ? agentStates[selectedAgentId] : undefined;
   const handleEdit = useCallback(
     async (ts: string, newText: string) => {
-      await apiPatch(`/tasks/${taskPath}/channels/${channelName}/messages/${ts}`, { text: newText });
+      if (isWs) {
+        await apiPatch(`/workspaces/${workspaceId}/messages/${ts}`, { text: newText });
+      } else {
+        await apiPatch(`/tasks/${taskPath}/channels/${channelName}/messages/${ts}`, { text: newText });
+      }
       refetch();
     },
-    [taskPath, channelName, refetch],
+    [isWs, workspaceId, taskPath, channelName, refetch],
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastCountRef = useRef(0);
@@ -565,37 +977,211 @@ function ChatChannelView({
     lastCountRef.current = messages.length;
   }, [messages]);
 
-  return (
-    <div className="flex-1 min-w-0 flex flex-col bg-[var(--color-layer-1)] overflow-hidden rounded-tl-2xl">
-      <div className="shrink-0 h-[60px] px-5 flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-        <LuHash size={20} className="text-[var(--color-text)]" />
-        <span className="font-bold text-[18px] text-[var(--color-text)]">{channelName}</span>
+  // Task mode: show messages directly without workspace tabs
+  if (mode === "task") {
+    return (
+      <div className="flex-1 min-w-0 flex flex-col bg-[var(--color-surface)] overflow-hidden rounded-tl-xl">
+        {/* Simple channel header */}
+        <div className="shrink-0 h-[52px] px-6 flex items-center gap-2 border-b border-[var(--color-border)]">
+          <LuHash size={18} className="text-[var(--color-text-tertiary)]" />
+          <span className="font-bold text-[17px] text-[var(--color-text)]">{channelName}</span>
+        </div>
+        <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto pt-5 pb-4">
+          {loading && messages.length === 0 ? (
+            <div className="px-5 text-[13px] text-[var(--color-text-secondary)]">Loading messages…</div>
+          ) : messages.length === 0 ? (
+            <div className="px-5 text-[13px] text-[var(--color-text-secondary)]">
+              No messages in <span className="font-medium text-[var(--color-text)]">#{channelName}</span> yet.
+            </div>
+          ) : (
+            <MessageTimeline
+              messages={messages}
+              onOpenThread={onOpenThread}
+              onOpenProfile={onOpenProfile}
+              onEdit={handleEdit}
+              currentUserId={user?.id ?? null}
+              activeThreadTs={activeThreadTs}
+            />
+          )}
+        </div>
+        <MessageInput
+          key={`main::${channelName}`}
+          taskPath={taskPath}
+          channelName={channelName}
+          placeholder={`Message #${channelName}`}
+          onSent={refetch}
+        />
       </div>
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto pt-5 pb-4">
-        {loading && messages.length === 0 ? (
-          <div className="px-5 text-[13px] text-[var(--color-text-secondary)]">Loading messages…</div>
-        ) : messages.length === 0 ? (
-          <div className="px-5 text-[13px] text-[var(--color-text-secondary)]">
-            No messages in <span className="font-medium text-[var(--color-text)]">#{channelName}</span> yet.
-          </div>
-        ) : (
-          <MessageTimeline
-            messages={messages}
-            onOpenThread={onOpenThread}
-            onOpenProfile={onOpenProfile}
-            onEdit={handleEdit}
-            currentUserId={user?.id ?? null}
-            activeThreadTs={activeThreadTs}
-          />
+    );
+  }
+
+  return (
+    <div className="flex-1 min-w-0 flex flex-col bg-[var(--color-layer-1)] overflow-hidden rounded-tl-xl">
+      {/* Workspace header: name + agents + tabs */}
+      <div className="shrink-0 bg-[var(--color-surface)] border-b border-[var(--color-border)]">
+        <div className="h-[52px] px-6 flex items-center gap-2">
+          <LuFolder size={18} className="text-[var(--color-text-tertiary)]" />
+          <span className="font-bold text-[17px] text-[var(--color-text)]">{channelName}</span>
+          {agents && agents.length > 0 && (
+            <button
+              onClick={() => setShowAgentsPanel(!showAgentsPanel)}
+              className={`ml-auto flex items-center gap-2 rounded-xl border px-2.5 py-1 text-[13px] font-medium transition-colors ${
+                showAgentsPanel
+                  ? "border-[var(--color-accent)] text-[var(--color-accent)] bg-[var(--color-accent-50)]"
+                  : "border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-layer-1)]"
+              }`}
+            >
+              <div className="flex items-center -space-x-1">
+                {agents.slice(0, 3).map((a) => (
+                  <Avatar key={a.id} id={a.id} seed={null} kind="agent" size="xs" />
+                ))}
+              </div>
+              <span>{agents.length}</span>
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-1 px-5 mt-1">
+          {WORKSPACE_TABS.map((tab) => {
+            const active = wsTab === tab.id;
+            const Icon = tab.Icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setWsTab(tab.id)}
+                className={`flex items-center gap-1.5 px-3 pb-2 text-[13px] font-medium border-b-2 transition-colors ${
+                  active
+                    ? "border-[var(--color-accent)] text-[var(--color-text)]"
+                    : "border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                }`}
+              >
+                <Icon size={14} />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Tab content + agents panel */}
+      <div className="flex-1 min-h-0 flex">
+        <div className="flex-1 min-w-0 flex flex-col">
+          {wsTab === "agents" && (
+            <div className="flex-1 min-h-0 flex flex-col">
+              {agents && agents.length > 0 ? (
+                <>
+                  {/* Agent selector tabs */}
+                  <div className="shrink-0 px-4 pt-2 flex items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+                    {agents.map((a) => (
+                      <button
+                        key={a.id}
+                        onClick={() => setSelectedAgentId(a.id)}
+                        className={`flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium border-b-2 transition-colors ${
+                          selectedAgentId === a.id
+                            ? "border-[var(--color-accent)] text-[var(--color-text)]"
+                            : "border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                        }`}
+                      >
+                        <Avatar id={a.id} seed={null} kind="agent" size="xs" />
+                        {a.id}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Agent chat */}
+                  {selectedAgentId && activeAgentState ? (
+                    activeAgentState.connecting ? (
+                      <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+                        Connecting to {selectedAgentId}...
+                      </div>
+                    ) : activeAgentState.error ? (
+                      <div className="flex-1 flex items-center justify-center text-[13px] text-red-500">
+                        {activeAgentState.error}
+                      </div>
+                    ) : (
+                      <AgentChat
+                        agentId={selectedAgentId}
+                        messages={activeAgentState.messages}
+                        onSend={(text) => sendAgentMessage(selectedAgentId, text)}
+                        loading={activeAgentState.isLoading}
+                      />
+                    )
+                  ) : selectedAgentId ? (
+                    <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+                      Connecting to {selectedAgentId}...
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+                  No agents in this workspace. Add one from the Members section.
+                </div>
+              )}
+            </div>
+          )}
+
+          {wsTab === "messages" && (
+            <>
+              <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto pt-5 pb-4">
+                {loading && messages.length === 0 ? (
+                  <div className="px-5 text-[13px] text-[var(--color-text-secondary)]">Loading messages…</div>
+                ) : messages.length === 0 ? (
+                  <div className="px-5 text-[13px] text-[var(--color-text-secondary)]">
+                    No messages in <span className="font-medium text-[var(--color-text)]">{channelName}</span> yet.
+                  </div>
+                ) : (
+                  <MessageTimeline
+                    messages={messages}
+                    onOpenThread={onOpenThread}
+                    onOpenProfile={onOpenProfile}
+                    onEdit={handleEdit}
+                    currentUserId={user?.id ?? null}
+                    activeThreadTs={activeThreadTs}
+                  />
+                )}
+              </div>
+              <MessageInput
+                key={`ws::${workspaceId}`}
+                workspaceId={workspaceId}
+                placeholder={`Message ${channelName}`}
+                onSent={refetch}
+              />
+            </>
+          )}
+
+          {wsTab === "files" && (
+            <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+              {agents && agents.length > 0
+                ? "Select an agent and connect to browse files."
+                : "Add an agent to this workspace to browse files."}
+            </div>
+          )}
+
+          {wsTab === "tasks" && (
+            <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+              Tasks view coming soon
+            </div>
+          )}
+
+          {wsTab === "artifacts" && (
+            <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+              Artifacts view coming soon
+            </div>
+          )}
+
+          {wsTab === "settings" && (
+            <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
+              Settings view coming soon
+            </div>
+          )}
+        </div>
+
+        {/* Agents popup */}
+        {showAgentsPanel && agents && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setShowAgentsPanel(false)} />
+            <AgentsPopup agents={agents} onClose={() => setShowAgentsPanel(false)} onOpenProfile={onOpenProfile} />
+          </>
         )}
       </div>
-      <MessageInput
-        key={`main::${channelName}`}
-        taskPath={taskPath}
-        channelName={channelName}
-        placeholder={`Message #${channelName}`}
-        onSent={refetch}
-      />
     </div>
   );
 }
@@ -717,13 +1303,7 @@ function MessageRow({
                 aria-label={displayName}
               />
             ) : (
-              <div
-                className={`w-9 h-9 ${avatarRadius} text-white font-bold text-[12px] flex items-center justify-center mt-[2px] hover:brightness-110 transition-all`}
-                style={{ backgroundColor: color }}
-                aria-label={displayName}
-              >
-                {initials}
-              </div>
+              <Avatar id={displayName} seed={null} kind={author.kind === "user" ? "user" : "agent"} size="md" className="mt-[2px] hover:brightness-110 transition-all" />
             ),
           )
         ) : (
@@ -911,32 +1491,152 @@ function ThreadAvatars({ participants }: { participants: ThreadParticipant[] }) 
   return (
     <span className="flex items-center -space-x-1">
       {visible.map((p) => {
-        const radius = p.kind === "user" ? "rounded-full" : "rounded";
         if (p.avatar_url) {
+          const radius = p.kind === "user" ? "rounded-full" : "rounded-lg";
           return (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               key={`${p.kind}:${p.name}`}
               src={p.avatar_url}
               alt={p.name}
-              className={`w-5 h-5 ${radius} object-cover ring-1 ring-[var(--color-surface)]`}
+              className={`w-5 h-5 ${radius} object-cover`}
               title={p.name}
             />
           );
         }
         return (
-          <span
-            key={`${p.kind}:${p.name}`}
-            className={`w-5 h-5 ${radius} text-white text-[9px] font-bold flex items-center justify-center ring-1 ring-[var(--color-surface)]`}
-            style={{ backgroundColor: getAgentColor(p.name) }}
-            title={p.name}
-          >
-            {p.name.slice(0, 2).toUpperCase()}
-          </span>
+          <Avatar key={`${p.kind}:${p.name}`} id={p.name} seed={null} kind={p.kind === "user" ? "user" : "agent"} size="xs" />
         );
       })}
     </span>
   );
+}
+
+/* ──────────────────────────────────────────────── Placeholder data ──────────────────────────────────────────────── */
+
+const PLACEHOLDER_FILES: FsTreeNode[] = [
+  { name: "src", path: "src", type: "directory", children: [
+    { name: "main.py", path: "src/main.py", type: "file", size: 420 },
+    { name: "utils.py", path: "src/utils.py", type: "file", size: 280 },
+    { name: "config.py", path: "src/config.py", type: "file", size: 120 },
+  ]},
+  { name: "data", path: "data", type: "directory", children: [
+    { name: "train.csv", path: "data/train.csv", type: "file", size: 1024 },
+    { name: "test.csv", path: "data/test.csv", type: "file", size: 512 },
+  ]},
+  { name: "output", path: "output", type: "directory", children: [
+    { name: "results.json", path: "output/results.json", type: "file", size: 180 },
+  ]},
+  { name: "README.md", path: "README.md", type: "file", size: 340 },
+  { name: "requirements.txt", path: "requirements.txt", type: "file", size: 90 },
+];
+
+const PLACEHOLDER_MESSAGES: ChatMessage[] = [
+  { role: "user", content: "Can you analyze the dataset in /data/train.csv and build a classifier?" },
+  { role: "assistant", content: "", parts: [
+    { type: "thinking", content: "Let me analyze the dataset first. I need to load the CSV, check for missing values, compute feature correlations, and then train a baseline classifier." },
+    { type: "tool", id: "tc1", name: "Bash", status: "done", title: "python src/main.py" },
+    { type: "tool", id: "tc2", name: "Write", status: "done", title: "output/results.json" },
+    { type: "text", content: "I've analyzed the dataset and trained a GradientBoosting classifier. Key results:\n\n- **Accuracy**: 0.847\n- **F1 Score**: 0.856\n- **Top features**: feature_12, feature_15, feature_3\n\nThe model and results have been saved to `output/results.json`." },
+  ]},
+  { role: "user", content: "Nice! Can you try SHAP values to explain the model?" },
+];
+
+function AgentsPopup({ agents, onClose, onOpenProfile }: { agents: AgentSummary[]; onClose: () => void; onOpenProfile: (target: ProfileTarget) => void }) {
+  const onlineAgents = agents.filter((a) => isOnline(a.last_seen_at));
+  const offlineAgents = agents.filter((a) => !isOnline(a.last_seen_at));
+
+  return (
+    <div className="absolute right-4 top-[90px] z-50 w-[280px] bg-[var(--color-surface)] border border-[var(--color-border)] shadow-[var(--shadow-elevated)] flex flex-col max-h-[400px] animate-fade-in">
+      {/* Header */}
+      <div className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-[var(--color-border)]">
+        <span className="text-[15px] font-bold text-[var(--color-text)]">Agents</span>
+        <button
+          onClick={onClose}
+          className="w-6 h-6 flex items-center justify-center rounded text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+        >
+          <LuX size={14} />
+        </button>
+      </div>
+
+      {/* Agent list */}
+      <div className="flex-1 overflow-y-auto p-2">
+        {onlineAgents.length > 0 && (
+          <div className="mb-3">
+            <h4 className="mb-1 px-2 text-[11px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide">
+              Online — {onlineAgents.length}
+            </h4>
+            {onlineAgents.map((a) => (
+              <AgentPanelRow key={a.id} agent={a} onClick={() => { onOpenProfile({ kind: "agent", id: a.id }); onClose(); }} />
+            ))}
+          </div>
+        )}
+        {offlineAgents.length > 0 && (
+          <div>
+            <h4 className="mb-1 px-2 text-[11px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide">
+              Offline — {offlineAgents.length}
+            </h4>
+            {offlineAgents.map((a) => (
+              <AgentPanelRow key={a.id} agent={a} onClick={() => { onOpenProfile({ kind: "agent", id: a.id }); onClose(); }} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AgentPanelRow({ agent, onClick }: { agent: AgentSummary; onClick: () => void }) {
+  const online = isOnline(agent.last_seen_at);
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 hover:bg-[var(--color-layer-1)] cursor-pointer transition-colors"
+    >
+      <div className="relative shrink-0">
+        <Avatar id={agent.id} seed={null} kind="agent" size="sm" />
+        <span className="absolute -bottom-0.5 -right-0.5">
+          <span className={`block w-2.5 h-2.5 rounded-full border-[1.5px] ${
+            online ? "bg-green-500 border-[var(--color-surface)]" : "bg-[var(--color-surface)] border-[var(--color-text-tertiary)]"
+          }`} />
+        </span>
+      </div>
+      <div className="flex flex-col min-w-0 flex-1 text-left">
+        <span className="text-[14px] text-[var(--color-text)] truncate">{agent.id}</span>
+        {agent.role && (
+          <span className="text-[11px] text-[var(--color-text-tertiary)] truncate">{agent.role}</span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function PlaceholderAgentWorkspace() {
+  const [activeAgent, setActiveAgent] = useState("claude-dev");
+  const placeholderAgents = [
+    { id: "claude-dev", avatar_seed: "claude-dev-seed" },
+    { id: "gpt-coder", avatar_seed: "gpt-coder-seed" },
+  ];
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col bg-[var(--color-layer-1)]">
+      <AgentChat
+        agentId={activeAgent}
+        messages={PLACEHOLDER_MESSAGES}
+        headerSlot={
+          <AgentSelector
+            agents={placeholderAgents}
+            activeId={activeAgent}
+            onSelect={setActiveAgent}
+          />
+        }
+      />
+    </div>
+  );
+}
+
+function PlaceholderFilesView() {
+  return <FileExplorer tree={PLACEHOLDER_FILES} />;
 }
 
 function DateSeparator({ date }: { date: Date }) {
@@ -960,6 +1660,7 @@ function ThreadPanel({
   onClose,
   onOpenProfile,
   width,
+  workspaceId,
 }: {
   taskPath: string;
   channelName: string;
@@ -967,15 +1668,23 @@ function ThreadPanel({
   onClose: () => void;
   onOpenProfile: (target: ProfileTarget) => void;
   width: number;
+  workspaceId?: number;
 }) {
-  const { parent, replies, loading, refetch } = useThread(taskPath, channelName, ts);
+  const isWs = workspaceId != null;
+  const taskThread = useThread(isWs ? "" : taskPath, isWs ? null : channelName, isWs ? null : ts);
+  const wsThread = useWorkspaceThread(isWs ? workspaceId : null, isWs ? ts : null);
+  const { parent, replies, loading, refetch } = isWs ? wsThread : taskThread;
   const { user } = useAuth();
   const handleEdit = useCallback(
     async (msgTs: string, newText: string) => {
-      await apiPatch(`/tasks/${taskPath}/channels/${channelName}/messages/${msgTs}`, { text: newText });
+      if (isWs) {
+        await apiPatch(`/workspaces/${workspaceId}/messages/${msgTs}`, { text: newText });
+      } else {
+        await apiPatch(`/tasks/${taskPath}/channels/${channelName}/messages/${msgTs}`, { text: newText });
+      }
       refetch();
     },
-    [taskPath, channelName, refetch],
+    [isWs, workspaceId, taskPath, channelName, refetch],
   );
   const currentUserId = user?.id ?? null;
   return (
@@ -987,7 +1696,7 @@ function ThreadPanel({
       <div className="shrink-0 h-[60px] px-4 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between">
         <div>
           <div className="text-[15px] font-bold leading-tight text-[var(--color-text)]">Thread</div>
-          <div className="text-[12px] text-[var(--color-text-secondary)]">#{channelName}</div>
+          <div className="text-[12px] text-[var(--color-text-secondary)]">{isWs ? channelName : `#${channelName}`}</div>
         </div>
         <button
           onClick={onClose}
@@ -1041,8 +1750,9 @@ function ThreadPanel({
             })}
             <div className="mt-3">
               <MessageInput
-                taskPath={taskPath}
-                channelName={channelName}
+                taskPath={isWs ? undefined : taskPath}
+                channelName={isWs ? undefined : channelName}
+                workspaceId={isWs ? workspaceId : undefined}
                 threadTs={ts}
                 placeholder="Reply..."
                 onSent={refetch}

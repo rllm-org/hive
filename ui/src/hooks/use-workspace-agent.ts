@@ -40,7 +40,8 @@ export interface AgentState {
   connecting: boolean;
   error: string | null;
   sdkBaseUrl: string | null;
-  sdkSessionId: string | null;
+  sessionId: string | null;
+  sandboxId: string | null;
 }
 
 const EMPTY_STATE: AgentState = {
@@ -51,7 +52,8 @@ const EMPTY_STATE: AgentState = {
   connecting: false,
   error: null,
   sdkBaseUrl: null,
-  sdkSessionId: null,
+  sessionId: null,
+  sandboxId: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -395,20 +397,20 @@ export function useWorkspaceAgents(
 
       (async () => {
         try {
-          const resp = await apiPostJson<{ sdk_session_id: string; sdk_base_url: string }>(
+          const resp = await apiPostJson<{ session_id: string; sandbox_id: string; sdk_base_url: string }>(
             `/workspaces/${workspaceId}/agents/${agentId}/connect`,
             {}
           );
           if (ctrl.signal.aborted) return;
           const sdkBase = resp.sdk_base_url?.replace(/\/+$/, "");
-          const sdkSid = resp.sdk_session_id;
+          const sdkSid = resp.session_id;
           if (!sdkBase || !sdkSid) {
             updateAgent(agentId, { connecting: false, error: "Agent SDK not configured" });
             return;
           }
 
           connectionsRef.current[agentId] = { abort: ctrl, sdkBase, sdkSid };
-          updateAgent(agentId, { sdkBaseUrl: sdkBase, sdkSessionId: sdkSid });
+          updateAgent(agentId, { sdkBaseUrl: sdkBase, sessionId: sdkSid, sandboxId: resp.sandbox_id });
 
           // Cold-load history
           try {
@@ -521,6 +523,7 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
     sendMessage,
     cancel,
     sdkBaseUrl: state.sdkBaseUrl,
-    sdkSessionId: state.sdkSessionId,
+    sessionId: state.sessionId,
+    sandboxId: state.sandboxId,
   };
 }

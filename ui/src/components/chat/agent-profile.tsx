@@ -2,11 +2,17 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { LuX } from "react-icons/lu";
+import { LuX, LuBot, LuCpu, LuCalendar, LuActivity } from "react-icons/lu";
+import { AgentChat } from "@/components/shared/agent-chat";
+import { FileExplorer } from "@/components/shared/file-explorer";
+import type { ChatMessage } from "@/hooks/use-workspace-agent";
+import type { FsTreeNode } from "@/hooks/use-workspace-files";
+import AgentProfilePage from "@/app/agents/[id]/page";
 import { useAgent, useUser, type AgentProfile, type UserProfile, type HarnessUsage } from "@/hooks/use-chat";
 import { getAgentColor } from "@/lib/agent-colors";
 import { getHarnessDisplayName } from "@/lib/harness-icons";
 import { timeAgo, isOnline } from "@/lib/time";
+import { Avatar } from "@/components/shared";
 
 /** Small green/hollow dot indicating online status (Slack-style). */
 function OnlineDot({ online, size = "w-3 h-3" }: { online: boolean; size?: string }) {
@@ -43,11 +49,8 @@ function OwnerBadge({ handle }: { handle: string }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={user.avatar_url} alt={handle} className="w-4 h-4 rounded-full object-cover inline-block" />
       ) : (
-        <span
-          className="w-4 h-4 rounded-full text-white text-[8px] font-bold inline-flex items-center justify-center"
-          style={{ backgroundColor: color }}
-        >
-          {initials}
+        <span className="w-4 h-4 rounded-full overflow-hidden inline-flex">
+          <Avatar id={handle} seed={null} kind="user" size="xs" />
         </span>
       )}
       <span>{handle}</span>
@@ -64,111 +67,96 @@ function ProfileRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+type AgentPanelTab = "profile" | "workspace" | "activity";
+
+const AGENT_PANEL_TABS: { id: AgentPanelTab; label: string }[] = [
+  { id: "profile", label: "Profile" },
+  { id: "workspace", label: "Workspace" },
+  { id: "activity", label: "Activity" },
+];
+
 export function AgentProfilePanel({ agentId, onClose, width }: AgentProfilePanelProps) {
-  const { agent, loading } = useAgent(agentId);
-  const color = getAgentColor(agentId);
-  const initials = agentId.slice(0, 2).toUpperCase();
-  const harnessName = agent ? getHarnessDisplayName(agent.harness) : null;
-  const modelLabel = agent?.model && agent.model !== "unknown" ? agent.model : null;
-  const typeLabel = agent?.type === "cloud" ? "Cloud" : agent?.type === "persistent" ? "Persistent" : "Local";
+  const { agent } = useAgent(agentId);
+  const [tab, setTab] = useState<AgentPanelTab>("profile");
+
+  const placeholderFiles: FsTreeNode[] = [
+    { name: "workspace", path: "workspace", type: "directory", children: [
+      { name: "analysis.py", path: "workspace/analysis.py", type: "file", size: 320 },
+      { name: "model_v1.pkl", path: "workspace/model_v1.pkl", type: "file", size: 4096 },
+    ]},
+    { name: "logs", path: "logs", type: "directory", children: [
+      { name: "run_001.log", path: "logs/run_001.log", type: "file", size: 210 },
+    ]},
+  ];
+
+  const placeholderMessages: ChatMessage[] = [
+    { role: "user", content: "Analyze the dataset and find the most important features" },
+    { role: "assistant", content: "", parts: [
+      { type: "thinking", content: "Let me analyze the dataset and check for correlations between features." },
+      { type: "tool", id: "t1", name: "Bash", status: "done", title: "python analysis.py" },
+      { type: "tool", id: "t2", name: "Write", status: "done", title: "workspace/analysis.py" },
+      { type: "text", content: "I've completed the analysis. The correlation matrix shows `feature_12` has the strongest relationship with the target variable (r=0.67)." },
+    ]},
+  ];
 
   return (
     <aside
       className="hidden md:flex flex-col shrink-0 bg-[var(--color-layer-1)] border-l border-[var(--color-border)]"
       style={{ width }}
     >
-      <div className="shrink-0 h-[60px] px-4 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between">
-        <div className="text-[15px] font-bold text-[var(--color-text)]">Profile</div>
-        <button
-          onClick={onClose}
-          className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-colors"
-          aria-label="Close profile"
-        >
-          <LuX size={16} />
-        </button>
-      </div>
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {/* Centered avatar + name */}
-        <div className="px-5 pt-6 pb-4 flex flex-col items-center">
-          <div className="relative mb-3">
-            <div
-              className="w-16 h-16 rounded flex items-center justify-center text-white font-bold text-[20px]"
-              style={{ backgroundColor: color }}
-            >
-              {initials}
-            </div>
-            {agent && (
-              <span className="absolute -bottom-1 -right-1">
-                <OnlineDot online={isOnline(agent.last_seen_at)} size="w-4 h-4" />
-              </span>
-            )}
-          </div>
-          <div className="font-bold text-[17px] text-[var(--color-text)] truncate max-w-full">{agentId}</div>
+      {/* Header — workspace style */}
+      <div className="shrink-0 bg-[var(--color-surface)] border-b border-[var(--color-border)]">
+        <div className="h-[52px] px-5 flex items-center gap-2">
+          <Avatar id={agentId} seed={null} kind="agent" size="sm" />
+          <span className="font-bold text-[17px] text-[var(--color-text)] truncate">{agentId}</span>
+          {agent && (
+            <OnlineDot online={isOnline(agent.last_seen_at)} size="w-2.5 h-2.5" />
+          )}
+          <button
+            onClick={onClose}
+            className="ml-auto w-7 h-7 flex items-center justify-center rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
+          >
+            <LuX size={16} />
+          </button>
         </div>
+        <div className="flex items-center gap-1 px-5 mt-1">
+          {AGENT_PANEL_TABS.map((t) => {
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`px-3 pb-2 text-[13px] font-medium border-b-2 transition-colors ${
+                  active
+                    ? "border-[var(--color-accent)] text-[var(--color-text)]"
+                    : "border-transparent text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                }`}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-        {loading && !agent ? (
-          <div className="px-5 text-[13px] text-[var(--color-text-secondary)]">Loading…</div>
-        ) : agent ? (
-          <div className="px-5 space-y-2 text-[13px]">
-            <ProfileRow label="Last seen" value={timeAgo(agent.last_seen_at)} />
-            <ProfileRow
-              label="Type"
-              value={
-                <span>
-                  {typeLabel}
-                  {agent.type !== "cloud" && agent.type !== "persistent" && agent.owner_handle && (
-                    <span className="text-[var(--color-text-secondary)]">, owned by <OwnerBadge handle={agent.owner_handle} /></span>
-                  )}
-                </span>
-              }
-            />
-            <ProfileRow label="Agent" value={harnessName ?? <span className="text-[var(--color-text-tertiary)]">N/A</span>} />
-            <ProfileRow
-              label="Model"
-              value={modelLabel
-                ? <span className="font-[family-name:var(--font-ibm-plex-mono)] text-[12px]">{modelLabel}</span>
-                : <span className="text-[var(--color-text-tertiary)]">N/A</span>
-              }
-            />
-            <ProfileRow
-              label="Runs"
-              value={<span className="font-[family-name:var(--font-ibm-plex-mono)]">{agent.total_runs}</span>}
-            />
-            <ProfileRow label="Joined" value={timeAgo(agent.registered_at)} />
+      {/* Content */}
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+        {tab === "profile" && (
+          <AgentProfilePage embeddedAgentId={agentId} />
+        )}
 
-            {/* Tools history */}
-            {(agent.harnesses ?? []).length > 0 && (
-              <div className="pt-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)] mb-2">
-                  Tools used
-                </div>
-                <div className="space-y-1.5">
-                  {(agent.harnesses ?? []).map((h: HarnessUsage) => (
-                    <div key={`${h.harness}:${h.model}`} className="flex items-center justify-between gap-2 text-[12px]">
-                      <span className="text-[var(--color-text)] truncate">
-                        {getHarnessDisplayName(h.harness) ?? h.harness}
-                        {h.model && (
-                          <span className="text-[var(--color-text-tertiary)] font-[family-name:var(--font-ibm-plex-mono)] text-[11px] ml-1">
-                            {h.model}
-                          </span>
-                        )}
-                      </span>
-                      <span className="text-[var(--color-text-tertiary)] text-[11px] tabular-nums shrink-0">
-                        {h.run_count} {h.run_count === 1 ? "run" : "runs"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="px-5 text-[13px] text-[var(--color-text-secondary)]">Agent not found.</div>
+        {tab === "activity" && (
+          <AgentChat agentId={agentId} messages={placeholderMessages} />
+        )}
+
+        {tab === "workspace" && (
+          <FileExplorer tree={placeholderFiles} />
         )}
       </div>
     </aside>
   );
 }
+
 
 /* ────────────── Hover card popover ────────────── */
 
@@ -272,12 +260,7 @@ function AgentHoverCard({ agentId, x, y }: { agentId: string; x: number; y: numb
     >
       <div className="flex items-center gap-2.5 mb-2.5">
         <div className="relative shrink-0">
-          <div
-            className="w-9 h-9 rounded flex items-center justify-center text-white font-bold text-[11px]"
-            style={{ backgroundColor: color }}
-          >
-            {initials}
-          </div>
+          <Avatar id={agentId} seed={null} kind="agent" size="md" />
           {agent && (
             <span className="absolute -bottom-1 -right-1">
               <OnlineDot online={isOnline(agent.last_seen_at)} />
@@ -320,16 +303,14 @@ function AgentHoverCard({ agentId, x, y }: { agentId: string; x: number; y: numb
   );
 }
 
-function UserAvatar({ handle, avatarUrl, size = "w-9 h-9", textSize = "text-[11px]" }: { handle: string; avatarUrl?: string | null; size?: string; textSize?: string }) {
-  const color = getAgentColor(handle);
-  const initials = handle.slice(0, 2).toUpperCase();
+function UserAvatar({ handle, avatarUrl, size = "w-9 h-9", avatarSize = "md" }: { handle: string; avatarUrl?: string | null; size?: string; textSize?: string; avatarSize?: "xs" | "sm" | "md" | "lg" | "xl" }) {
   if (avatarUrl) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={avatarUrl} alt={handle} className={`${size} rounded-full shrink-0 object-cover`} />;
   }
   return (
-    <div className={`${size} rounded-full flex items-center justify-center text-white font-bold ${textSize} shrink-0`} style={{ backgroundColor: color }}>
-      {initials}
+    <div className={`${size} rounded-full overflow-hidden shrink-0`}>
+      <Avatar id={handle} seed={null} kind="user" size={avatarSize} />
     </div>
   );
 }
@@ -398,7 +379,7 @@ export function UserProfilePanel({ handle, onClose, width }: UserProfilePanelPro
         {/* Centered avatar + name */}
         <div className="px-5 pt-6 pb-4 flex flex-col items-center">
           <div className="mb-3">
-            <UserAvatar handle={handle} avatarUrl={user?.avatar_url} size="w-16 h-16" textSize="text-[20px]" />
+            <UserAvatar handle={handle} avatarUrl={user?.avatar_url} size="w-16 h-16" avatarSize="xl" />
           </div>
           <div className="font-bold text-[17px] text-[var(--color-text)] truncate max-w-full">{handle}</div>
         </div>

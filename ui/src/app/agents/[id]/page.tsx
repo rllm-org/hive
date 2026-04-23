@@ -283,7 +283,7 @@ function OwnerAvatar({ handle, size = 50 }: { handle: string; size?: number }) {
   );
 }
 
-function IdentitySidebar({ agentId, agent }: { agentId: string; agent: AgentProfile | null }) {
+function IdentitySidebar({ agentId, agent, centered, stats }: { agentId: string; agent: AgentProfile | null; centered?: boolean; stats?: AgentStats | null }) {
   const router = useRouter();
   const { user } = useAuth();
   const isOwner = !!(agent?.owner_handle && user?.handle && agent.owner_handle === user.handle);
@@ -291,9 +291,9 @@ function IdentitySidebar({ agentId, agent }: { agentId: string; agent: AgentProf
   const modelLabel = agent?.model && agent.model !== "unknown" ? agent.model : null;
 
   return (
-    <aside className="md:sticky md:top-6 md:self-start md:h-fit shrink-0 w-full md:w-[220px] space-y-4">
+    <aside className={`md:sticky md:top-6 md:self-start md:h-fit shrink-0 w-full ${centered ? "flex flex-col items-start" : "md:w-[220px]"} space-y-4`}>
       {/* Avatars — agent (rectangular) with smaller owner (circular) overlapping bottom-right */}
-      <div className="relative" style={{ width: 100, height: 100 }}>
+      <div className={`relative ${centered ? "self-center" : ""}`} style={{ width: 100, height: 100 }}>
         <div className="overflow-hidden" style={{ borderRadius: 10, width: 100, height: 100 }}>
           <Avatar
             name={agent?.avatar_seed || agentId}
@@ -320,27 +320,18 @@ function IdentitySidebar({ agentId, agent }: { agentId: string; agent: AgentProf
         <h1 className="text-2xl font-semibold text-[var(--color-text)] leading-tight tracking-tight truncate">
           {agentId}
         </h1>
+        {agent?.role && (
+          <div className="text-sm text-[var(--color-text-secondary)] mt-0.5">{agent.role}</div>
+        )}
+        {agent?.description && (
+          <p className="text-xs text-[var(--color-text-tertiary)] mt-1 leading-relaxed break-all">{agent.description}</p>
+        )}
       </div>
 
-      {/* Action — owner only */}
-      {isOwner && (
-        agent?.workspace_id ? (
-          <button
-            onClick={() => router.push(`/workspaces/${agent.workspace_id}`)}
-            className="inline-flex items-center justify-center gap-2 px-3 py-1.5 text-sm font-medium border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-layer-1)] transition-colors"
-            style={RADIUS_SM}
-          >
-            <LuMessageSquare size={14} />
-            Go to workspace
-          </button>
-        ) : (
-          <div className="text-xs text-[var(--color-text-tertiary)]">No workspace</div>
-        )
-      )}
 
-      {/* Meta with icons */}
+      {/* Meta with icons — left aligned */}
       {agent && (
-        <div className="space-y-2 pt-1">
+        <div className="space-y-2 pt-1 self-start w-full">
           <MetaItem icon={LuCpu}>
             {harnessName ?? <span className="text-[var(--color-text-tertiary)]">Unknown runtime</span>}
           </MetaItem>
@@ -445,11 +436,11 @@ function ActivityFeed({ runs, loading }: { runs: AgentRunEntry[]; loading: boole
 
 /* ───────── Page ───────── */
 
-export default function AgentProfilePage() {
+export default function AgentProfilePage({ embeddedAgentId }: { embeddedAgentId?: string } = {}) {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const agentId = params.id as string;
+  const agentId = embeddedAgentId ?? (params?.id as string);
   const { agent } = useAgent(agentId);
   const from = searchParams.get("from");
 
@@ -469,9 +460,11 @@ export default function AgentProfilePage() {
     apiFetch<{ days: HeatmapDay[] }>(`/agents/${agentId}/heatmap`).then((d) => setHeatmap(d.days)).catch(() => {}).finally(() => setHeatmapLoading(false));
   }, [agentId]);
 
+  const isEmbedded = !!embeddedAgentId;
+
   return (
     <div className="h-full overflow-y-auto bg-[var(--color-bg)]">
-      <div className="max-w-6xl mx-auto py-8 px-6 md:px-8">
+      <div className={`${isEmbedded ? "" : "max-w-6xl"} mx-auto py-8 px-6 md:px-8`}>
         {from && (
           <button
             onClick={() => router.back()}
@@ -482,9 +475,10 @@ export default function AgentProfilePage() {
           </button>
         )}
 
-        <div className="flex flex-col md:flex-row gap-6">
-          <IdentitySidebar agentId={agentId} agent={agent} />
+        <div className={`flex ${isEmbedded ? "flex-col" : "flex-col md:flex-row"} gap-6`}>
+          <IdentitySidebar agentId={agentId} agent={agent} centered={isEmbedded} stats={isEmbedded ? stats : undefined} />
 
+          {!isEmbedded && (
           <div className="flex-1 min-w-0 space-y-7">
             {/* Top tasks */}
             <section>
@@ -504,6 +498,7 @@ export default function AgentProfilePage() {
               <ActivityFeed runs={activity} loading={activityLoading} />
             </section>
           </div>
+          )}
         </div>
       </div>
     </div>
