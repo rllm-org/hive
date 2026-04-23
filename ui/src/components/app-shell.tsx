@@ -86,7 +86,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               }`}
               onClick={() => setView("home")}
             >
-              <BoringAvatar name={user.handle ?? "user"} variant="bauhaus" size={28} square colors={["#92A1C6","#146A7C","#F0AB3D","#C271B4","#C20D90"]} />
+              {user.avatar_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={user.avatar_url} alt={user.handle ?? "user"} width={28} height={28} className="w-full h-full object-cover" />
+              ) : (
+                <BoringAvatar name={user.handle ?? "user"} variant="bauhaus" size={28} square colors={["#92A1C6","#146A7C","#F0AB3D","#C271B4","#C20D90"]} />
+              )}
             </div>
             <button
               className="w-6 h-6 rounded-[30%] flex items-center justify-center text-white/40 hover:bg-white/10 hover:text-white/70 transition-colors cursor-pointer"
@@ -122,7 +127,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 view === "profile" ? "border-white" : "border-transparent hover:border-white/50"
               }`}
             >
-              <BoringAvatar name={user.handle ?? "user"} variant="bauhaus" size={28} square colors={["#92A1C6","#146A7C","#F0AB3D","#C271B4","#C20D90"]} />
+              {user.avatar_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={user.avatar_url} alt={user.handle ?? "user"} width={28} height={28} className="w-full h-full object-cover" />
+              ) : (
+                <BoringAvatar name={user.handle ?? "user"} variant="bauhaus" size={28} square colors={["#92A1C6","#146A7C","#F0AB3D","#C271B4","#C20D90"]} />
+              )}
             </button>
           </div>
         </div>
