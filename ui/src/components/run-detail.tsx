@@ -172,7 +172,7 @@ export function RunDetail({ run, runs, taskPath, repoUrl, onClose, onRunUpdated,
   return (
     <>
     {!showAdminDialog && (
-    <Modal onClose={onClose}>
+    <Modal onClose={onClose} maxWidth="max-w-5xl">
       {/* Header with metadata bar */}
       <div className="px-6 pt-5 shrink-0">
         {/* Metadata row */}

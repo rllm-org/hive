@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { getAuthHeader } from "@/lib/auth";
+import { Modal, ModalHeader, ModalBody } from "@/components/shared/modal";
 
 const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
 
@@ -15,13 +16,6 @@ export function ClaimAgentModal({ onClose, onClaimed }: ClaimAgentModalProps) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
-  const overlayRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
-  }, [onClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,43 +40,23 @@ export function ClaimAgentModal({ onClose, onClaimed }: ClaimAgentModalProps) {
     }
   };
 
-  const inputCls = "w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] font-[family-name:var(--font-ibm-plex-mono)] outline-none";
-  const labelCls = "block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5";
-
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-[10000] flex items-center justify-center backdrop-blur-md bg-black/30"
-      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
-    >
-      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[380px] flex flex-col animate-fade-in">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
-          <h2 className="text-base font-semibold text-[var(--color-text)]">Claim Agent</h2>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M3 3l8 8M11 3l-8 8" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Body */}
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+    <Modal onClose={onClose} maxWidth="max-w-[380px]" zIndex={10000}>
+      <ModalHeader onClose={onClose}>Claim Agent</ModalHeader>
+      <ModalBody className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <p className="text-xs text-[var(--color-text-tertiary)]">
             Paste the agent token saved in ~/.hive/agents/{"{agent_name}"}.json
           </p>
           <div>
-            <label className={labelCls}>Agent Token</label>
+            <label className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5">Agent Token</label>
             <input
               type="text"
               value={token}
               onChange={(e) => setToken(e.target.value)}
               required
               style={{ outline: "none", boxShadow: "none" }}
-              className={inputCls}
+              className="w-full px-3 py-2 text-sm border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] font-[family-name:var(--font-ibm-plex-mono)]"
               placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
             />
           </div>
@@ -98,7 +72,7 @@ export function ClaimAgentModal({ onClose, onClaimed }: ClaimAgentModalProps) {
             {loading ? "Claiming..." : "Claim"}
           </button>
         </form>
-      </div>
-    </div>
+      </ModalBody>
+    </Modal>
   );
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { apiPost, apiFetch, apiPostJson } from "@/lib/api";
 import { getAuthHeader, useAuth } from "@/lib/auth";
+import { Modal, ModalHeader, ModalBody } from "@/components/shared/modal";
 
 const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
 import { GitHubRepoPicker } from "@/components/github-repo-picker";
@@ -46,7 +47,6 @@ export function CreateTaskModal({ onClose, onCreated, defaultMode }: CreateTaskM
   const setFieldError = (field: string, msg: string | null) =>
     setErrors((prev) => ({ ...prev, [field]: msg }));
 
-  const overlayRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isDirty = useMemo(
@@ -60,15 +60,17 @@ export function CreateTaskModal({ onClose, onCreated, defaultMode }: CreateTaskM
     else onClose();
   }, [isDirty, onClose, submitResult]);
 
+  // Custom Escape: dismiss discard dialog first, then safeClose
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.stopPropagation();
         if (showDiscard) setShowDiscard(false);
         else safeClose();
       }
     };
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
+    window.addEventListener("keydown", handleEsc, true);
+    return () => window.removeEventListener("keydown", handleEsc, true);
   }, [safeClose, showDiscard]);
 
   const TASK_ID_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
@@ -201,26 +203,10 @@ export function CreateTaskModal({ onClose, onCreated, defaultMode }: CreateTaskM
   const labelCls = "block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5";
 
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-[9999] flex items-start justify-center pt-24 backdrop-blur-md bg-black/30"
-      onClick={(e) => { if (e.target === overlayRef.current) safeClose(); }}
-    >
-      <div className="bg-[var(--color-surface)] shadow-[var(--shadow-elevated)] w-full max-w-[540px] max-h-[80vh] flex flex-col animate-fade-in">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] shrink-0">
-          <h2 className="text-base font-semibold text-[var(--color-text)]">
-            {submitResult ? "Task Submitted" : "Create Task"}
-          </h2>
-          <button
-            onClick={safeClose}
-            className="w-7 h-7 rounded flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-all"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M3 3l8 8M11 3l-8 8" />
-            </svg>
-          </button>
-        </div>
+    <Modal onClose={safeClose} maxWidth="max-w-[540px]" align="top" className="max-h-[80vh]">
+      <ModalHeader onClose={safeClose}>
+        {submitResult ? "Task Submitted" : "Create Task"}
+      </ModalHeader>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
@@ -492,25 +478,22 @@ export function CreateTaskModal({ onClose, onCreated, defaultMode }: CreateTaskM
             </>
           )}
         </div>
-      </div>
 
       {/* Discard confirmation */}
-      {showDiscard && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50">
-          <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] shadow-[var(--shadow-elevated)] p-6 max-w-sm mx-4 animate-fade-in">
-            <h3 className="text-sm font-semibold text-[var(--color-text)] mb-2">Discard draft?</h3>
-            <p className="text-sm text-[var(--color-text-secondary)] mb-4">You have unsaved changes that will be lost.</p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setShowDiscard(false)} className="px-4 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
-                Keep editing
-              </button>
-              <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors">
-                Discard
-              </button>
-            </div>
+      <Modal open={showDiscard} onClose={() => setShowDiscard(false)} maxWidth="max-w-sm" zIndex={10000}>
+        <ModalBody>
+          <h3 className="text-sm font-semibold text-[var(--color-text)] mb-2">Discard draft?</h3>
+          <p className="text-sm text-[var(--color-text-secondary)] mb-4">You have unsaved changes that will be lost.</p>
+          <div className="flex justify-end gap-3">
+            <button onClick={() => setShowDiscard(false)} className="px-4 py-2 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
+              Keep editing
+            </button>
+            <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors">
+              Discard
+            </button>
           </div>
-        </div>
-      )}
-    </div>
+        </ModalBody>
+      </Modal>
+    </Modal>
   );
 }
