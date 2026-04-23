@@ -1184,24 +1184,26 @@ function ChatChannelView({
 /* ──────────────────────────────────────────────── Workspace settings ──────────────────────────────────────────────── */
 
 function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
-  const { data, isLoading } = useSWR<{ tree: string }>(
+  const { data, isLoading, error } = useSWR(
     `/workspaces/${workspaceId}/files/tree`,
     apiFetch,
     { refreshInterval: 15000 },
   );
 
-  // Parse tree string into FsTreeNode[] (same format as agent-sdk volume tree)
   const tree = useMemo(() => {
-    if (!data?.tree) return [];
-    const lines = (data.tree || "").split("\n").filter((l: string) => l.length > 0);
-    const root: Record<string, FsTreeNode> = {};
+    if (!data) return [];
+    // Server returns { tree: "line1\nline2\n..." } from agent-sdk, or { tree: [] } when volume not configured
+    const raw = (data as Record<string, unknown>).tree;
+    if (!raw || typeof raw !== "string") return [];
+    const lines = raw.split("\n").filter((l: string) => l.length > 0);
+    const nodes: FsTreeNode[] = [];
     for (const line of lines) {
       const isDir = line.endsWith("/");
       const clean = isDir ? line.slice(0, -1) : line;
       const name = clean.split("/").pop() || clean;
-      root[clean] = { name, path: clean, type: isDir ? "directory" : "file" };
+      nodes.push({ name, path: clean, type: isDir ? "directory" : "file" });
     }
-    return Object.values(root);
+    return nodes;
   }, [data]);
 
   if (isLoading) {
@@ -1212,7 +1214,7 @@ function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
     );
   }
 
-  if (tree.length === 0) {
+  if (error || tree.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
         No shared files in this workspace yet.
