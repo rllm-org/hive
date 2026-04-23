@@ -2617,13 +2617,15 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
 
 @router.post("/workspaces/{workspace_id}/agents")
 async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user: dict = Depends(require_user)):
-    """Create a new agent inside this workspace and provision its sandbox + session.
+    """Create a new agent inside this workspace.
+
+    Session and sandbox are provisioned lazily via /connect when the user
+    first opens the agent chat.
 
     Body:
       name (optional) — custom agent id; otherwise auto-generated
       harness (optional), model (optional), role (optional), description (optional)
     """
-    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
     user_id = int(user["sub"])
     requested_name = (body.get("name") or "").strip().lower()
     async with get_db() as conn:
@@ -2655,48 +2657,10 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             (agent_id, agent_token, ts, ts, user_id, ws_type, harness, model_name, str(uuid.uuid4()), workspace_id, agent_role, agent_desc)
         )
 
-    # Provision sandbox + session via agent-sdk
-    session_id = None
-    sandbox_id = None
-    try:
-        client = get_client()
-        user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
-        agent_row = {"id": agent_id, "role": agent_role, "description": agent_desc, "model": model_name}
-        config: dict[str, Any] = {
-            "name": f"agent-{agent_id}",
-            "agent_type": body.get("agent_type", "claude"),
-            "model": model_name,
-            "cwd": body.get("cwd", "/home/daytona"),
-            "prompt": _build_agent_system_prompt(agent_row, workspace_id, ws["name"]),
-        }
-        if GLOBAL_VOLUME_ID:
-            config["volume_id"] = GLOBAL_VOLUME_ID
-        if user_oauth_token:
-            config["oauth_token"] = user_oauth_token
-        if HIVE_SERVER_URL:
-            config["mcp_servers"] = {
-                "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
-            }
-        upstream = await client.create_quick_session(**config)
-        session_id = upstream.get("session_id")
-        sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
-        if session_id:
-            async with get_db() as conn:
-                await conn.execute(
-                    "UPDATE agents SET session_id = %s, sandbox_id = %s WHERE id = %s",
-                    (session_id, sandbox_id, agent_id),
-                )
-    except Exception as e:
-        import logging
-        logging.warning("Failed to provision agent %s: %s", agent_id, e)
-
     return {
         "id": agent_id,
         "token": agent_token,
         "workspace_id": workspace_id,
-        "session_id": session_id,
-        "sandbox_id": sandbox_id,
-        "sdk_base_url": AGENT_SDK_BASE_URL,
     }
 
 
@@ -2774,9 +2738,9 @@ async def connect_workspace_agent(
             "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
         }
 
-    upstream = await client.create_quick_session(**config)
-    session_id = upstream.get("session_id")
-    sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
+    upstream = await client.create_session_lazy(**config)
+    session_id = upstream.get("id") or upstream.get("session_id")
+    sandbox_id = upstream.get("current_sandbox_id") or upstream.get("sandbox_id")
     if not session_id:
         raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
 

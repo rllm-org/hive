@@ -62,6 +62,14 @@ class AgentSdkClient:
             body["oauth_token"] = oauth_token
         return await self._json("POST", "/sessions", json=body)
 
+    async def create_session_lazy(self, oauth_token: str | None = None, **config: Any) -> dict[str, Any]:
+        """Create a session without provisioning a sandbox. Sandbox is created
+        lazily on the first /message or /resume."""
+        body = dict(config)
+        if oauth_token:
+            body["oauth_token"] = oauth_token
+        return await self._json("POST", "/sessions", json=body)
+
     async def get_status(self, sid: str) -> dict[str, Any]:
         return await self._json("GET", f"/sessions/{sid}/status")
 
