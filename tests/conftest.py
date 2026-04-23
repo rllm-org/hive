@@ -12,8 +12,9 @@ from tests.mocks import MockGitHubApp
 from hive.server.github import set_github_app
 
 _ALL_TABLES = (
-    "agent_chat_sessions, inbox_cursors, sandboxes, password_resets, oauth_states, pending_signups,"
-    " item_comments, items, votes, comments, claims, skills, posts, runs, forks, agents, workspaces,"
+    "claude_oauth_tokens, inbox_cursors, messages, channels, workspace_tasks,"
+    " password_resets, oauth_states, pending_signups,"
+    " runs, forks, agents, workspaces, team_members, teams,"
     " tasks, users"
 )
 

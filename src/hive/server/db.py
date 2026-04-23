@@ -19,14 +19,26 @@ _PG_SCHEMA = [
         avatar_seed     TEXT,
         created_at      TIMESTAMPTZ NOT NULL
     )""",
+    """CREATE TABLE IF NOT EXISTS teams (
+        id              SERIAL PRIMARY KEY,
+        name            TEXT NOT NULL,
+        owner_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        avatar_seed     TEXT,
+        created_at      TIMESTAMPTZ NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS team_members (
+        team_id         INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role            TEXT NOT NULL DEFAULT 'owner',
+        joined_at       TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (team_id, user_id)
+    )""",
     """CREATE TABLE IF NOT EXISTS workspaces (
         id              SERIAL PRIMARY KEY,
         user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name            TEXT NOT NULL,
         type            TEXT NOT NULL DEFAULT 'local',
         created_at      TIMESTAMPTZ NOT NULL,
-        sdk_sandbox_id  TEXT,
-        sdk_base_url    TEXT,
         UNIQUE(user_id, name)
     )""",
     """CREATE TABLE IF NOT EXISTS agents (
@@ -41,8 +53,10 @@ _PG_SCHEMA = [
         model           TEXT NOT NULL DEFAULT 'unknown',
         avatar_seed     TEXT,
         workspace_id    INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
-        sdk_session_id  TEXT,
-        sdk_base_url    TEXT
+        sandbox_id      TEXT,
+        session_id      TEXT,
+        role            TEXT,
+        description     TEXT
     )""",
     """CREATE TABLE IF NOT EXISTS tasks (
         id              SERIAL PRIMARY KEY,
@@ -56,6 +70,11 @@ _PG_SCHEMA = [
         best_score      DOUBLE PRECISION,
         improvements    INTEGER DEFAULT 0,
         UNIQUE(owner, slug)
+    )""",
+    """CREATE TABLE IF NOT EXISTS workspace_tasks (
+        workspace_id    INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        task_id         INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        PRIMARY KEY (workspace_id, task_id)
     )""",
     """CREATE TABLE IF NOT EXISTS forks (
         id              SERIAL PRIMARY KEY,
@@ -93,79 +112,35 @@ _PG_SCHEMA = [
         harness         TEXT,
         model           TEXT
     )""",
-    """CREATE TABLE IF NOT EXISTS posts (
-        id              SERIAL PRIMARY KEY,
-        task_id         INTEGER NOT NULL REFERENCES tasks(id),
-        agent_id        TEXT NOT NULL REFERENCES agents(id),
-        content         TEXT NOT NULL,
-        run_id          TEXT REFERENCES runs(id),
-        upvotes         INTEGER DEFAULT 0,
-        downvotes       INTEGER DEFAULT 0,
-        created_at      TIMESTAMPTZ NOT NULL
-    )""",
-    """CREATE TABLE IF NOT EXISTS comments (
-        id              SERIAL PRIMARY KEY,
-        post_id         INTEGER NOT NULL REFERENCES posts(id),
-        parent_comment_id INTEGER REFERENCES comments(id),
-        agent_id        TEXT NOT NULL REFERENCES agents(id),
-        content         TEXT NOT NULL,
-        upvotes         INTEGER DEFAULT 0,
-        downvotes       INTEGER DEFAULT 0,
-        created_at      TIMESTAMPTZ NOT NULL
-    )""",
-    """CREATE TABLE IF NOT EXISTS claims (
-        id              SERIAL PRIMARY KEY,
-        task_id         INTEGER NOT NULL REFERENCES tasks(id),
-        agent_id        TEXT NOT NULL REFERENCES agents(id),
-        content         TEXT NOT NULL,
-        expires_at      TIMESTAMPTZ NOT NULL,
-        created_at      TIMESTAMPTZ NOT NULL
-    )""",
-    """CREATE TABLE IF NOT EXISTS skills (
+    """CREATE TABLE IF NOT EXISTS channels (
         id              SERIAL PRIMARY KEY,
         task_id         INTEGER REFERENCES tasks(id),
-        agent_id        TEXT NOT NULL REFERENCES agents(id),
+        workspace_id    INTEGER REFERENCES workspaces(id) ON DELETE CASCADE,
         name            TEXT NOT NULL,
-        description     TEXT NOT NULL,
-        code_snippet    TEXT NOT NULL,
-        source_run_id   TEXT REFERENCES runs(id),
-        score_delta     DOUBLE PRECISION,
-        upvotes         INTEGER DEFAULT 0,
-        created_at      TIMESTAMPTZ NOT NULL
-    )""",
-    """CREATE TABLE IF NOT EXISTS votes (
-        target_type     TEXT NOT NULL DEFAULT 'post',
-        target_id       INTEGER NOT NULL,
-        agent_id        TEXT NOT NULL,
-        type            TEXT NOT NULL,
-        PRIMARY KEY (target_type, target_id, agent_id)
-    )""",
-    """CREATE TABLE IF NOT EXISTS items (
-        id              TEXT PRIMARY KEY,
-        seq             INTEGER NOT NULL,
-        task_id         INTEGER NOT NULL REFERENCES tasks(id),
-        title           TEXT NOT NULL,
-        description     TEXT,
-        status          TEXT NOT NULL DEFAULT 'backlog',
-        priority        TEXT NOT NULL DEFAULT 'none',
-        assignee_id     TEXT REFERENCES agents(id),
-        assigned_at     TIMESTAMPTZ,
-        parent_id       TEXT REFERENCES items(id),
-        labels          TEXT[] DEFAULT '{}',
-        metadata        JSONB,
-        created_by      TEXT NOT NULL REFERENCES agents(id),
+        is_default      BOOLEAN DEFAULT FALSE,
+        created_by      TEXT REFERENCES agents(id),
         created_at      TIMESTAMPTZ NOT NULL,
-        updated_at      TIMESTAMPTZ NOT NULL,
-        deleted_at      TIMESTAMPTZ,
-        UNIQUE(task_id, seq)
+        CHECK ((task_id IS NOT NULL) != (workspace_id IS NOT NULL))
     )""",
-    """CREATE TABLE IF NOT EXISTS item_comments (
-        id              SERIAL PRIMARY KEY,
-        item_id         TEXT NOT NULL REFERENCES items(id),
-        agent_id        TEXT NOT NULL REFERENCES agents(id),
-        content         TEXT NOT NULL,
+    """CREATE TABLE IF NOT EXISTS messages (
+        channel_id      INTEGER NOT NULL REFERENCES channels(id),
+        ts              TEXT NOT NULL,
+        agent_id        TEXT REFERENCES agents(id),
+        user_id         INTEGER REFERENCES users(id),
+        text            TEXT NOT NULL,
+        thread_ts       TEXT,
+        mentions        TEXT[] NOT NULL DEFAULT '{}',
+        edited_at       TIMESTAMPTZ,
         created_at      TIMESTAMPTZ NOT NULL,
-        deleted_at      TIMESTAMPTZ
+        PRIMARY KEY (channel_id, ts),
+        CHECK ((agent_id IS NOT NULL) <> (user_id IS NOT NULL))
+    )""",
+    """CREATE TABLE IF NOT EXISTS inbox_cursors (
+        agent_id    TEXT NOT NULL REFERENCES agents(id),
+        task_id     INTEGER NOT NULL REFERENCES tasks(id),
+        last_read_ts TEXT NOT NULL DEFAULT '0',
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (agent_id, task_id)
     )""",
     """CREATE TABLE IF NOT EXISTS pending_signups (
         email           TEXT PRIMARY KEY,
@@ -188,64 +163,6 @@ _PG_SCHEMA = [
         attempts        INTEGER NOT NULL DEFAULT 0,
         created_at      TIMESTAMPTZ NOT NULL
     )""",
-    """CREATE TABLE IF NOT EXISTS sandboxes (
-        id                  SERIAL PRIMARY KEY,
-        task_id             INTEGER NOT NULL REFERENCES tasks(id),
-        user_id             INTEGER NOT NULL REFERENCES users(id),
-        daytona_sandbox_id  TEXT,
-        status              TEXT NOT NULL DEFAULT 'creating',
-        ssh_command         TEXT,
-        ssh_token           TEXT,
-        ssh_expires_at      TIMESTAMPTZ,
-        created_at          TIMESTAMPTZ NOT NULL,
-        last_accessed_at    TIMESTAMPTZ,
-        error_message       TEXT,
-        UNIQUE(task_id, user_id)
-    )""",
-    """CREATE TABLE IF NOT EXISTS channels (
-        id              SERIAL PRIMARY KEY,
-        task_id         INTEGER NOT NULL REFERENCES tasks(id),
-        name            TEXT NOT NULL,
-        is_default      BOOLEAN DEFAULT FALSE,
-        created_by      TEXT REFERENCES agents(id),
-        created_at      TIMESTAMPTZ NOT NULL,
-        UNIQUE(task_id, name)
-    )""",
-    """CREATE TABLE IF NOT EXISTS messages (
-        channel_id      INTEGER NOT NULL REFERENCES channels(id),
-        ts              TEXT NOT NULL,
-        agent_id        TEXT REFERENCES agents(id),
-        user_id         INTEGER REFERENCES users(id),
-        text            TEXT NOT NULL,
-        thread_ts       TEXT,
-        mentions        TEXT[] NOT NULL DEFAULT '{}',
-        edited_at       TIMESTAMPTZ,
-        created_at      TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (channel_id, ts),
-        CHECK ((agent_id IS NOT NULL) <> (user_id IS NOT NULL))
-    )""",
-    """CREATE TABLE IF NOT EXISTS inbox_cursors (
-        agent_id    TEXT NOT NULL REFERENCES agents(id),
-        task_id     INTEGER NOT NULL REFERENCES tasks(id),
-        last_read_ts TEXT NOT NULL DEFAULT '0',
-        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (agent_id, task_id)
-    )""",
-    """CREATE TABLE IF NOT EXISTS agent_chat_sessions (
-        id              SERIAL PRIMARY KEY,
-        user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        task_id         INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-        sdk_session_id  TEXT NOT NULL,
-        sdk_agent_id    TEXT NOT NULL,
-        sdk_sandbox_id  TEXT NOT NULL,
-        agent_kind      TEXT NOT NULL DEFAULT 'claude',
-        title           TEXT,
-        status          TEXT NOT NULL DEFAULT 'active',
-        last_activity   TIMESTAMPTZ,
-        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-        closed_at       TIMESTAMPTZ,
-        UNIQUE (user_id, task_id, sdk_session_id)
-    )""",
     """CREATE TABLE IF NOT EXISTS claude_oauth_tokens (
         user_id         INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         token_encrypted TEXT NOT NULL,
@@ -260,37 +177,41 @@ def init_db() -> None:
     conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     try:
         # Legacy schema upgrade — must run before _PG_SCHEMA so that any
-        # new tables (e.g. items) can be created with INTEGER FKs to
-        # tasks(id). On a fresh DB this is a no-op.
+        # new tables with INTEGER FKs to tasks(id) can be created.
+        # On a fresh DB this is a no-op.
         _migrate_legacy_task_id_if_needed(conn)
         for stmt in _PG_SCHEMA:
             conn.execute(stmt)
         _ensure_postgres_migrations(conn)
+        # --- Indexes ---
+        # Runs
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_task_score ON runs(task_id, score DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_task_created ON runs(task_id, created_at DESC)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_task_created ON posts(task_id, created_at DESC)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_comments_post_parent ON comments(post_id, parent_comment_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_skills_task_upvotes ON skills(task_id, upvotes DESC)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_github_id ON users(github_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_owner_slug ON tasks(owner, slug)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_handle ON users(handle)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_visibility_owner ON tasks(visibility, owner_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_agents_token ON agents(token)")
-        # Items indexes
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_items_task_status ON items(task_id, status) WHERE deleted_at IS NULL")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_items_task_assignee ON items(task_id, assignee_id) WHERE deleted_at IS NULL")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_items_task_created ON items(task_id, created_at DESC) WHERE deleted_at IS NULL")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_items_task_priority ON items(task_id, priority) WHERE deleted_at IS NULL")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_items_labels ON items USING gin(labels) WHERE deleted_at IS NULL")
-        # The verifier worker scans pending/running jobs by status, so keep those lookups narrow.
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_verification_pending"
                      " ON runs(created_at) WHERE verification_status = 'pending'")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_verification_running"
                      " ON runs(verification_started_at) WHERE verification_status = 'running'")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_task_verified_score"
                      " ON runs(task_id, verified_score DESC) WHERE verified_score IS NOT NULL")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_sandboxes_task_user ON sandboxes(task_id, user_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_channels_task ON channels(task_id)")
+        # Users
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_github_id ON users(github_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_handle ON users(handle)")
+        # Tasks
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_owner_slug ON tasks(owner, slug)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_visibility_owner ON tasks(visibility, owner_id)")
+        # Agents
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_agents_token ON agents(token)")
+        # Channels (partial unique indexes for dual-scope)
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_task_name"
+                     " ON channels(task_id, name) WHERE task_id IS NOT NULL")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_workspace"
+                     " ON channels(workspace_id) WHERE workspace_id IS NOT NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_channels_task ON channels(task_id) WHERE task_id IS NOT NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_channels_workspace_lookup"
+                     " ON channels(workspace_id) WHERE workspace_id IS NOT NULL")
+        # Workspace-tasks
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_workspace_tasks_task ON workspace_tasks(task_id)")
+        # Messages
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_messages_thread"
             " ON messages(channel_id, thread_ts, ts) WHERE thread_ts IS NOT NULL"
@@ -300,17 +221,10 @@ def init_db() -> None:
             " ON messages(channel_id, ts DESC) WHERE thread_ts IS NULL"
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_mentions ON messages USING gin(mentions)")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_agent_chat_sessions_user_task"
-            " ON agent_chat_sessions(user_id, task_id) WHERE closed_at IS NULL"
-        )
-        # Full-text search: add tsvector columns + GIN indexes
+        # Full-text search
         _fts_cols = [
             ("tasks", "search_vec", "to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,''))"),
-            ("posts", "search_vec", "to_tsvector('english', coalesce(content,''))"),
             ("runs", "search_vec", "to_tsvector('english', coalesce(tldr,'') || ' ' || coalesce(message,''))"),
-            ("skills", "search_vec", "to_tsvector('english', coalesce(name,'') || ' ' || coalesce(description,''))"),
-            ("claims", "search_vec", "to_tsvector('english', coalesce(content,''))"),
         ]
         for table, col, expr in _fts_cols:
             row = conn.execute(
@@ -329,33 +243,12 @@ def init_db() -> None:
 def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
     """Apply additive schema migrations needed by newer server versions."""
 
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'comments' AND column_name = 'parent_comment_id'"
-    ).fetchone()
-    if not row:
-        conn.execute(
-            "ALTER TABLE comments ADD COLUMN parent_comment_id INTEGER REFERENCES comments(id)"
-        )
-    # votes.post_id was TEXT, should be INTEGER to match posts.id
-    row = conn.execute(
-        "SELECT data_type FROM information_schema.columns"
-        " WHERE table_name = 'votes' AND column_name = 'post_id'"
-    ).fetchone()
-    if row and row["data_type"] == "text":
-        conn.execute("ALTER TABLE votes ALTER COLUMN post_id TYPE INTEGER USING post_id::INTEGER")
+    # --- Migrations for tables that survive into v2 ---
+
     # add best_score and improvements to tasks if missing
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'tasks' AND column_name = 'best_score'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "tasks", "best_score"):
         conn.execute("ALTER TABLE tasks ADD COLUMN best_score DOUBLE PRECISION")
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'tasks' AND column_name = 'improvements'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "tasks", "improvements"):
         conn.execute("ALTER TABLE tasks ADD COLUMN improvements INTEGER DEFAULT 0")
     # Backfill best_score and improvements from runs
     conn.execute("""
@@ -377,10 +270,7 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
     _ts_cols = [
         ("agents", "registered_at"), ("agents", "last_seen_at"),
         ("tasks", "created_at"), ("forks", "created_at"),
-        ("runs", "created_at"), ("posts", "created_at"),
-        ("comments", "created_at"),
-        ("claims", "expires_at"), ("claims", "created_at"),
-        ("skills", "created_at"),
+        ("runs", "created_at"),
     ]
     for table, col in _ts_cols:
         row = conn.execute(
@@ -389,178 +279,62 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
         ).fetchone()
         if row and row["data_type"] == "text":
             conn.execute(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE TIMESTAMPTZ USING {col}::timestamptz")
-    # Polymorphic votes: add target_type and rename post_id to target_id
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'votes' AND column_name = 'target_type'"
-    ).fetchone()
-    if not row:
-        conn.execute("ALTER TABLE votes ADD COLUMN target_type TEXT NOT NULL DEFAULT 'post'")
-        conn.execute("ALTER TABLE votes RENAME COLUMN post_id TO target_id")
-        conn.execute("ALTER TABLE votes DROP CONSTRAINT votes_pkey")
-        conn.execute("ALTER TABLE votes ADD PRIMARY KEY (target_type, target_id, agent_id)")
-    # Add vote columns to comments
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'comments' AND column_name = 'upvotes'"
-    ).fetchone()
-    if not row:
-        conn.execute("ALTER TABLE comments ADD COLUMN upvotes INTEGER DEFAULT 0")
-        conn.execute("ALTER TABLE comments ADD COLUMN downvotes INTEGER DEFAULT 0")
     # Add valid column to runs
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'runs' AND column_name = 'valid'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "runs", "valid"):
         conn.execute("ALTER TABLE runs ADD COLUMN valid BOOLEAN DEFAULT TRUE")
-    # Add item_seq counter to tasks for atomic item ID generation
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'tasks' AND column_name = 'item_seq'"
-    ).fetchone()
-    if not row:
-        conn.execute("ALTER TABLE tasks ADD COLUMN item_seq INTEGER NOT NULL DEFAULT 0")
-    # Add assigned_at to items and backfill
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'items' AND column_name = 'assigned_at'"
-    ).fetchone()
-    if not row:
-        conn.execute("ALTER TABLE items ADD COLUMN assigned_at TIMESTAMPTZ")
-    conn.execute("UPDATE items SET status = 'backlog' WHERE status = 'todo'")
-    conn.execute("UPDATE items SET status = 'archived' WHERE status IN ('done', 'cancelled', 'trash')")
-    conn.execute(
-        "UPDATE items SET assigned_at = COALESCE(updated_at, created_at)"
-        " WHERE assignee_id IS NOT NULL AND assigned_at IS NULL"
-    )
     # Add token and user_id columns to agents
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'agents' AND column_name = 'token'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "agents", "token"):
         conn.execute("ALTER TABLE agents ADD COLUMN token TEXT UNIQUE")
         conn.execute("ALTER TABLE agents ADD COLUMN user_id INTEGER REFERENCES users(id)")
-        # Backfill: set token = id for existing agents
         conn.execute("UPDATE agents SET token = id WHERE token IS NULL")
     # Add type, harness, model columns to agents
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'agents' AND column_name = 'type'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "agents", "type"):
         conn.execute("ALTER TABLE agents ADD COLUMN type TEXT NOT NULL DEFAULT 'local'")
         conn.execute("ALTER TABLE agents ADD COLUMN harness TEXT NOT NULL DEFAULT 'unknown'")
         conn.execute("ALTER TABLE agents ADD COLUMN model TEXT NOT NULL DEFAULT 'unknown'")
     # Add harness, model columns to runs (per-run stamping)
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'runs' AND column_name = 'harness'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "runs", "harness"):
         conn.execute("ALTER TABLE runs ADD COLUMN harness TEXT")
         conn.execute("ALTER TABLE runs ADD COLUMN model TEXT")
-    # Link runs, posts, comments, skills to kanban items
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'runs' AND column_name = 'item_id'"
-    ).fetchone()
-    if not row:
-        conn.execute("ALTER TABLE runs ADD COLUMN item_id TEXT REFERENCES items(id)")
-        conn.execute("ALTER TABLE posts ADD COLUMN item_id TEXT REFERENCES items(id)")
-        conn.execute("ALTER TABLE comments ADD COLUMN item_id TEXT REFERENCES items(id)")
-        conn.execute("ALTER TABLE skills ADD COLUMN item_id TEXT REFERENCES items(id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_item ON runs(item_id) WHERE item_id IS NOT NULL")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_item ON posts(item_id) WHERE item_id IS NOT NULL")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_comments_item ON comments(item_id) WHERE item_id IS NOT NULL")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_skills_item ON skills(item_id) WHERE item_id IS NOT NULL")
     # GitHub OAuth columns on users
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'users' AND column_name = 'github_id'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "users", "github_id"):
         conn.execute("ALTER TABLE users ADD COLUMN github_id BIGINT UNIQUE")
         conn.execute("ALTER TABLE users ADD COLUMN github_username TEXT")
         conn.execute("ALTER TABLE users ADD COLUMN github_token TEXT")
         conn.execute("ALTER TABLE users ADD COLUMN github_connected_at TIMESTAMPTZ")
         conn.execute("ALTER TABLE users ALTER COLUMN password DROP NOT NULL")
     # Private task columns on tasks
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'tasks' AND column_name = 'task_type'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "tasks", "task_type"):
         conn.execute("ALTER TABLE tasks ADD COLUMN task_type TEXT NOT NULL DEFAULT 'public'")
         conn.execute("ALTER TABLE tasks ADD COLUMN owner_id INTEGER REFERENCES users(id)")
         conn.execute("ALTER TABLE tasks ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'")
         conn.execute("ALTER TABLE tasks ADD COLUMN source_repo TEXT")
     # Avatar URL column on users
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'users' AND column_name = 'avatar_url'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "users", "avatar_url"):
         conn.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT")
     # User UUID column (stable identifier, never changes)
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'users' AND column_name = 'uuid'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "users", "uuid"):
         conn.execute("ALTER TABLE users ADD COLUMN uuid TEXT UNIQUE")
         conn.execute("UPDATE users SET uuid = gen_random_uuid()::text WHERE uuid IS NULL")
     # GitHub refresh token columns
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'users' AND column_name = 'github_refresh_token'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "users", "github_refresh_token"):
         conn.execute("ALTER TABLE users ADD COLUMN github_refresh_token TEXT")
         conn.execute("ALTER TABLE users ADD COLUMN github_token_expires TIMESTAMPTZ")
     # Verification attempt tracking on pending_signups
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'pending_signups' AND column_name = 'attempts'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "pending_signups", "attempts"):
         conn.execute("ALTER TABLE pending_signups ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
     # API key column on users
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'users' AND column_name = 'api_key'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "users", "api_key"):
         conn.execute("ALTER TABLE users ADD COLUMN api_key TEXT")
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'users' AND column_name = 'api_key_prefix'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "users", "api_key_prefix"):
         conn.execute("ALTER TABLE users ADD COLUMN api_key_prefix TEXT UNIQUE")
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'items' AND column_name = 'metadata'"
-    ).fetchone()
-    if not row:
-        conn.execute("ALTER TABLE items ADD COLUMN metadata JSONB")
     # installation_id on tasks (for private tasks — GitHub App installation on user's repo)
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'tasks' AND column_name = 'installation_id'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "tasks", "installation_id"):
         conn.execute("ALTER TABLE tasks ADD COLUMN installation_id TEXT")
     # branch_prefix on forks (for branch-mode private tasks)
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'forks' AND column_name = 'branch_prefix'"
-    ).fetchone()
-    if not row:
+    if not _column_exists(conn, "forks", "branch_prefix"):
         conn.execute("ALTER TABLE forks ADD COLUMN branch_prefix TEXT")
-
-    # Verification state is stored directly on runs so the worker can resume and re-queue jobs.
+    # Verification state columns on runs
     for col, typedef in [
         ("verification_status", "TEXT DEFAULT 'none'"),
         ("verified_score", "DOUBLE PRECISION"),
@@ -572,108 +346,97 @@ def _ensure_postgres_migrations(conn: psycopg.Connection[Any]) -> None:
         ("verified_at", "TIMESTAMPTZ"),
         ("verification_started_at", "TIMESTAMPTZ"),
     ]:
-        row = conn.execute(
-            "SELECT 1 FROM information_schema.columns"
-            " WHERE table_name = 'runs' AND column_name = %s", (col,)
-        ).fetchone()
-        if not row:
+        if not _column_exists(conn, "runs", col):
             conn.execute(f"ALTER TABLE runs ADD COLUMN {col} {typedef}")
-
-    # --- pending_signups.handle (lock handle during verification window) ---
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'pending_signups' AND column_name = 'handle'"
-    ).fetchone()
-    if not row:
+    # pending_signups.handle
+    if not _column_exists(conn, "pending_signups", "handle"):
         conn.execute("ALTER TABLE pending_signups ADD COLUMN handle TEXT NOT NULL DEFAULT ''")
-
-    # --- users.handle: backfill from email prefix, then enforce UNIQUE NOT NULL ---
-    row = conn.execute(
-        "SELECT 1 FROM information_schema.columns"
-        " WHERE table_name = 'users' AND column_name = 'handle'"
-    ).fetchone()
-    if not row:
+    # users.handle: backfill from email prefix, then enforce UNIQUE NOT NULL
+    if not _column_exists(conn, "users", "handle"):
         conn.execute("ALTER TABLE users ADD COLUMN handle TEXT")
         _backfill_user_handles(conn)
         conn.execute("CREATE UNIQUE INDEX users_handle_key ON users(handle)")
         conn.execute("ALTER TABLE users ALTER COLUMN handle SET NOT NULL")
-
-    # Task ID TEXT → SERIAL migration runs in init_db's `_migrate_legacy_task_id_if_needed`
-    # call BEFORE _PG_SCHEMA, so by the time we get here it's already done.
-
-    # Sandbox tables (interactive Daytona-backed workspaces). Both have INTEGER
-    # task_id FKs that match the new tasks(id) PK after the legacy migration.
-    if not _table_exists(conn, "sandboxes"):
-        conn.execute("""CREATE TABLE sandboxes (
-            id                  SERIAL PRIMARY KEY,
-            task_id             INTEGER NOT NULL REFERENCES tasks(id),
-            user_id             INTEGER NOT NULL REFERENCES users(id),
-            daytona_sandbox_id  TEXT,
-            status              TEXT NOT NULL DEFAULT 'creating',
-            ssh_command         TEXT,
-            ssh_token           TEXT,
-            ssh_expires_at      TIMESTAMPTZ,
-            created_at          TIMESTAMPTZ NOT NULL,
-            last_accessed_at    TIMESTAMPTZ,
-            error_message       TEXT,
-            UNIQUE(task_id, user_id)
-        )""")
-    # avatar_seed on users and agents (for boring-avatars stable per-account avatars)
+    # avatar_seed on users and agents
     if not _column_exists(conn, "users", "avatar_seed"):
         conn.execute("ALTER TABLE users ADD COLUMN avatar_seed TEXT")
         conn.execute("UPDATE users SET avatar_seed = gen_random_uuid()::text WHERE avatar_seed IS NULL")
     if not _column_exists(conn, "agents", "avatar_seed"):
         conn.execute("ALTER TABLE agents ADD COLUMN avatar_seed TEXT")
         conn.execute("UPDATE agents SET avatar_seed = gen_random_uuid()::text WHERE avatar_seed IS NULL")
-
-    # workspace_id + sdk session on agents (many-to-one: workspace has many agents)
+    # workspace_id on agents
     if _table_exists(conn, "workspaces") and not _column_exists(conn, "agents", "workspace_id"):
         conn.execute("ALTER TABLE agents ADD COLUMN workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL")
-        conn.execute("ALTER TABLE agents ADD COLUMN sdk_session_id TEXT")
-        conn.execute("ALTER TABLE agents ADD COLUMN sdk_base_url TEXT")
-        # Backfill: if a workspace.agent_name matches an agent id, link it
-        if _column_exists(conn, "workspaces", "agent_name"):
-            conn.execute(
-                "UPDATE agents a SET workspace_id = w.id,"
-                " sdk_session_id = w.sdk_session_id, sdk_base_url = w.sdk_base_url"
-                " FROM workspaces w WHERE a.id = w.agent_name"
-            )
 
-    if _table_exists(conn, "workspaces"):
-        if _column_exists(conn, "workspaces", "agent_name"):
-            conn.execute("ALTER TABLE workspaces DROP COLUMN agent_name")
-        if _column_exists(conn, "workspaces", "sdk_session_id"):
-            conn.execute("ALTER TABLE workspaces DROP COLUMN sdk_session_id")
-        if _column_exists(conn, "workspaces", "sdk_base_url") and not _column_exists(
-            conn, "workspaces", "sdk_sandbox_id"
-        ):
-            conn.execute("ALTER TABLE workspaces DROP COLUMN sdk_base_url")
-        if not _column_exists(conn, "workspaces", "sdk_sandbox_id"):
-            conn.execute("ALTER TABLE workspaces ADD COLUMN sdk_sandbox_id TEXT")
-        if not _column_exists(conn, "workspaces", "sdk_base_url"):
-            conn.execute("ALTER TABLE workspaces ADD COLUMN sdk_base_url TEXT")
+    # Agent role, description, session_id columns
+    if not _column_exists(conn, "agents", "role"):
+        conn.execute("ALTER TABLE agents ADD COLUMN role TEXT")
+    if not _column_exists(conn, "agents", "description"):
+        conn.execute("ALTER TABLE agents ADD COLUMN description TEXT")
+    if not _column_exists(conn, "agents", "session_id"):
+        conn.execute("ALTER TABLE agents ADD COLUMN session_id TEXT")
 
-    # agent-sdk chat session mapping (user, task) → sdk session id
-    if not _table_exists(conn, "agent_chat_sessions"):
-        conn.execute("""CREATE TABLE agent_chat_sessions (
-            id              SERIAL PRIMARY KEY,
-            user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            task_id         INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-            sdk_session_id  TEXT NOT NULL,
-            sdk_agent_id    TEXT NOT NULL,
-            sdk_sandbox_id  TEXT NOT NULL,
-            agent_kind      TEXT NOT NULL DEFAULT 'claude',
-            title           TEXT,
-            status          TEXT NOT NULL DEFAULT 'active',
-            last_activity   TIMESTAMPTZ,
-            created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-            closed_at       TIMESTAMPTZ,
-            UNIQUE (user_id, task_id, sdk_session_id)
-        )""")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_agent_chat_sessions_user_task"
-            " ON agent_chat_sessions(user_id, task_id) WHERE closed_at IS NULL"
-        )
+    # --- v2 migration: clean up old columns and tables ---
+    _migrate_to_v2(conn)
+
+
+def _migrate_to_v2(conn: psycopg.Connection[Any]) -> None:
+    """One-time migration from v1 schema to v2.
+
+    Drops removed tables and columns. All checks are idempotent.
+    """
+    # Drop old agent columns (replaced by sandbox_id)
+    if _column_exists(conn, "agents", "sdk_session_id"):
+        conn.execute("ALTER TABLE agents DROP COLUMN sdk_session_id")
+    if _column_exists(conn, "agents", "sdk_base_url"):
+        conn.execute("ALTER TABLE agents DROP COLUMN sdk_base_url")
+    # Add sandbox_id to agents
+    if not _column_exists(conn, "agents", "sandbox_id"):
+        conn.execute("ALTER TABLE agents ADD COLUMN sandbox_id TEXT")
+    # Drop old workspace columns
+    if _column_exists(conn, "workspaces", "sdk_sandbox_id"):
+        conn.execute("ALTER TABLE workspaces DROP COLUMN sdk_sandbox_id")
+    if _column_exists(conn, "workspaces", "sdk_base_url"):
+        conn.execute("ALTER TABLE workspaces DROP COLUMN sdk_base_url")
+    if _column_exists(conn, "workspaces", "sdk_session_id"):
+        conn.execute("ALTER TABLE workspaces DROP COLUMN sdk_session_id")
+    # Drop item_id from runs (FK to removed items table)
+    if _column_exists(conn, "runs", "item_id"):
+        conn.execute("ALTER TABLE runs DROP COLUMN item_id")
+    # Drop item_seq from tasks
+    if _column_exists(conn, "tasks", "item_seq"):
+        conn.execute("ALTER TABLE tasks DROP COLUMN item_seq")
+    # Add workspace_id to channels (make task_id nullable)
+    if not _column_exists(conn, "channels", "workspace_id"):
+        # First drop the old NOT NULL + UNIQUE constraints on task_id
+        conn.execute("ALTER TABLE channels ALTER COLUMN task_id DROP NOT NULL")
+        conn.execute("ALTER TABLE channels ADD COLUMN workspace_id INTEGER REFERENCES workspaces(id) ON DELETE CASCADE")
+        # Drop the old unique constraint (task_id, name) — replaced by partial unique indexes
+        conn.execute("ALTER TABLE channels DROP CONSTRAINT IF EXISTS channels_task_id_name_key")
+    # Drop removed tables (order matters for FK dependencies)
+    for table in [
+        "item_comments", "items", "comments", "posts", "claims",
+        "skills", "votes", "sandboxes", "agent_chat_sessions",
+    ]:
+        if _table_exists(conn, table):
+            conn.execute(f"DROP TABLE {table} CASCADE")
+    # Drop stale indexes for removed tables (best-effort, ignore if already gone)
+    for idx in [
+        "idx_posts_task_created", "idx_comments_post_parent",
+        "idx_skills_task_upvotes", "idx_items_task_status",
+        "idx_items_task_assignee", "idx_items_task_created",
+        "idx_items_task_priority", "idx_items_labels",
+        "idx_sandboxes_task_user", "idx_agent_chat_sessions_user_task",
+        "idx_runs_item", "idx_posts_item", "idx_comments_item", "idx_skills_item",
+    ]:
+        conn.execute(f"DROP INDEX IF EXISTS {idx}")
+    # Drop stale FTS columns for removed tables
+    if _column_exists(conn, "posts", "search_vec"):
+        conn.execute("ALTER TABLE posts DROP COLUMN search_vec")
+    if _column_exists(conn, "skills", "search_vec"):
+        conn.execute("ALTER TABLE skills DROP COLUMN search_vec")
+    if _column_exists(conn, "claims", "search_vec"):
+        conn.execute("ALTER TABLE claims DROP COLUMN search_vec")
 
 
 # Reserved handles (kept in sync with main.py RESERVED_HANDLES — see _validate_handle)
@@ -739,7 +502,7 @@ def _migrate_legacy_task_id_if_needed(conn: psycopg.Connection[Any]) -> None:
     """If tasks.id is TEXT (legacy), migrate it to SERIAL before _PG_SCHEMA runs.
 
     This must happen before the schema DDL because _PG_SCHEMA creates new
-    tables (e.g. items) with INTEGER FKs to tasks(id). On a fresh DB the
+    tables with INTEGER FKs to tasks(id). On a fresh DB the
     tasks table doesn't exist yet and this is a no-op.
     """
     if not _table_exists(conn, "tasks"):
@@ -763,9 +526,9 @@ def _migrate_legacy_task_id_if_needed(conn: psycopg.Connection[Any]) -> None:
 
 
 def _migrate_task_id_to_serial(conn: psycopg.Connection[Any]) -> None:
-    """One-time migration: tasks.id TEXT PK → SERIAL PK with slug/owner columns.
+    """One-time migration: tasks.id TEXT PK -> SERIAL PK with slug/owner columns.
 
-    Skips FK tables that don't exist yet (legacy DBs may pre-date items, etc.).
+    Skips FK tables that don't exist yet (legacy DBs may pre-date some tables).
     """
 
     # 1. Add slug, owner, and new_id columns to tasks
@@ -808,9 +571,7 @@ def _migrate_task_id_to_serial(conn: psycopg.Connection[Any]) -> None:
     ]:
         conn.execute(f"DROP INDEX IF EXISTS {idx}")
 
-    # 4. Drop old task_id columns from FK tables and rename new_task_id → task_id.
-    #    FK constraints are added back AFTER tasks gets its new PK, since
-    #    PostgreSQL requires the referenced column to have UNIQUE/PRIMARY KEY.
+    # 4. Drop old task_id columns from FK tables and rename new_task_id -> task_id.
     for table in _fk_tables:
         conn.execute(f"ALTER TABLE {table} DROP COLUMN task_id")
         conn.execute(f"ALTER TABLE {table} RENAME COLUMN new_task_id TO task_id")
