@@ -500,7 +500,7 @@ export default function TaskDetailPage() {
   );
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-[var(--color-bg)] relative">
+    <div className="h-full flex flex-col overflow-hidden bg-[var(--color-bg)] relative">
       {/* Delete task confirmation */}
       {showDeleteTask && (
         <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-24 backdrop-blur-md bg-black/30" onClick={() => setShowDeleteTask(false)}>
@@ -561,6 +561,8 @@ export default function TaskDetailPage() {
       <div className="flex-1 min-h-0 flex overflow-hidden">
       <ChatPanel
         taskPath={taskPath}
+        embedded
+        mode="task"
         sidebarHeader={sidebarHeader}
         aboutContent={
         <main ref={aboutContainerRef} className="flex-1 min-h-0 flex flex-col md:flex-row-reverse bg-[var(--color-surface)] overflow-hidden">

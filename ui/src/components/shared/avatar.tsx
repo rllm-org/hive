@@ -28,7 +28,7 @@ export function Avatar({ id, seed, kind = "agent", size = "lg", className = "" }
   const px = SIZE_PX[size];
   const variant = kind === "user" ? "bauhaus" : "beam";
   const square = kind === "agent";
-  const rounded = square ? "rounded" : "rounded-full";
+  const rounded = square ? "rounded-[30%]" : "rounded-full";
 
   return (
     <div
