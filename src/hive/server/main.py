@@ -2617,15 +2617,16 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
 
 @router.post("/workspaces/{workspace_id}/agents")
 async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user: dict = Depends(require_user)):
-    """Create a new agent inside this workspace.
+    """Create a new agent and provision its session immediately.
 
-    Session and sandbox are provisioned lazily via /connect when the user
-    first opens the agent chat.
+    The user waits for agent-sdk provisioning so the agent is chattable
+    right away.
 
     Body:
       name (optional) — custom agent id; otherwise auto-generated
       harness (optional), model (optional), role (optional), description (optional)
     """
+    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
     user_id = int(user["sub"])
     requested_name = (body.get("name") or "").strip().lower()
     async with get_db() as conn:
@@ -2657,10 +2658,44 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             (agent_id, agent_token, ts, ts, user_id, ws_type, harness, model_name, str(uuid.uuid4()), workspace_id, agent_role, agent_desc)
         )
 
+    # Provision session via agent-sdk (user waits)
+    client = get_client()
+    user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
+    agent_row = {"id": agent_id, "role": agent_role, "description": agent_desc, "model": model_name}
+    config: dict[str, Any] = {
+        "name": f"agent-{agent_id}",
+        "agent_type": body.get("agent_type", "claude"),
+        "model": model_name,
+        "cwd": body.get("cwd", "/home/daytona"),
+        "prompt": _build_agent_system_prompt(agent_row, workspace_id, ws["name"]),
+    }
+    if GLOBAL_VOLUME_ID:
+        config["volume_id"] = GLOBAL_VOLUME_ID
+    if user_oauth_token:
+        config["oauth_token"] = user_oauth_token
+    if HIVE_SERVER_URL:
+        config["mcp_servers"] = {
+            "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
+        }
+    upstream = await client.create_quick_session(**config)
+    session_id = upstream.get("session_id")
+    sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
+    if not session_id:
+        raise HTTPException(502, f"Failed to provision agent session: {upstream}")
+
+    async with get_db() as conn:
+        await conn.execute(
+            "UPDATE agents SET session_id = %s, sandbox_id = %s WHERE id = %s",
+            (session_id, sandbox_id, agent_id),
+        )
+
     return {
         "id": agent_id,
         "token": agent_token,
         "workspace_id": workspace_id,
+        "session_id": session_id,
+        "sandbox_id": sandbox_id,
+        "sdk_base_url": AGENT_SDK_BASE_URL,
     }
 
 
