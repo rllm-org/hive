@@ -46,7 +46,7 @@ interface ChatPanelProps {
 
 const HIVE_SIDEBAR_BG = "#2a5583"; // darker blue sidebar
 const TASK_SIDEBAR_BG = "#3a3f47"; // gray sidebar for task views
-const AgentMapContext = createContext<Map<string, string>>(new Map());
+const AgentMapContext = createContext<Map<string, { type: string; avatar_seed: string | null }>>(new Map());
 const GROUP_GAP_MS = 5 * 60 * 1000;
 
 /* ────────────── System views (not channels — hardcoded sidebar surfaces) ────────────── */
@@ -220,7 +220,7 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
     setActiveThreadTs(null);
   }, []);
 
-  const agentMap = useMemo(() => new Map(displayAgents.map((a) => [a.id, a.type])), [displayAgents]);
+  const agentMap = useMemo(() => new Map(displayAgents.map((a) => [a.id, { type: a.type, avatar_seed: a.avatar_seed }])), [displayAgents]);
 
   return (
     <AgentMapContext.Provider value={agentMap}>
@@ -712,7 +712,7 @@ function UserAgentsGroup({ user, agents, onOpenProfile, sidebarRouter }: { user:
           onClick={() => onOpenProfile({ kind: "agent", id: a.id })}
           className={`${SIDEBAR_ITEM_BASE} pl-9 text-[13px] text-white/75 hover:bg-white/10 hover:text-white`}
         >
-          <Avatar id={a.id} seed={null} kind="agent" size="xs" />
+          <Avatar id={a.id} seed={a.avatar_seed} kind="agent" size="xs" />
           <span className={`truncate ${isOnline(a.last_seen_at) ? "text-white" : ""}`}>{a.id}</span>
         </button>
       ))}
@@ -837,7 +837,7 @@ function SidebarAgentItem({ agent, onClick }: { agent: AgentSummary; onClick: ()
       title={[agent.role, agent.description].filter(Boolean).join(" — ") || agent.id}
     >
       <div className="relative shrink-0">
-        <Avatar id={agent.id} seed={null} kind="agent" size="xs" />
+        <Avatar id={agent.id} seed={agent.avatar_seed} kind="agent" size="xs" />
         <span className="absolute -bottom-0.5 -right-0.5">
           <span className={`block w-2.5 h-2.5 rounded-full border-[1.5px] ${
             online ? "bg-green-500 border-[#2a5583]" : "bg-[#3b6ea5] border-white/40"
@@ -1043,7 +1043,7 @@ function ChatChannelView({
             >
               <div className="flex items-center -space-x-1">
                 {agents.slice(0, 3).map((a) => (
-                  <Avatar key={a.id} id={a.id} seed={null} kind="agent" size="xs" />
+                  <Avatar key={a.id} id={a.id} seed={a.avatar_seed} kind="agent" size="xs" />
                 ))}
               </div>
               <span>{agents.length}</span>
@@ -1358,6 +1358,12 @@ function MessageRow({
   isActive: boolean;
   hideReplyAffordance?: boolean;
 }) {
+  const agentMapCtx = useContext(AgentMapContext);
+  const agentSeedMap = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const [id, v] of agentMapCtx) m.set(id, v.avatar_seed);
+    return m;
+  }, [agentMapCtx]);
   const created = new Date(message.created_at);
   const formattedTime = formatHM(created);
   const compactTime = formatHMCompact(created);
@@ -1414,7 +1420,7 @@ function MessageRow({
                 aria-label={displayName}
               />
             ) : (
-              <Avatar id={displayName} seed={null} kind={author.kind === "user" ? "user" : "agent"} size="md" className="mt-[2px] hover:brightness-110 transition-all" />
+              <Avatar id={displayName} seed={author.kind === "agent" ? (agentSeedMap.get(displayName) ?? null) : null} imageUrl={author.kind === "user" ? (author.avatar_url ?? undefined) : undefined} kind={author.kind === "user" ? "user" : "agent"} size="md" className="mt-[2px] hover:brightness-110 transition-all" />
             ),
           )
         ) : (
@@ -1552,13 +1558,12 @@ function MentionPill({
   onOpenProfile,
 }: {
   id: string;
-  agentMap: Map<string, string>;
+  agentMap: Map<string, { type: string; avatar_seed: string | null }>;
   onOpenProfile?: (target: ProfileTarget) => void;
 }) {
-  // Check task agents first, fall back to global agent lookup
-  const knownType = agentMap.get(id);
-  const { agent } = useAgent(knownType !== undefined ? null : id);
-  const agentType = knownType ?? agent?.type ?? null;
+  const known = agentMap.get(id);
+  const { agent } = useAgent(known !== undefined ? null : id);
+  const agentType = known?.type ?? agent?.type ?? null;
   const isAgent = agentType !== null;
   const pillKind = agentType === "cloud" ? "cloud" : isAgent ? "agent" : "user";
   const style = PILL_STYLES[pillKind];
@@ -1705,7 +1710,7 @@ function AgentPanelRow({ agent, onClick }: { agent: AgentSummary; onClick: () =>
       className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 hover:bg-[var(--color-layer-1)] cursor-pointer transition-colors"
     >
       <div className="relative shrink-0">
-        <Avatar id={agent.id} seed={null} kind="agent" size="sm" />
+        <Avatar id={agent.id} seed={agent.avatar_seed} kind="agent" size="sm" />
         <span className="absolute -bottom-0.5 -right-0.5">
           <span className={`block w-2.5 h-2.5 rounded-full border-[1.5px] ${
             online ? "bg-green-500 border-[var(--color-surface)]" : "bg-[var(--color-surface)] border-[var(--color-text-tertiary)]"

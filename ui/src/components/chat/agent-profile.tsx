@@ -88,7 +88,7 @@ export function AgentProfilePanel({ agentId, onClose, width, chatMessages }: Age
       {/* Header — workspace style */}
       <div className="shrink-0 bg-[var(--color-surface)] border-b border-[var(--color-border)]">
         <div className="h-[52px] px-5 flex items-center gap-2">
-          <Avatar id={agentId} seed={null} kind="agent" size="sm" />
+          <Avatar id={agentId} seed={agent?.avatar_seed} kind="agent" size="sm" />
           <span className="font-bold text-[17px] text-[var(--color-text)] truncate">{agentId}</span>
           {agent && (
             <OnlineDot online={isOnline(agent.last_seen_at)} size="w-2.5 h-2.5" />
@@ -249,7 +249,7 @@ function AgentHoverCard({ agentId, x, y }: { agentId: string; x: number; y: numb
     >
       <div className="flex items-center gap-2.5 mb-2.5">
         <div className="relative shrink-0">
-          <Avatar id={agentId} seed={null} kind="agent" size="md" />
+          <Avatar id={agentId} seed={agent?.avatar_seed} kind="agent" size="md" />
           {agent && (
             <span className="absolute -bottom-1 -right-1">
               <OnlineDot online={isOnline(agent.last_seen_at)} />
