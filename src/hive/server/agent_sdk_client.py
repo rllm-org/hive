@@ -53,7 +53,8 @@ class AgentSdkClient:
     async def create_quick_session(self, oauth_token: str | None = None, **config: Any) -> dict[str, Any]:
         body = dict(config)
         if oauth_token:
-            body["oauth_token"] = oauth_token
+            secrets = body.setdefault("secrets", {})
+            secrets["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
         return await self._json("POST", "/sessions/quick", json=body)
 
     async def create_session(self, sandbox_id: str, oauth_token: str | None = None, **config: Any) -> dict[str, Any]:
@@ -67,7 +68,8 @@ class AgentSdkClient:
         lazily on the first /message or /resume."""
         body = dict(config)
         if oauth_token:
-            body["oauth_token"] = oauth_token
+            secrets = body.setdefault("secrets", {})
+            secrets["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
         return await self._json("POST", "/sessions", json=body)
 
     async def get_status(self, sid: str) -> dict[str, Any]:
