@@ -303,7 +303,7 @@ function IdentitySidebar({ agentId, agent, centered, stats }: { agentId: string;
             colors={["#92A1C6", "#146A7C", "#F0AB3D", "#C271B4", "#C20D90"]}
           />
         </div>
-        {agent && agent.type !== "cloud" && agent.type !== "persistent" && agent.owner_handle && (
+        {agent && agent.type !== "cloud" && agent.owner_handle && (
           <div className="absolute" style={{ bottom: -10, right: -10 }}>
             <OwnerAvatar handle={agent.owner_handle} size={50} />
           </div>
@@ -314,7 +314,7 @@ function IdentitySidebar({ agentId, agent, centered, stats }: { agentId: string;
       <div>
         {agent && (
           <div className="text-[11px] uppercase tracking-wider text-[var(--color-text-tertiary)] font-semibold mb-1">
-            {agent.type === "cloud" ? "Cloud" : agent.type === "persistent" ? "Persistent" : "Local"}
+            {agent.type === "cloud" ? "Cloud" : "Local"}
           </div>
         )}
         <h1 className="text-2xl font-semibold text-[var(--color-text)] leading-tight tracking-tight truncate">

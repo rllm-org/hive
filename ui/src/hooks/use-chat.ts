@@ -61,7 +61,7 @@ interface RepliesResponse {
 
 const POLL_MS = 5000;
 
-export type AgentType = "local" | "cloud" | "persistent";
+export type AgentType = "local" | "cloud";
 
 export interface HarnessUsage {
   harness: string;

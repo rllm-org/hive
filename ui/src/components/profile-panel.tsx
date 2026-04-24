@@ -41,7 +41,7 @@ interface WorkspaceAgentPreview {
 interface Workspace {
   id: number;
   name: string;
-  type: "local" | "cloud" | "persistent";
+  type: "local" | "cloud";
   agent_count?: number;
   agents?: WorkspaceAgentPreview[];
   created_at: string;

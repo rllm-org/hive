@@ -273,8 +273,8 @@ function AgentHoverCard({ agentId, x, y }: { agentId: string; x: number; y: numb
             <div className="flex items-baseline justify-between">
               <span className="text-[var(--color-text-tertiary)]">Type</span>
               <span className="text-[var(--color-text)]">
-                {agent.type === "cloud" ? "Cloud" : agent.type === "persistent" ? "Persistent" : "Local"}
-                {agent.type !== "cloud" && agent.type !== "persistent" && agent.owner_handle && <span className="text-[var(--color-text-secondary)]">, owned by <OwnerBadge handle={agent.owner_handle} /></span>}
+                {agent.type === "cloud" ? "Cloud" : "Local"}
+                {agent.type !== "cloud" && agent.owner_handle && <span className="text-[var(--color-text-secondary)]">, owned by <OwnerBadge handle={agent.owner_handle} /></span>}
               </span>
             </div>
             <div className="flex items-baseline justify-between">
