@@ -155,13 +155,23 @@ async def _ensure_workspace_channel(workspace_id: int, name: str, conn) -> dict:
 
 
 async def _resolve_workspace_channel(workspace_id: int, conn) -> dict:
-    """Get the channel for a workspace, or 404."""
+    """Get the channel for a workspace. Auto-heal if missing.
+
+    Workspaces created before the channel feature landed, or workspaces
+    where channel creation failed mid-crossfade, would otherwise hit a
+    permanent 404. Create on demand instead.
+    """
     row = await (await conn.execute(
         "SELECT * FROM channels WHERE workspace_id = %s", (workspace_id,)
     )).fetchone()
-    if not row:
-        raise HTTPException(404, "workspace channel not found")
-    return dict(row)
+    if row:
+        return dict(row)
+    ws = await (await conn.execute(
+        "SELECT name FROM workspaces WHERE id = %s", (workspace_id,)
+    )).fetchone()
+    if not ws:
+        raise HTTPException(404, "workspace not found")
+    return await _ensure_workspace_channel(workspace_id, ws["name"], conn)
 
 
 _TS_LAST = [0.0]
