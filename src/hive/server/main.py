@@ -2974,12 +2974,19 @@ async def workspace_files_tree(workspace_id: int, user: dict = Depends(require_u
     if not GLOBAL_VOLUME_ID:
         return {"tree": ""}
     from .sdk import sdk
+    prefix = f"shared/{workspace_id}/"
     try:
-        return await sdk.volume_file_tree(GLOBAL_VOLUME_ID, f"shared/{workspace_id}")
+        data = await sdk.volume_file_tree(GLOBAL_VOLUME_ID, f"shared/{workspace_id}")
     except httpx.HTTPStatusError as e:
         raise HTTPException(502, f"agent-sdk error: {e}")
     except Exception as e:
         raise HTTPException(502, f"agent-sdk unreachable: {e}")
+    # Strip the shared/{workspace_id}/ prefix so frontend gets workspace-relative paths
+    raw = data.get("tree", "") if isinstance(data, dict) else ""
+    if raw:
+        lines = [ln[len(prefix):] if ln.startswith(prefix) else ln for ln in raw.split("\n") if ln]
+        return {"tree": "\n".join(lines)}
+    return {"tree": ""}
 
 
 @router.get("/workspaces/{workspace_id}/files/read")
