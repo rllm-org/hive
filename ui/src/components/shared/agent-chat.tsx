@@ -42,6 +42,8 @@ export function AgentChat({
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelOpen, setModelOpen] = useState(false);
   const [modelChanging, setModelChanging] = useState(false);
+  const [activeModel, setActiveModel] = useState(currentModel);
+  const [modelError, setModelError] = useState<string | null>(null);
   const modelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -97,13 +99,17 @@ export function AgentChat({
     if (!onModelChange) return;
     setModelChanging(true);
     setModelOpen(false);
+    setModelError(null);
     try {
       await onModelChange(modelId);
-    } catch { /* handled by parent */ }
+      setActiveModel(modelId);
+    } catch (err) {
+      setModelError(err instanceof Error ? err.message : "Failed to switch model");
+    }
     setModelChanging(false);
   };
 
-  const modelDisplayName = models.find((m) => m.id === currentModel)?.display_name ?? currentModel;
+  const modelDisplayName = models.find((m) => m.id === activeModel)?.display_name ?? activeModel;
 
   return (
     <div className="flex-1 min-h-0 flex flex-col" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
@@ -196,19 +202,22 @@ export function AgentChat({
               />
             </div>
             <div className="flex items-center justify-between px-4 pb-2">
-              <div ref={modelRef}>
-                <button
-                  type="button"
-                  onClick={() => setModelOpen((v) => !v)}
-                  disabled={modelChanging || !onModelChange}
-                  className="flex items-center gap-1 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors disabled:opacity-50"
-                >
-                  {modelChanging && <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />}
-                  {modelDisplayName}
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-40">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
+              <div className="flex items-center gap-2">
+                <div ref={modelRef}>
+                  <button
+                    type="button"
+                    onClick={() => { setModelOpen((v) => !v); setModelError(null); }}
+                    disabled={modelChanging || !onModelChange}
+                    className="flex items-center gap-1 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors disabled:opacity-50"
+                  >
+                    {modelChanging && <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />}
+                    {modelDisplayName}
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-40">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                </div>
+                {modelError && <span className="text-[10px] text-red-500">{modelError}</span>}
               </div>
               {cancelling ? (
                 <div className="shrink-0 w-7 h-7 flex items-center justify-center" title="Stopping…">

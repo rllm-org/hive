@@ -2741,6 +2741,7 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         "cwd": body.get("cwd", "/home/daytona"),
         "prompt": _build_agent_system_prompt(agent_row, workspace_id, ws["name"]),
         "shared_mounts": [str(workspace_id)],
+        "skills": ["rllm-org/hive#staging"],
     }
     if GLOBAL_VOLUME_ID:
         config["volume_id"] = GLOBAL_VOLUME_ID
@@ -2839,6 +2840,7 @@ async def connect_workspace_agent(
         "cwd": body.get("cwd", "/home/daytona"),
         "prompt": _build_agent_system_prompt(dict(agent), workspace_id, ws["name"]),
         "shared_mounts": [str(workspace_id)],
+        "skills": ["rllm-org/hive#staging"],
     }
     if GLOBAL_VOLUME_ID:
         config["volume_id"] = GLOBAL_VOLUME_ID
