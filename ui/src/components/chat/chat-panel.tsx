@@ -117,6 +117,7 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
   const { user } = useAuth();
   const router = useRouter();
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [agentCreatedId, setAgentCreatedId] = useState<string | null>(null);
   const showSandbox = sandboxContent != null;
   const visibleSystemViews = useMemo(
     () => {
@@ -249,7 +250,7 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
             width={sidebarResize.width}
             mode={mode}
             workspaceId={workspaceId}
-            onAgentCreated={refetchWsAgents}
+            onAgentCreated={(agentId) => { refetchWsAgents(); if (agentId) setAgentCreatedId(agentId); }}
           />
           <ResizeHandle
             isDragging={sidebarResize.isDragging}
@@ -282,6 +283,8 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
             agents={displayAgents}
             mode={mode}
             workspaceId={workspaceId}
+            autoSelectAgentId={agentCreatedId}
+            onAgentAutoSelected={() => setAgentCreatedId(null)}
           />
           )}
           {activeThreadTs && effectiveSelection.kind === "channel" && (
@@ -375,7 +378,7 @@ function ChannelSidebar({
   width: number;
   mode?: SidebarMode;
   workspaceId?: number;
-  onAgentCreated?: () => void;
+  onAgentCreated?: (agentId?: string) => void;
 }) {
   const mode: SidebarMode = rawMode ?? "workspace";
   // Sort agents: online first, then by last_seen_at desc
@@ -529,7 +532,7 @@ function _randomHandle() {
   return `${a}-${n}`;
 }
 
-function MembersSectionHeader({ workspaceId, onAgentCreated }: { workspaceId?: number; onAgentCreated?: () => void }) {
+function MembersSectionHeader({ workspaceId, onAgentCreated }: { workspaceId?: number; onAgentCreated?: (agentId?: string) => void }) {
   const [showModal, setShowModal] = useState(false);
   const [tab, setTab] = useState<"user" | "agent">("agent");
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -552,14 +555,14 @@ function MembersSectionHeader({ workspaceId, onAgentCreated }: { workspaceId?: n
     setCreating(true);
     setCreateError("");
     try {
-      await apiPostJson(`/workspaces/${workspaceId}/agents`, {
+      const result = await apiPostJson<{ id: string }>(`/workspaces/${workspaceId}/agents`, {
         name: agentName.trim().toLowerCase(),
         role: agentRole.trim() || undefined,
         description: agentDesc.trim() || undefined,
       });
       resetForm();
       setShowModal(false);
-      onAgentCreated?.();
+      onAgentCreated?.(result.id);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Failed to create agent");
     } finally {
@@ -870,6 +873,8 @@ function ChannelMain({
   agents,
   mode = "workspace",
   workspaceId,
+  autoSelectAgentId,
+  onAgentAutoSelected,
 }: {
   taskPath: string;
   selection: Selection;
@@ -883,6 +888,8 @@ function ChannelMain({
   agents?: AgentSummary[];
   mode?: "workspace" | "task";
   workspaceId?: number;
+  autoSelectAgentId?: string | null;
+  onAgentAutoSelected?: () => void;
 }) {
   const rounding = "rounded-tl-xl";
   if (selection.kind === "system") {
@@ -907,6 +914,8 @@ function ChannelMain({
       agents={agents}
       mode={mode}
       workspaceId={workspaceId}
+      autoSelectAgentId={autoSelectAgentId}
+      onAgentAutoSelected={onAgentAutoSelected}
     />
   );
 }
@@ -940,6 +949,8 @@ function ChatChannelView({
   agents,
   mode = "workspace",
   workspaceId,
+  autoSelectAgentId,
+  onAgentAutoSelected,
 }: {
   taskPath: string;
   channelName: string;
@@ -950,6 +961,8 @@ function ChatChannelView({
   agents?: AgentSummary[];
   mode?: "workspace" | "task";
   workspaceId?: number;
+  autoSelectAgentId?: string | null;
+  onAgentAutoSelected?: () => void;
 }) {
   const isWs = mode === "workspace" && workspaceId != null;
   const taskMsgs = useMessages(isWs ? "" : taskPath, isWs ? null : channelName);
@@ -965,6 +978,16 @@ function ChatChannelView({
     agentIds,
   );
   const activeAgentState = selectedAgentId ? agentStates[selectedAgentId] : undefined;
+
+  // Auto-select newly created agent
+  useEffect(() => {
+    if (autoSelectAgentId) {
+      setSelectedAgentId(autoSelectAgentId);
+      setWsTab("agents");
+      onAgentAutoSelected?.();
+    }
+  }, [autoSelectAgentId, onAgentAutoSelected]);
+
   const handleEdit = useCallback(
     async (ts: string, newText: string) => {
       if (isWs) {
@@ -1104,7 +1127,7 @@ function ChatChannelView({
                         messages={activeAgentState.messages}
                         onSend={(text) => sendAgentMessage(selectedAgentId, text)}
                         onCancel={() => cancelAgent(selectedAgentId)}
-                        onModelChange={(model) => setAgentModel(selectedAgentId, model)}
+                        onModelChange={async (model) => { await setAgentModel(selectedAgentId, model); }}
                         loading={activeAgentState.isLoading}
                         cancelling={activeAgentState.cancelling}
                       />

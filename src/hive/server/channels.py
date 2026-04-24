@@ -546,11 +546,11 @@ async def _dispatch_workspace_mentions(
     author_name = str(author_id)
 
     async with get_db() as conn:
-        # Find mentioned agents in this workspace that have active sessions
+        # Find mentioned agents in this workspace that have session_id set
         placeholders = ",".join(["%s"] * len(mentions))
         rows = await (await conn.execute(
-            f"SELECT id, sandbox_id, role, description FROM agents"
-            f" WHERE id IN ({placeholders}) AND workspace_id = %s AND sandbox_id IS NOT NULL",
+            f"SELECT id, session_id, role, description FROM agents"
+            f" WHERE id IN ({placeholders}) AND workspace_id = %s AND session_id IS NOT NULL",
             [*mentions, workspace_id],
         )).fetchall()
 
@@ -558,7 +558,6 @@ async def _dispatch_workspace_mentions(
         if str(agent["id"]) == str(author_id):
             continue  # don't forward to self
         try:
-            # Build the forwarded prompt with agent identity context
             parts = []
             if agent["role"]:
                 parts.append(f"Your role: {agent['role']}")
@@ -574,17 +573,8 @@ async def _dispatch_workspace_mentions(
             parts.append("Do your work, then reply again with results using the same command.")
             prompt = "\n".join(parts)
 
-            # Find the session for this agent's sandbox
-            # Look up sessions by agent name pattern
-            sessions = await client.list_sessions()
-            agent_session = None
-            for s in sessions:
-                if s.get("agent_id") == agent["id"] or s.get("name") == f"agent-{agent['id']}":
-                    agent_session = s
-                    break
-            if agent_session:
-                await client.send_message(agent_session["id"], prompt)
-                log.info("Dispatched mention to agent %s (session %s)", agent["id"], agent_session["id"])
+            await client.send_message(agent["session_id"], prompt)
+            log.info("Dispatched mention to agent %s (session %s)", agent["id"], agent["session_id"])
         except Exception as e:
             log.warning("Failed to dispatch mention to agent %s: %s", agent["id"], e)
 
