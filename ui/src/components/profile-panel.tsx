@@ -6,7 +6,7 @@ import { ClaimAgentModal } from "@/components/claim-agent-modal";
 import { ClaudeConnectModal } from "@/components/claude-connect-modal";
 import { Avatar } from "@/components/shared";
 import { useRouter } from "next/navigation";
-import { LuBot, LuActivity, LuPlus, LuGithub, LuLogOut, LuRefreshCw, LuMonitor, LuLaptop, LuCloud, LuMail, LuKeyRound, LuMoreVertical, LuTrash2 } from "react-icons/lu";
+import { LuBot, LuActivity, LuPlus, LuGithub, LuLogOut, LuRefreshCw, LuMonitor, LuLaptop, LuCloud, LuMail, LuKeyRound, LuEllipsisVertical, LuTrash2 } from "react-icons/lu";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PasswordSection } from "@/components/settings-panel";
@@ -414,7 +414,7 @@ function AgentCard({ agent, onDeleted }: { agent: AgentInfo; onDeleted: () => vo
           onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); setConfirmDelete(false); }}
           className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-colors"
         >
-          <LuMoreVertical size={14} />
+          <LuEllipsisVertical size={14} />
         </button>
         {menuOpen && (
           <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[140px]" style={{ borderRadius: 6 }}>
