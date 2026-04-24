@@ -2959,6 +2959,86 @@ async def list_workspace_tasks(workspace_id: int, user: dict = Depends(require_u
     return {"tasks": [dict(r) for r in rows]}
 
 
+# ── Workspace Files (proxy to agent-sdk volume) ─────────────────────
+
+
+@router.get("/workspaces/{workspace_id}/files/tree")
+async def workspace_files_tree(workspace_id: int, user: dict = Depends(require_user)):
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        ws = await (await conn.execute(
+            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s", (workspace_id, user_id)
+        )).fetchone()
+    if not ws:
+        raise HTTPException(404, "workspace not found")
+    if not GLOBAL_VOLUME_ID:
+        return {"tree": ""}
+    from .sdk import sdk
+    try:
+        return await sdk.volume_file_tree(GLOBAL_VOLUME_ID, f"shared/{workspace_id}")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(502, f"agent-sdk error: {e}")
+    except Exception as e:
+        raise HTTPException(502, f"agent-sdk unreachable: {e}")
+
+
+@router.get("/workspaces/{workspace_id}/files/read")
+async def workspace_files_read(workspace_id: int, path: str, user: dict = Depends(require_user)):
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        ws = await (await conn.execute(
+            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s", (workspace_id, user_id)
+        )).fetchone()
+    if not ws:
+        raise HTTPException(404, "workspace not found")
+    if not path:
+        raise HTTPException(400, "path required")
+    if not GLOBAL_VOLUME_ID:
+        raise HTTPException(501, "volume not configured")
+    full = f"shared/{workspace_id}/{path.lstrip('/')}"
+    from .sdk import sdk
+    try:
+        return await sdk.volume_file_read(GLOBAL_VOLUME_ID, full)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(502, f"agent-sdk error: {e}")
+    except Exception as e:
+        raise HTTPException(502, f"agent-sdk unreachable: {e}")
+
+
+@router.post("/workspaces/{workspace_id}/files/edit")
+async def workspace_files_edit(workspace_id: int, body: dict[str, Any], user: dict = Depends(require_user)):
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        ws = await (await conn.execute(
+            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s", (workspace_id, user_id)
+        )).fetchone()
+    if not ws:
+        raise HTTPException(404, "workspace not found")
+    path = (body.get("path") or "").strip()
+    if not path:
+        raise HTTPException(400, "path required")
+    if not GLOBAL_VOLUME_ID:
+        raise HTTPException(501, "volume not configured")
+    full = f"shared/{workspace_id}/{path.lstrip('/')}"
+    from .sdk import sdk
+    try:
+        old_string = body.get("old_string")
+        if old_string is not None:
+            await sdk.volume_file_edit(
+                GLOBAL_VOLUME_ID, full,
+                old_string=old_string,
+                new_string=body.get("new_string", ""),
+                replace_all=bool(body.get("replace_all")),
+            )
+        else:
+            await sdk.volume_file_write(GLOBAL_VOLUME_ID, full, body.get("content", ""))
+        return {"ok": True}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(502, f"agent-sdk error: {e}")
+    except Exception as e:
+        raise HTTPException(502, f"agent-sdk unreachable: {e}")
+
+
 @router.get("/leaderboard")
 async def get_global_leaderboard(limit: int = 50):
     limit = min(max(1, limit), 200)

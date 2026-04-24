@@ -23,7 +23,6 @@ import { Modal, ModalHeader, ModalBody } from "@/components/shared/modal";
 import { useAuth } from "@/lib/auth";
 import useSWR from "swr";
 import { apiFetch, apiPatch, apiPostJson, apiDelete } from "@/lib/api";
-import { SDK_BASE } from "@/lib/sdk";
 
 interface ChatPanelProps {
   taskPath: string;
@@ -1212,24 +1211,16 @@ function ChatChannelView({
 
 /* ──────────────────────────────────────────────── Workspace settings ──────────────────────────────────────────────── */
 
-const HIVE_VOLUME_ID = process.env.NEXT_PUBLIC_HIVE_VOLUME_ID ?? "";
-
 function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
-  const url = HIVE_VOLUME_ID && SDK_BASE
-    ? `${SDK_BASE}/volumes/${HIVE_VOLUME_ID}/files/tree?path=shared/${workspaceId}/`
-    : null;
-  const { data, isLoading, error } = useSWR(
-    url,
-    (u: string) => fetch(u).then(r => r.json()),
+  const { data, isLoading } = useSWR<{ tree: string }>(
+    `/workspaces/${workspaceId}/files/tree`,
+    apiFetch,
     { refreshInterval: 15000 },
   );
 
   const tree = useMemo(() => {
-    if (!data) return [];
-    // Server returns { tree: "line1\nline2\n..." } from agent-sdk, or { tree: [] } when volume not configured
-    const raw = (data as Record<string, unknown>).tree;
-    if (!raw || typeof raw !== "string") return [];
-    const lines = raw.split("\n").filter((l: string) => l.length > 0);
+    if (!data?.tree || typeof data.tree !== "string") return [];
+    const lines = data.tree.split("\n").filter((l: string) => l.length > 0);
     const nodes: FsTreeNode[] = [];
     for (const line of lines) {
       const isDir = line.endsWith("/");
@@ -1241,14 +1232,12 @@ function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
   }, [data]);
 
   const readFile = useCallback(async (path: string) => {
-    if (!HIVE_VOLUME_ID || !SDK_BASE) return undefined;
-    const full = path.startsWith("shared/") ? path : `shared/${workspaceId}/${path.replace(/^\/+/, "")}`;
-    const resp = await fetch(
-      `${SDK_BASE}/volumes/${HIVE_VOLUME_ID}/files/read?path=${encodeURIComponent(full)}`,
-    );
-    if (!resp.ok) return undefined;
-    const j = await resp.json();
-    return { content: (j.content as string) ?? "" };
+    try {
+      const data = await apiFetch<{ content?: string }>(`/workspaces/${workspaceId}/files/read?path=${encodeURIComponent(path)}`);
+      return { content: data.content ?? "" };
+    } catch {
+      return undefined;
+    }
   }, [workspaceId]);
 
   if (isLoading) {
