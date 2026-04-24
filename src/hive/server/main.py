@@ -2703,37 +2703,43 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             (agent_id, agent_token, ts, ts, user_id, ws_type, harness, model_name, str(uuid.uuid4()), workspace_id, agent_role, agent_desc)
         )
 
-    # Provision session via agent_sdk.Agent
-    from agent_sdk import Agent as SdkAgent
-    from .agent_sdk_client import AGENT_SDK_BASE_URL
+    # Provision session via POST /sessions
+    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
 
     user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
     agent_row = {"id": agent_id, "role": agent_role, "description": agent_desc, "model": model_name}
     system_prompt = _build_agent_system_prompt(agent_row, workspace_id, ws["name"])
 
-    sdk_agent = SdkAgent(
-        name=f"agent-{agent_id}",
-        provider=AGENT_SDK_PROVIDER,
-        agent_type=body.get("agent_type", "claude"),
-        model=model_name,
-        cwd=body.get("cwd", "/home/daytona"),
-        prompt=system_prompt,
-        api_url=AGENT_SDK_BASE_URL,
-        oauth_token=user_oauth_token,
-        skills=["rllm-org/hive#staging"],
-    )
-    # Agent SDK's _ensure_registered calls POST /sessions which provisions eagerly
-    await sdk_agent._ensure_registered()
-    session_id = sdk_agent.session_id
+    client = get_client()
+    config: dict[str, Any] = {
+        "name": f"agent-{agent_id}",
+        "provider": AGENT_SDK_PROVIDER,
+        "agent_type": body.get("agent_type", "claude"),
+        "model": model_name,
+        "cwd": body.get("cwd", "/home/daytona"),
+        "prompt": system_prompt,
+        "shared_mounts": [str(workspace_id)],
+        "skills": ["rllm-org/hive#staging"],
+    }
+    if GLOBAL_VOLUME_ID:
+        config["volume_id"] = GLOBAL_VOLUME_ID
+    if user_oauth_token:
+        config["secrets"] = {"CLAUDE_CODE_OAUTH_TOKEN": user_oauth_token}
+    if HIVE_SERVER_URL:
+        config["mcp_servers"] = {
+            "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
+        }
+
+    upstream = await client.create_session(**config)
+    session_id = upstream.get("session_id") or upstream.get("id")
     if not session_id:
-        raise HTTPException(502, "Failed to create agent session")
+        raise HTTPException(502, f"Failed to create agent session: {upstream}")
 
     async with get_db() as conn:
         await conn.execute(
             "UPDATE agents SET session_id = %s WHERE id = %s",
             (session_id, agent_id),
         )
-    await sdk_agent.aclose()
 
     return {
         "id": agent_id,

@@ -51,6 +51,12 @@ class AgentSdkClient:
             return resp.json()
         return {}
 
+    # --- Session creation ---
+
+    async def create_session(self, **config: Any) -> dict[str, Any]:
+        """Create a session via POST /sessions. Eager by default (provisions sandbox)."""
+        return await self._json("POST", "/sessions", json=config)
+
     # --- Mention dispatch ---
 
     async def send_message(self, sid: str, text: str, interrupt: bool = False) -> dict[str, Any]:
