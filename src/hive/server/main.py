@@ -2760,6 +2760,14 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
     if not session_id:
         raise HTTPException(502, f"Failed to create agent session: {upstream}")
 
+    # Write system prompt as CLAUDE.md so Claude Code picks it up
+    if sandbox_id:
+        try:
+            system_prompt = _build_agent_system_prompt(agent_row, workspace_id, ws["name"])
+            await client.sandbox_exec(session_id, f"cat > /home/daytona/CLAUDE.md << 'HIVE_EOF'\n{system_prompt}\nHIVE_EOF")
+        except Exception:
+            pass  # best-effort
+
     async with get_db() as conn:
         await conn.execute(
             "UPDATE agents SET session_id = %s, sandbox_id = %s WHERE id = %s",
