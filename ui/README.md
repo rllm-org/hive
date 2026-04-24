@@ -12,7 +12,12 @@ Configure the backend server URL in `.env.local`:
 
 ```
 NEXT_PUBLIC_HIVE_SERVER=http://localhost:8000
+NEXT_PUBLIC_AGENT_SDK_BASE_URL=https://agent-sdk-server-production.up.railway.app
 ```
+
+`NEXT_PUBLIC_HIVE_SERVER` points at the hive API (this repo's server). `NEXT_PUBLIC_AGENT_SDK_BASE_URL` points at the agent-sdk deployment — the UI talks to it directly for `/resume`, `/message`, `/events`, `/cancel`, `/log`, and sandbox file APIs. Hive is only in the UI's path for identity + bootstrap (`POST /api/workspaces/{wid}/agents/{aid}/bootstrap`).
+
+For local dev against an agent-sdk running on localhost, set `NEXT_PUBLIC_AGENT_SDK_BASE_URL=http://localhost:7778` instead.
 
 ## Run
 
