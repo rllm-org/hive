@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ThinkingBlock } from "@/components/shared/thinking-block";
 import { ToolCallCard } from "@/components/shared/tool-call-card";
-import type { ChatMessage, MessagePart } from "@/hooks/use-workspace-agent";
-import { apiFetch } from "@/lib/api";
+import { AskUserWidget, type AskUserData } from "@/components/chat/ask-user-widget";
+import type { ChatMessage, MessagePart, SlashCommand } from "@/hooks/use-workspace-agent";
 import { getAuthHeader } from "@/lib/auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_HIVE_SERVER ?? "/api";
@@ -19,9 +19,10 @@ interface ModelInfo {
 
 interface AgentChatProps {
   messages: ChatMessage[];
+  commands?: SlashCommand[];
   onSend?: (text: string) => void;
   onCancel?: () => void;
-  onModelChange?: (model: string) => void;
+  onModelChange?: (model: string) => Promise<void>;
   agentId: string;
   currentModel?: string;
   loading?: boolean;
@@ -31,7 +32,7 @@ interface AgentChatProps {
 }
 
 export function AgentChat({
-  messages, onSend, onCancel, onModelChange, agentId,
+  messages, commands = [], onSend, onCancel, onModelChange, agentId,
   currentModel = "claude-sonnet-4-6", loading, cancelling, streaming, headerSlot,
 }: AgentChatProps) {
   const [input, setInput] = useState("");
@@ -45,6 +46,13 @@ export function AgentChat({
   const [activeModel, setActiveModel] = useState(currentModel);
   const [modelError, setModelError] = useState<string | null>(null);
   const modelRef = useRef<HTMLDivElement>(null);
+
+  // Slash command state
+  const [cmdIndex, setCmdIndex] = useState(0);
+  const [cmdDismissed, setCmdDismissed] = useState(false);
+
+  // ask_user state
+  const [answeredToolIds, setAnsweredToolIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (currentModel) setActiveModel(currentModel);
@@ -75,6 +83,92 @@ export function AgentChat({
     });
   }, [messages]);
 
+  // Slash command detection
+  const getSlashWord = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return "";
+    const pos = ta.selectionStart ?? input.length;
+    const before = input.slice(0, pos);
+    const match = before.match(/\/([^\s]*)$/);
+    return match ? match[0] : "";
+  }, [input]);
+
+  const slashWord = getSlashWord();
+  const showCommands = slashWord.length > 0 && commands.length > 0 && !cmdDismissed;
+  const filteredCommands = showCommands
+    ? commands.filter((c) => `/${c.name}`.startsWith(slashWord.toLowerCase()))
+    : [];
+
+  useEffect(() => {
+    setCmdIndex(0);
+    if (slashWord) setCmdDismissed(false);
+  }, [input, slashWord]);
+
+  const selectCommand = useCallback((cmd: string) => {
+    setCmdDismissed(true);
+    const ta = textareaRef.current;
+    if (!ta) { setInput(`/${cmd} `); return; }
+    const pos = ta.selectionStart ?? input.length;
+    const before = input.slice(0, pos);
+    const after = input.slice(pos);
+    const match = before.match(/\/([^\s]*)$/);
+    if (match) {
+      const start = before.length - match[0].length;
+      setInput(before.slice(0, start) + `/${cmd} ` + after);
+    } else {
+      setInput(`/${cmd} `);
+    }
+    ta.focus();
+  }, [input]);
+
+  // Pending ask_user questions
+  const pendingQuestions = useMemo(() => {
+    const questions: { data: AskUserData; id: string }[] = [];
+    for (const msg of messages) {
+      if (msg.parts) {
+        for (const part of msg.parts) {
+          if (part.type === "tool" && part.name.endsWith("ask_user") && part.input && !answeredToolIds.has(part.id)) {
+            let inp: Record<string, unknown>;
+            if (typeof part.input === "string") {
+              try { inp = JSON.parse(part.input); } catch { inp = {}; }
+            } else {
+              inp = part.input as Record<string, unknown>;
+            }
+            const args = inp;
+            const questionsArr = args.questions as Array<Record<string, unknown>> | undefined;
+            if (Array.isArray(questionsArr)) {
+              for (const q of questionsArr) {
+                const question = (q.question as string) ?? "";
+                if (!question) continue;
+                questions.push({
+                  id: part.id,
+                  data: {
+                    question,
+                    options: q.options as string[] | undefined,
+                    mode: (q.mode as AskUserData["mode"]) ?? "select",
+                  },
+                });
+              }
+            } else {
+              // Fallback: single question format
+              const question = (args.question as string) ?? "";
+              if (!question) continue;
+              questions.push({
+                id: part.id,
+                data: {
+                  question,
+                  options: args.options as string[] | undefined,
+                  mode: (args.mode as AskUserData["mode"]) ?? "select",
+                },
+              });
+            }
+          }
+        }
+      }
+    }
+    return questions;
+  }, [messages, answeredToolIds]);
+
   const handleSend = () => {
     const text = input.trim();
     if (!text || !onSend) return;
@@ -85,12 +179,34 @@ export function AgentChat({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Slash command keyboard navigation
+    if (filteredCommands.length > 0 && showCommands) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setCmdIndex((i) => Math.min(i + 1, filteredCommands.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setCmdIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        selectCommand(filteredCommands[cmdIndex].name);
+        return;
+      }
+      if (e.key === "Escape") {
+        setCmdDismissed(true);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
-  };
+  }, [filteredCommands, showCommands, cmdIndex, selectCommand, handleSend]);
 
   const handleInput = () => {
     if (textareaRef.current) {
@@ -165,9 +281,61 @@ export function AgentChat({
       </div>
       </div>
 
+      {/* ask_user widget — above the input */}
+      {pendingQuestions.length > 0 && (
+        <div className="shrink-0 px-3 pb-2 bg-[var(--color-layer-1)]">
+          <div className="max-w-4xl mx-auto">
+            <AskUserWidget
+              questions={pendingQuestions.map((q) => q.data)}
+              onSubmitAll={(answers) => {
+                setAnsweredToolIds((prev) => {
+                  const next = new Set(prev);
+                  for (const q of pendingQuestions) next.add(q.id);
+                  return next;
+                });
+                const text = answers.map((a, i) => {
+                  const q = pendingQuestions[i]?.data.question ?? "";
+                  const ans = Array.isArray(a) ? a.join(", ") : a;
+                  return pendingQuestions.length === 1 ? ans : `${q}: ${ans}`;
+                }).join("\n");
+                onSend?.(text);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Input */}
       <div className="shrink-0 px-3 pb-5 pt-2 bg-[var(--color-layer-1)]">
         <div className="max-w-4xl mx-auto relative">
+          {/* Slash command dropdown */}
+          {showCommands && filteredCommands.length > 0 && (
+            <div className="absolute bottom-full left-0 mb-1 flex items-end gap-1 z-50">
+              <div className="bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 overflow-y-auto max-h-52 w-[300px]" style={{ borderRadius: 6 }}>
+                <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-[var(--color-text-tertiary)] font-medium">Skills</div>
+                {filteredCommands.map((cmd, i) => (
+                  <button
+                    key={cmd.name}
+                    onMouseDown={(e) => { e.preventDefault(); selectCommand(cmd.name); }}
+                    onMouseEnter={() => setCmdIndex(i)}
+                    className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors ${
+                      i === cmdIndex
+                        ? "bg-[var(--color-layer-2)]"
+                        : "hover:bg-[var(--color-layer-2)]"
+                    }`}
+                  >
+                    <span className="font-medium text-[var(--color-text)] font-[family-name:var(--font-ibm-plex-mono)]">{cmd.name}</span>
+                    <span className="text-[var(--color-text-tertiary)] truncate flex-1">{cmd.description}</span>
+                  </button>
+                ))}
+              </div>
+              {filteredCommands[cmdIndex]?.description.length > 40 && (
+                <div className="bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg px-3 py-2.5 w-[220px] max-h-52 overflow-y-auto text-xs text-[var(--color-text-secondary)] leading-relaxed" style={{ borderRadius: 6 }}>
+                  {filteredCommands[cmdIndex].description}
+                </div>
+              )}
+            </div>
+          )}
           {/* Model dropdown */}
           {modelOpen && models.length > 0 && (
             <div className="absolute bottom-full mb-2 left-0 z-50 bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[220px]" style={{ borderRadius: 8 }}>
@@ -224,7 +392,7 @@ export function AgentChat({
                 {modelError && <span className="text-[10px] text-red-500">{modelError}</span>}
               </div>
               {cancelling ? (
-                <div className="shrink-0 w-7 h-7 flex items-center justify-center" title="Stopping…">
+                <div className="shrink-0 w-7 h-7 flex items-center justify-center" title="Stopping...">
                   <div className="w-5 h-5 border-2 border-[var(--color-border)] border-t-[var(--color-text-tertiary)] rounded-full animate-spin" />
                 </div>
               ) : loading ? (

@@ -1126,6 +1126,7 @@ function ChatChannelView({
                       <AgentChat
                         agentId={selectedAgentId}
                         messages={activeAgentState.messages}
+                        commands={activeAgentState.commands}
                         onSend={(text) => sendAgentMessage(selectedAgentId, text)}
                         onCancel={() => cancelAgent(selectedAgentId)}
                         onModelChange={async (model) => { await setAgentModel(selectedAgentId, model); }}
