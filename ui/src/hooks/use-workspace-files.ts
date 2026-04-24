@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { SDK_BASE } from "@/lib/sdk";
 
-/* ── Types matching the agent-sdk /sandboxes/{id}/files/* endpoints ── */
+/* ── Types matching the agent-sdk /sessions/{id}/files/* endpoints ── */
 
 export interface FsTreeNode {
   name: string;
@@ -28,19 +28,17 @@ export interface FileContent {
 
 const TREE_POLL_MS = 15_000;
 
-export function useWorkspaceFiles(sandboxId: string | null) {
+export function useWorkspaceFiles(sessionId: string | null) {
   const [tree, setTree] = useState<FsTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const sandboxIdRef = useRef<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  /* Load tree for the workspace-scoped sandbox. Keyed on sandboxId so
-     switching agents (which share the sandbox) is a no-op. */
   useEffect(() => {
-    if (!sandboxId) return;
-    sandboxIdRef.current = sandboxId;
+    if (!sessionId) return;
+    sessionIdRef.current = sessionId;
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -49,12 +47,12 @@ export function useWorkspaceFiles(sandboxId: string | null) {
       setLoading(true);
       setError(null);
       try {
-        await fetchTree(sandboxId, ctrl.signal);
+        await fetchTree(sessionId, ctrl.signal);
 
         if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = setInterval(() => {
-          if (sandboxIdRef.current) {
-            fetchTree(sandboxIdRef.current).catch(() => {});
+          if (sessionIdRef.current) {
+            fetchTree(sessionIdRef.current).catch(() => {});
           }
         }, TREE_POLL_MS);
       } catch (e) {
@@ -73,24 +71,21 @@ export function useWorkspaceFiles(sandboxId: string | null) {
         pollRef.current = null;
       }
     };
-  }, [sandboxId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function fetchTree(sbxId: string, signal?: AbortSignal) {
-    const resp = await fetch(`${SDK_BASE}/sandboxes/${sbxId}/files/tree`, {
-      signal,
-    });
+  async function fetchTree(sid: string, signal?: AbortSignal) {
+    const resp = await fetch(`${SDK_BASE}/sessions/${sid}/files/tree`, { signal });
     if (!resp.ok) throw new Error(`tree ${resp.status}`);
     const data: FsTreeNode[] = await resp.json();
     setTree(data);
   }
 
-  /* Read a single file */
   const readFile = useCallback(
     async (path: string): Promise<FileContent | null> => {
-      const sbxId = sandboxIdRef.current;
-      if (!sbxId) return null;
+      const sid = sessionIdRef.current;
+      if (!sid) return null;
       const resp = await fetch(
-        `${SDK_BASE}/sandboxes/${sbxId}/files/read?path=${encodeURIComponent(path)}`,
+        `${SDK_BASE}/sessions/${sid}/files/read?path=${encodeURIComponent(path)}`,
       );
       if (!resp.ok) throw new Error(`read ${resp.status}`);
       return (await resp.json()) as FileContent;
@@ -98,7 +93,6 @@ export function useWorkspaceFiles(sandboxId: string | null) {
     [],
   );
 
-  /* Edit a file (string replacement or write) */
   const editFile = useCallback(
     async (
       path: string,
@@ -106,8 +100,8 @@ export function useWorkspaceFiles(sandboxId: string | null) {
       newString: string,
       replaceAll?: boolean,
     ): Promise<{ ok: boolean; error?: string }> => {
-      const sbxId = sandboxIdRef.current;
-      if (!sbxId) return { ok: false, error: "not connected" };
+      const sid = sessionIdRef.current;
+      if (!sid) return { ok: false, error: "not connected" };
       const body: Record<string, unknown> = {
         path,
         old_string: oldString,
@@ -115,7 +109,7 @@ export function useWorkspaceFiles(sandboxId: string | null) {
       };
       if (replaceAll) body.replace_all = true;
       const resp = await fetch(
-        `${SDK_BASE}/sandboxes/${sbxId}/files/edit`,
+        `${SDK_BASE}/sessions/${sid}/files/edit`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -129,11 +123,10 @@ export function useWorkspaceFiles(sandboxId: string | null) {
     [],
   );
 
-  /* Upload files (base64-encoded) */
   const uploadFiles = useCallback(
     async (files: File[], directory?: string): Promise<{ ok: boolean; error?: string }> => {
-      const sbxId = sandboxIdRef.current;
-      if (!sbxId) return { ok: false, error: "not connected" };
+      const sid = sessionIdRef.current;
+      if (!sid) return { ok: false, error: "not connected" };
       for (const file of files) {
         const buf = await file.arrayBuffer();
         const bytes = new Uint8Array(buf);
@@ -142,7 +135,7 @@ export function useWorkspaceFiles(sandboxId: string | null) {
         const base64 = btoa(binary);
         const filePath = directory ? `${directory}/${file.name}` : file.name;
         const resp = await fetch(
-          `${SDK_BASE}/sandboxes/${sbxId}/files/upload`,
+          `${SDK_BASE}/sessions/${sid}/files/upload`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -159,13 +152,12 @@ export function useWorkspaceFiles(sandboxId: string | null) {
     [],
   );
 
-  /* Delete a file or directory */
   const deleteFile = useCallback(
     async (filePath: string): Promise<{ ok: boolean; error?: string }> => {
-      const sbxId = sandboxIdRef.current;
-      if (!sbxId) return { ok: false, error: "not connected" };
+      const sid = sessionIdRef.current;
+      if (!sid) return { ok: false, error: "not connected" };
       const resp = await fetch(
-        `${SDK_BASE}/sandboxes/${sbxId}/files/delete`,
+        `${SDK_BASE}/sessions/${sid}/files/delete`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -179,13 +171,12 @@ export function useWorkspaceFiles(sandboxId: string | null) {
     [],
   );
 
-  /* Rename / move a file or directory */
   const renameFile = useCallback(
     async (filePath: string, newPath: string): Promise<{ ok: boolean; error?: string }> => {
-      const sbxId = sandboxIdRef.current;
-      if (!sbxId) return { ok: false, error: "not connected" };
+      const sid = sessionIdRef.current;
+      if (!sid) return { ok: false, error: "not connected" };
       const resp = await fetch(
-        `${SDK_BASE}/sandboxes/${sbxId}/files/rename`,
+        `${SDK_BASE}/sessions/${sid}/files/rename`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -199,13 +190,12 @@ export function useWorkspaceFiles(sandboxId: string | null) {
     [],
   );
 
-  /* Download a file (triggers browser save) */
   const downloadFile = useCallback(
     async (filePath: string): Promise<void> => {
-      const sbxId = sandboxIdRef.current;
-      if (!sbxId) return;
+      const sid = sessionIdRef.current;
+      if (!sid) return;
       const resp = await fetch(
-        `${SDK_BASE}/sandboxes/${sbxId}/files/download?path=${encodeURIComponent(filePath)}`,
+        `${SDK_BASE}/sessions/${sid}/files/download?path=${encodeURIComponent(filePath)}`,
       );
       if (!resp.ok) return;
       const blob = await resp.blob();
@@ -221,11 +211,10 @@ export function useWorkspaceFiles(sandboxId: string | null) {
     [],
   );
 
-  /* Force-refresh tree now */
   const refresh = useCallback(async () => {
-    const sbxId = sandboxIdRef.current;
-    if (!sbxId) return;
-    await fetchTree(sbxId);
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    await fetchTree(sid);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { tree, loading, error, readFile, editFile, uploadFiles, deleteFile, renameFile, downloadFile, refresh };

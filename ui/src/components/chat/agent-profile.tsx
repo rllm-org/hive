@@ -76,8 +76,8 @@ const AGENT_PANEL_TABS: { id: AgentPanelTab; label: string }[] = [
   { id: "activity", label: "Activity" },
 ];
 
-function AgentFilesView({ sandboxId }: { sandboxId?: string | null }) {
-  const { tree, loading } = useWorkspaceFiles(sandboxId ?? null);
+function AgentFilesView({ sessionId }: { sessionId?: string | null }) {
+  const { tree, loading } = useWorkspaceFiles(sessionId ?? null);
   return <FileExplorer tree={tree} loading={loading} />;
 }
 
@@ -85,7 +85,7 @@ export function AgentProfilePanel({ agentId, onClose, width, workspaceId }: Agen
   const { agent } = useAgent(agentId);
   const [tab, setTab] = useState<AgentPanelTab>("profile");
   const needsConnection = tab === "activity" || tab === "workspace";
-  const { messages: activityMessages, sendMessage, cancel, isLoading, sandboxId } = useWorkspaceAgent(
+  const { messages: activityMessages, sendMessage, cancel, isLoading, sessionId } = useWorkspaceAgent(
     workspaceId ?? null, needsConnection ? agentId : null,
   );
 
@@ -146,7 +146,7 @@ export function AgentProfilePanel({ agentId, onClose, width, workspaceId }: Agen
         )}
 
         {tab === "workspace" && (
-          <AgentFilesView sandboxId={sandboxId} />
+          <AgentFilesView sessionId={sessionId} />
         )}
       </div>
     </aside>

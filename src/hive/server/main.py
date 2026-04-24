@@ -2663,13 +2663,12 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
 
 async def _create_agent_session(
     agent_row: dict, workspace_row: dict, body: dict[str, Any], user_oauth_token: str | None,
-) -> tuple[str, str | None]:
-    """Mint a fresh agent-sdk session for this agent. Single source of truth
-    for the session config — called by ``/agents`` (first time) and
-    ``/agents/{id}/bootstrap`` (resume-404 fallback).
+) -> str:
+    """Mint a fresh agent-sdk session for this agent.
 
-    Returns ``(session_id, sandbox_id)``. Caller persists them on the row.
-    Raises HTTPException(502) if agent-sdk returns an incomplete session.
+    Returns ``session_id``. Sandbox identity is agent-sdk's concern and is
+    never persisted by hive — the UI addresses everything via session_id
+    and agent-sdk re-provisions sandboxes transparently on /resume.
     """
     from .agent_sdk_client import get_client
     client = get_client()
@@ -2698,39 +2697,33 @@ async def _create_agent_session(
         config["mcp_servers"] = {
             "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
         }
-    upstream = await client.create_quick_session(**config)
-    session_id = upstream.get("session_id")
-    sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
+    upstream = await client.create_session(**config)
+    session_id = upstream.get("session_id") or upstream.get("id")
     if not session_id:
         raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
 
-    # Materialize CLAUDE.md on the fresh sandbox so claude-agent-acp picks
-    # up the workspace-specific instructions. Best-effort: the session is
-    # already usable without the file, so a failed upload shouldn't block
-    # the caller. (Note: upload lands after supervisor start — in practice
-    # the ACP child re-reads CLAUDE.md on session/new, so this still wins;
-    # if that ever changes, switch to a pre_start_commands heredoc.)
-    if sandbox_id:
-        try:
-            content_b64 = base64.b64encode(prompt.encode()).decode()
-            await client._json(
-                "POST", f"/sandboxes/{sandbox_id}/files/upload",
-                json={"path": "CLAUDE.md", "content": content_b64},
-            )
-        except Exception as e:
-            logging.warning("CLAUDE.md upload failed for agent %s: %s", agent_row["id"], e)
+    # Materialize CLAUDE.md via session-scoped upload. Best-effort — the
+    # session is already usable without the file.
+    try:
+        content_b64 = base64.b64encode(prompt.encode()).decode()
+        await client._json(
+            "POST", f"/sessions/{session_id}/files/upload",
+            json={"path": "CLAUDE.md", "content": content_b64},
+        )
+    except Exception as e:
+        logging.warning("CLAUDE.md upload failed for agent %s: %s", agent_row["id"], e)
 
-    return session_id, sandbox_id
+    return session_id
 
 
 @router.post("/workspaces/{workspace_id}/agents")
 async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user: dict = Depends(require_user)):
-    """Create a new agent and bootstrap its first agent-sdk session.
+    """Create a new agent and mint its agent-sdk session.
 
     After this returns, the UI talks directly to agent-sdk at
     ``NEXT_PUBLIC_AGENT_SDK_BASE_URL`` for /resume, /message, /events,
-    /cancel. The only subsequent hive call the UI needs is
-    ``POST /agents/{id}/bootstrap`` if /resume later returns 404.
+    /cancel, and /files/*. Sandbox lifecycle is agent-sdk's concern —
+    /resume re-provisions transparently from its persisted session config.
 
     Body:
       name (optional) — custom agent id; otherwise auto-generated
@@ -2770,7 +2763,7 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
     # Provision session via agent-sdk (user waits)
     user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
     agent_row = {"id": agent_id, "role": agent_role, "description": agent_desc, "model": model_name}
-    session_id, sandbox_id = await _create_agent_session(agent_row, ws, body, user_oauth_token)
+    session_id = await _create_agent_session(agent_row, ws, body, user_oauth_token)
 
     async with get_db() as conn:
         await conn.execute(
@@ -2783,7 +2776,6 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         "token": agent_token,
         "workspace_id": workspace_id,
         "session_id": session_id,
-        "sandbox_id": sandbox_id,
     }
 
 
@@ -2791,17 +2783,16 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
 async def get_workspace_agent(
     workspace_id: int, agent_id: str, user: dict = Depends(require_user),
 ):
-    """Return agent identity + current sdk session handle.
+    """Return agent identity + its agent-sdk session handle.
 
-    ``session_id`` may be ``null`` — the UI should call ``/bootstrap`` in
-    that case. This is a dumb DB read; it never calls agent-sdk. Use
-    ``POST /agents/{id}/bootstrap`` to (re)mint a session after a
-    ``/resume`` 404.
+    Dumb DB read. Sandbox lifecycle is entirely agent-sdk's concern: the
+    UI calls ``POST /sessions/{id}/resume`` on agent-sdk, which
+    re-provisions sandboxes idempotently from its own persisted config.
     """
     user_id = int(user["sub"])
     async with get_db() as conn:
         row = await (await conn.execute(
-            "SELECT a.id, a.session_id, a.sandbox_id, a.role, a.description, a.model, a.harness"
+            "SELECT a.id, a.session_id, a.role, a.description, a.model, a.harness"
             " FROM agents a JOIN workspaces w ON a.workspace_id = w.id"
             " WHERE a.id = %s AND w.id = %s AND w.user_id = %s",
             (agent_id, workspace_id, user_id),
@@ -2811,57 +2802,10 @@ async def get_workspace_agent(
     return {
         "id": row["id"],
         "session_id": row.get("session_id"),
-        "sandbox_id": row.get("sandbox_id"),
         "role": row.get("role"),
         "description": row.get("description"),
         "model": row.get("model"),
         "harness": row.get("harness"),
-    }
-
-
-@router.post("/workspaces/{workspace_id}/agents/{agent_id}/bootstrap")
-async def bootstrap_workspace_agent(
-    workspace_id: int, agent_id: str, body: dict[str, Any] = {}, user: dict = Depends(require_user),
-):
-    """Mint a new agent-sdk session for an existing agent.
-
-    Call this when the UI's stored ``session_id`` is stale (e.g. /resume
-    returned 404). Overwrites the row's ``session_id`` + ``sandbox_id``
-    with the new ones. First-time agent creation goes through
-    ``POST /agents`` instead; this endpoint is strictly "I have an agent
-    but need a fresh sdk session for it."
-    """
-    user_id = int(user["sub"])
-    async with get_db() as conn:
-        ws = await (await conn.execute(
-            "SELECT id, name, type FROM workspaces WHERE id = %s AND user_id = %s",
-            (workspace_id, user_id),
-        )).fetchone()
-        if not ws:
-            raise HTTPException(404, "workspace not found")
-        agent = await (await conn.execute(
-            "SELECT id, role, description, model FROM agents"
-            " WHERE id = %s AND workspace_id = %s",
-            (agent_id, workspace_id),
-        )).fetchone()
-        if not agent:
-            raise HTTPException(404, "agent not in this workspace")
-
-    user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
-    session_id, sandbox_id = await _create_agent_session(
-        dict(agent), ws, body, user_oauth_token,
-    )
-
-    async with get_db() as conn:
-        await conn.execute(
-            "UPDATE agents SET session_id = %s, sandbox_id = %s WHERE id = %s",
-            (session_id, sandbox_id, agent_id),
-        )
-
-    return {
-        "id": agent_id,
-        "session_id": session_id,
-        "sandbox_id": sandbox_id,
     }
 
 

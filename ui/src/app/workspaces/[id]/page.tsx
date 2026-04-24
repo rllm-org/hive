@@ -363,7 +363,7 @@ export default function WorkspacePage({ embeddedWorkspaceId }: { embeddedWorkspa
     return () => { cancelled = true; };
   }, [workspaceId]);
 
-  const isProvisioning = false; // sandbox provisioning is lazy — happens on the first /resume or /bootstrap the UI issues
+  const isProvisioning = false;
 
   useEffect(() => {
     if (!isProvisioning) return;
@@ -455,7 +455,7 @@ export default function WorkspacePage({ embeddedWorkspaceId }: { embeddedWorkspa
     workspace ? workspaceId : null,
     agentIdList,
   );
-  const emptyState: AgentState = { messages: [], commands: [], isLoading: false, cancelling: false, connecting: false, error: null, sessionId: null, sandboxId: null };
+  const emptyState: AgentState = { messages: [], commands: [], isLoading: false, cancelling: false, connecting: false, error: null, sessionId: null };
   const activeState: AgentState = activeAgent ? agentStates[activeAgent.id] ?? emptyState : emptyState;
   const { messages, commands: rawCommands, isLoading, cancelling, connecting, error: agentError } = activeState;
   const sendMessage = useCallback((text: string) => { if (activeAgent) sendAgentMessage(activeAgent.id, text); }, [activeAgent, sendAgentMessage]);
@@ -479,7 +479,7 @@ export default function WorkspacePage({ embeddedWorkspaceId }: { embeddedWorkspa
   // Live sandbox filesystem — uses the active agent's sandbox for file browsing
   const activeAgentState = activeAgent ? agentStates[activeAgent.id] : null;
   const { tree: fsTree, loading: fsLoading, error: fsError, readFile, editFile, uploadFiles, deleteFile, renameFile, downloadFile, refresh: fsRefresh } = useWorkspaceFiles(
-    activeAgentState?.sandboxId ?? null,
+    activeAgentState?.sessionId ?? null,
   );
   const [draggingOver, setDraggingOver] = useState(false);
   const [bgMenuPos, setBgMenuPos] = useState<{ x: number; y: number } | null>(null);

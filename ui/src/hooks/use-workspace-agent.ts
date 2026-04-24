@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { apiFetch, apiPostJson } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { SDK_BASE } from "@/lib/sdk";
 import {
   classifyMessageContent,
@@ -41,7 +41,6 @@ export interface AgentState {
   connecting: boolean;
   error: string | null;
   sessionId: string | null;
-  sandboxId: string | null;
 }
 
 const EMPTY_STATE: AgentState = {
@@ -52,7 +51,6 @@ const EMPTY_STATE: AgentState = {
   connecting: false,
   error: null,
   sessionId: null,
-  sandboxId: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -383,46 +381,25 @@ export function useWorkspaceAgents(
             return;
           }
 
-          // Read stored session handle from hive — dumb DB read, no probes.
-          const row = await apiFetch<{ session_id: string | null; sandbox_id: string | null }>(
+          const row = await apiFetch<{ session_id: string | null }>(
             `/workspaces/${workspaceId}/agents/${agentId}`,
           );
           if (ctrl.signal.aborted) return;
+          const sdkSid = row.session_id;
+          if (!sdkSid) throw new Error("agent has no session");
 
-          // Two-state: (a) have session → /resume; (b) no session or
-          // /resume returns 404 → /bootstrap a fresh one, then /resume.
-          let sdkSid = row.session_id;
-          let sandboxId = row.sandbox_id;
-
-          const bootstrap = async () => {
-            const boot = await apiPostJson<{ session_id: string; sandbox_id: string | null }>(
-              `/workspaces/${workspaceId}/agents/${agentId}/bootstrap`,
-              {},
-            );
-            sdkSid = boot.session_id;
-            sandboxId = boot.sandbox_id;
-          };
-
-          if (!sdkSid) {
-            await bootstrap();
-          } else {
-            // /resume auto-heals stopped/missing sandboxes internally and
-            // preserves inner_session_id → conversation history survives.
-            const resumeResp = await fetch(
-              `${SDK_BASE}/sessions/${sdkSid}/resume`,
-              { method: "POST", signal: ctrl.signal },
-            );
-            if (resumeResp.status === 404) {
-              // Session was GC'd upstream — re-bootstrap.
-              await bootstrap();
-            } else if (!resumeResp.ok) {
-              throw new Error(`resume failed: ${resumeResp.status}`);
-            }
-          }
-          if (ctrl.signal.aborted || !sdkSid) return;
+          // agent-sdk /resume is idempotent: it re-provisions the sandbox
+          // from its own persisted config if needed. A 404 means the
+          // session was truly deleted upstream — surface as error.
+          const resumeResp = await fetch(
+            `${SDK_BASE}/sessions/${sdkSid}/resume`,
+            { method: "POST", signal: ctrl.signal },
+          );
+          if (!resumeResp.ok) throw new Error(`resume failed: ${resumeResp.status}`);
+          if (ctrl.signal.aborted) return;
 
           connectionsRef.current[agentId] = { abort: ctrl, sdkSid };
-          updateAgent(agentId, { sessionId: sdkSid, sandboxId });
+          updateAgent(agentId, { sessionId: sdkSid });
 
           // Cold-load history
           try {
@@ -535,6 +512,5 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
     sendMessage,
     cancel,
     sessionId: state.sessionId,
-    sandboxId: state.sandboxId,
   };
 }
