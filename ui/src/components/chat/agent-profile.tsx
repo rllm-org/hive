@@ -7,7 +7,7 @@ import { LuX, LuBot, LuCpu, LuCalendar, LuActivity } from "react-icons/lu";
 import { AgentChat } from "@/components/shared/agent-chat";
 import { FileExplorer } from "@/components/shared/file-explorer";
 import type { FsTreeNode } from "@/hooks/use-workspace-files";
-import type { ChatMessage } from "@/hooks/use-workspace-agent";
+import { useWorkspaceAgent, type ChatMessage } from "@/hooks/use-workspace-agent";
 import AgentProfilePage from "@/app/agents/[id]/page";
 import { useAgent, useUser, type AgentProfile, type UserProfile, type HarnessUsage } from "@/hooks/use-chat";
 import { apiFetch } from "@/lib/api";
@@ -39,7 +39,7 @@ interface AgentProfilePanelProps {
   agentId: string;
   onClose: () => void;
   width: number;
-  chatMessages?: ChatMessage[];
+  workspaceId?: string | number | null;
 }
 
 function OwnerBadge({ handle }: { handle: string }) {
@@ -100,18 +100,15 @@ function AgentFilesView({ agentId }: { agentId: string }) {
     return nodes;
   }, [data]);
 
-  return (
-    <div className="flex-1 min-h-0">
-      <FileExplorer tree={tree} loading={isLoading} />
-    </div>
-  );
+  return <FileExplorer tree={tree} loading={isLoading} />;
 }
 
-export function AgentProfilePanel({ agentId, onClose, width, chatMessages }: AgentProfilePanelProps) {
+export function AgentProfilePanel({ agentId, onClose, width, workspaceId }: AgentProfilePanelProps) {
   const { agent } = useAgent(agentId);
   const [tab, setTab] = useState<AgentPanelTab>("profile");
-
-  const activityMessages = chatMessages ?? [];
+  const { messages: activityMessages, sendMessage, cancel, isLoading } = useWorkspaceAgent(
+    workspaceId ?? null, tab === "activity" ? agentId : null,
+  );
 
   return (
     <aside
@@ -160,13 +157,13 @@ export function AgentProfilePanel({ agentId, onClose, width, chatMessages }: Age
         )}
 
         {tab === "activity" && (
-          activityMessages.length > 0 ? (
-            <AgentChat agentId={agentId} messages={activityMessages} />
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
-              No chat history yet. Start a conversation from the Agents tab.
-            </div>
-          )
+          <AgentChat
+            agentId={agentId}
+            messages={activityMessages}
+            onSend={sendMessage}
+            onCancel={cancel}
+            loading={isLoading}
+          />
         )}
 
         {tab === "workspace" && (

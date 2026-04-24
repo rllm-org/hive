@@ -312,6 +312,7 @@ export function ChatPanel({ taskPath, sidebarHeader, aboutContent, runsContent, 
                   agentId={activeProfile.id}
                   onClose={() => setActiveProfile(null)}
                   width={profileResize.width}
+                  workspaceId={workspaceId}
                 />
               ) : (
                 <UserProfilePanel
@@ -1217,11 +1218,7 @@ function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
     );
   }
 
-  return (
-    <div className="flex-1 min-h-0 overflow-y-auto">
-      <FileExplorer tree={tree} loading={isLoading} />
-    </div>
-  );
+  return <FileExplorer tree={tree} loading={isLoading} />;
 }
 
 function WorkspaceSettings({ workspaceId, workspaceName }: { workspaceId: number; workspaceName: string }) {
