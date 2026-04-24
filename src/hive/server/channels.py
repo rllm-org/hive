@@ -564,16 +564,10 @@ async def _dispatch_workspace_mentions(
         if str(agent["id"]) == str(author_id):
             continue  # don't forward to self
         try:
-            parts = []
-            parts.append(f"You were mentioned in workspace Slack (workspace_id={workspace_id}).")
-            parts.append(f"Message from @{author_name}: {text}")
-            parts.append(f"Thread ts: {msg_ts}")
-            parts.append("")
-            parts.append("Reply in the Slack thread using:")
-            parts.append(f"  hive chat send --workspace {workspace_id} --thread {msg_ts} '<your reply>'")
-            parts.append("")
-            parts.append("Do your work, then reply again with results using the same command.")
-            prompt = "\n".join(parts)
+            prompt = (
+                f"@{author_name} mentioned you in workspace Slack: {text}\n"
+                f"Thread ts: {msg_ts}"
+            )
 
             await client.send_message(agent["session_id"], prompt)
             log.info("Dispatched mention to agent %s (session %s)", agent["id"], agent["session_id"])
