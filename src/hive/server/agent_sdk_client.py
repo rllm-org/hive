@@ -54,8 +54,20 @@ class AgentSdkClient:
     # --- Session creation ---
 
     async def create_session(self, **config: Any) -> dict[str, Any]:
-        """Create a session via POST /sessions. Eager by default (provisions sandbox)."""
-        return await self._json("POST", "/sessions", json=config)
+        """Create a session via POST /sessions. Eager by default (provisions sandbox).
+
+        Uses a longer timeout since Daytona provisioning can take 60-120s.
+        """
+        resp = await self._client.request(
+            "POST", "/sessions", json=config,
+            timeout=httpx.Timeout(180.0, read=None),
+        )
+        if resp.status_code >= 400:
+            raise HTTPException(
+                status_code=502,
+                detail=f"agent-sdk POST /sessions -> {resp.status_code}: {resp.text[:500]}",
+            )
+        return resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
 
     # --- Mention dispatch ---
 
