@@ -2597,6 +2597,19 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
     async with get_db() as conn:
         await _ensure_workspace_channel(workspace_id, name, conn)
 
+    # Create the shared directory on the volume (write a .keep file)
+    if GLOBAL_VOLUME_ID:
+        try:
+            from .agent_sdk_client import get_client
+            client = get_client()
+            await client.volume_file_write(
+                GLOBAL_VOLUME_ID,
+                f"shared/{workspace_id}/.keep",
+                "",
+            )
+        except Exception:
+            pass  # best-effort — volume may not be ready yet
+
     return _serialize_workspace(row)
 
 
@@ -2816,7 +2829,7 @@ async def workspace_files_tree(workspace_id: int, user: dict = Depends(require_u
         return {"tree": []}
     from .agent_sdk_client import get_client
     client = get_client()
-    return await client.volume_file_tree(GLOBAL_VOLUME_ID, "")
+    return await client.volume_file_tree(GLOBAL_VOLUME_ID, f"shared/{workspace_id}/")
 
 
 @router.get("/workspaces/{workspace_id}/files/read")

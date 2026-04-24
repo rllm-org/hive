@@ -140,6 +140,10 @@ class AgentSdkClient:
     async def volume_file_read(self, volume_id: str, path: str) -> dict[str, Any]:
         return await self._json("GET", f"/volumes/{volume_id}/files/read", params={"path": path})
 
+    async def volume_file_write(self, volume_id: str, path: str, content: str = "") -> dict[str, Any]:
+        """Write (create or overwrite) a file on the volume."""
+        return await self._json("POST", f"/volumes/{volume_id}/files/edit", json={"path": path, "content": content})
+
     async def volume_file_edit(self, volume_id: str, path: str, old_string: str, new_string: str, replace_all: bool = False) -> dict[str, Any]:
         body: dict[str, Any] = {"path": path, "old_string": old_string, "new_string": new_string}
         if replace_all:
