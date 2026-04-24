@@ -1076,9 +1076,18 @@ function ChatChannelView({
       <div className="flex-1 min-h-0 flex">
         <div className="flex-1 min-w-0 flex flex-col">
           {wsTab === "agents" && (
-            <div className="flex-1 min-h-0 flex flex-col">
+            <div className="flex-1 min-h-0 flex flex-col relative">
               {agents && agents.length > 0 ? (
                 <>
+                  <div className="absolute top-2 left-3 z-10">
+                    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg">
+                      <AgentSelector
+                        agents={agents.map((a) => ({ id: a.id, avatar_seed: a.avatar_seed }))}
+                        activeId={selectedAgentId}
+                        onSelect={setSelectedAgentId}
+                      />
+                    </div>
+                  </div>
                   {selectedAgentId && activeAgentState ? (
                     activeAgentState.connecting ? (
                       <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
@@ -1097,18 +1106,11 @@ function ChatChannelView({
                         onModelChange={(model) => setAgentModel(selectedAgentId, model)}
                         loading={activeAgentState.isLoading}
                         cancelling={activeAgentState.cancelling}
-                        headerSlot={
-                          <AgentSelector
-                            agents={agents.map((a) => ({ id: a.id, avatar_seed: a.avatar_seed }))}
-                            activeId={selectedAgentId}
-                            onSelect={setSelectedAgentId}
-                          />
-                        }
                       />
                     )
                   ) : (
                     <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
-                      Select an agent above to start chatting.
+                      Select an agent to start chatting.
                     </div>
                   )}
                 </>
