@@ -479,7 +479,7 @@ async def auth_signup(body: dict[str, Any]):
     try:
         await send_verification_code(email, code)
     except Exception:
-        pass
+        raise HTTPException(502, "failed to send verification email — please try again")
     return JSONResponse({"status": "verification_required", "email": email}, status_code=201)
 
 
@@ -2609,10 +2609,8 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
     ws_type = (body.get("type") or "cloud").strip()
     if not name:
         raise HTTPException(400, "name is required")
-    if ws_type not in ("local", "cloud", "persistent"):
-        raise HTTPException(400, "type must be 'local', 'cloud', or 'persistent'")
-    if ws_type == "persistent":
-        raise HTTPException(400, "persistent workspaces are admin-only")
+    if ws_type not in ("local", "cloud"):
+        raise HTTPException(400, "type must be 'local' or 'cloud'")
 
     async with get_db() as conn:
         existing = await (await conn.execute(
