@@ -1273,12 +1273,19 @@ async def delete_agent(agent_id: str, user: dict = Depends(require_user)):
 
     async with get_db() as conn:
         if has_runs:
+            # Preserve row for public task leaderboard, but scrub personal/workspace data.
+            await conn.execute("DELETE FROM messages WHERE agent_id = %s", (agent_id,))
+            await conn.execute("DELETE FROM inbox_cursors WHERE agent_id = %s", (agent_id,))
+            await conn.execute("UPDATE channels SET created_by = NULL WHERE created_by = %s", (agent_id,))
             await conn.execute(
                 "UPDATE agents SET workspace_id = NULL, session_id = NULL WHERE id = %s",
                 (agent_id,),
             )
             return {"status": "unlinked", "reason": "agent has runs and was preserved"}
         else:
+            await conn.execute("DELETE FROM messages WHERE agent_id = %s", (agent_id,))
+            await conn.execute("DELETE FROM inbox_cursors WHERE agent_id = %s", (agent_id,))
+            await conn.execute("UPDATE channels SET created_by = NULL WHERE created_by = %s", (agent_id,))
             await conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))
             return {"status": "deleted"}
 
@@ -2708,10 +2715,16 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             (agent_id, agent_token, ts, ts, user_id, ws_type, harness, model_name, str(uuid.uuid4()), workspace_id, agent_role, agent_desc)
         )
 
-    # Provision session via agent-sdk (user waits)
+    # Provision session via agent-sdk (user waits). If it fails, roll back
+    # the agent row so we don't leave a zombie with no session_id.
     user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
     agent_row = {"id": agent_id, "role": agent_role, "description": agent_desc, "model": model_name}
-    session_id = await _create_agent_session(agent_row, ws, body, user_oauth_token, agent_token)
+    try:
+        session_id = await _create_agent_session(agent_row, ws, body, user_oauth_token, agent_token)
+    except Exception:
+        async with get_db() as conn:
+            await conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))
+        raise
 
     async with get_db() as conn:
         await conn.execute(
@@ -2822,12 +2835,18 @@ async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = 
 
     async with get_db() as conn:
         if has_runs:
+            await conn.execute("DELETE FROM messages WHERE agent_id = %s", (agent_id,))
+            await conn.execute("DELETE FROM inbox_cursors WHERE agent_id = %s", (agent_id,))
+            await conn.execute("UPDATE channels SET created_by = NULL WHERE created_by = %s", (agent_id,))
             await conn.execute(
                 "UPDATE agents SET workspace_id = NULL, session_id = NULL WHERE id = %s",
                 (agent_id,)
             )
             return {"status": "unlinked", "reason": "agent has runs and was preserved"}
         else:
+            await conn.execute("DELETE FROM messages WHERE agent_id = %s", (agent_id,))
+            await conn.execute("DELETE FROM inbox_cursors WHERE agent_id = %s", (agent_id,))
+            await conn.execute("UPDATE channels SET created_by = NULL WHERE created_by = %s", (agent_id,))
             await conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))
             return {"status": "deleted"}
 
@@ -2857,6 +2876,9 @@ async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)
 
     async with get_db() as conn:
         for a in agents:
+            await conn.execute("DELETE FROM messages WHERE agent_id = %s", (a["id"],))
+            await conn.execute("DELETE FROM inbox_cursors WHERE agent_id = %s", (a["id"],))
+            await conn.execute("UPDATE channels SET created_by = NULL WHERE created_by = %s", (a["id"],))
             if a["has_runs"]:
                 await conn.execute(
                     "UPDATE agents SET workspace_id = NULL, session_id = NULL WHERE id = %s",

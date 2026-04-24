@@ -565,11 +565,8 @@ function MembersSectionHeader({ workspaceId, onAgentCreated }: { workspaceId?: n
       resetForm();
       setShowModal(false);
       onAgentCreated?.(result.id);
-    } catch {
-      // Agent may have been created despite timeout/500 — close modal and refresh
-      resetForm();
-      setShowModal(false);
-      onAgentCreated?.(name);
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : "Failed to create agent");
     } finally {
       setCreating(false);
     }
