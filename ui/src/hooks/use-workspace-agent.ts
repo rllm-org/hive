@@ -41,7 +41,6 @@ export interface AgentState {
   error: string | null;
   sdkBaseUrl: string | null;
   sessionId: string | null;
-  sandboxId: string | null;
 }
 
 const EMPTY_STATE: AgentState = {
@@ -53,7 +52,6 @@ const EMPTY_STATE: AgentState = {
   error: null,
   sdkBaseUrl: null,
   sessionId: null,
-  sandboxId: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -397,7 +395,7 @@ export function useWorkspaceAgents(
 
       (async () => {
         try {
-          const resp = await apiPostJson<{ session_id: string; sandbox_id: string; sdk_base_url: string }>(
+          const resp = await apiPostJson<{ session_id: string; sdk_base_url: string }>(
             `/workspaces/${workspaceId}/agents/${agentId}/connect`,
             {}
           );
@@ -410,7 +408,7 @@ export function useWorkspaceAgents(
           }
 
           connectionsRef.current[agentId] = { abort: ctrl, sdkBase, sdkSid };
-          updateAgent(agentId, { sdkBaseUrl: sdkBase, sessionId: sdkSid, sandboxId: resp.sandbox_id });
+          updateAgent(agentId, { sdkBaseUrl: sdkBase, sessionId: sdkSid });
 
           // Cold-load history
           try {
@@ -524,6 +522,5 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
     cancel,
     sdkBaseUrl: state.sdkBaseUrl,
     sessionId: state.sessionId,
-    sandboxId: state.sandboxId,
   };
 }

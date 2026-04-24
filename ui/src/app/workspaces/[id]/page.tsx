@@ -190,7 +190,6 @@ interface WorkspaceAgent {
   harness: string;
   model: string;
   avatar_seed: string | null;
-  sandbox_id: string | null;
   session_id: string | null;
   role: string | null;
   description: string | null;
@@ -456,7 +455,7 @@ export default function WorkspacePage({ embeddedWorkspaceId }: { embeddedWorkspa
     workspace ? workspaceId : null,
     agentIdList,
   );
-  const emptyState: AgentState = { messages: [], commands: [], isLoading: false, cancelling: false, connecting: false, error: null, sdkBaseUrl: null, sessionId: null, sandboxId: null };
+  const emptyState: AgentState = { messages: [], commands: [], isLoading: false, cancelling: false, connecting: false, error: null, sdkBaseUrl: null, sessionId: null };
   const activeState: AgentState = activeAgent ? agentStates[activeAgent.id] ?? emptyState : emptyState;
   const { messages, commands: rawCommands, isLoading, cancelling, connecting, error: agentError } = activeState;
   const sendMessage = useCallback((text: string) => { if (activeAgent) sendAgentMessage(activeAgent.id, text); }, [activeAgent, sendAgentMessage]);
@@ -481,7 +480,7 @@ export default function WorkspacePage({ embeddedWorkspaceId }: { embeddedWorkspa
   const activeAgentState = activeAgent ? agentStates[activeAgent.id] : null;
   const { tree: fsTree, loading: fsLoading, error: fsError, readFile, editFile, uploadFiles, deleteFile, renameFile, downloadFile, refresh: fsRefresh } = useWorkspaceFiles(
     activeAgentState?.sdkBaseUrl ?? null,
-    activeAgentState?.sandboxId ?? null,
+    null, // sandbox_id fetched by useWorkspaceFiles when needed
   );
   const [draggingOver, setDraggingOver] = useState(false);
   const [bgMenuPos, setBgMenuPos] = useState<{ x: number; y: number } | null>(null);

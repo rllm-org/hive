@@ -1025,28 +1025,8 @@ async def auth_claude_token(body: dict[str, Any], user: dict = Depends(require_u
 
 
 async def _rotate_sandbox_creds_for_user(user_id: int, token: str | None) -> None:
-    """Push the fresh token (or None, to wipe) to every active agent sandbox the
-    user owns so existing agents pick up the new creds on next
-    supervisor spawn. Best-effort — failures are logged, not raised."""
-    import logging
-    from .agent_sdk_client import get_client
-    async with get_db() as conn:
-        rows = await (await conn.execute(
-            "SELECT sandbox_id FROM agents"
-            " WHERE user_id = %s AND sandbox_id IS NOT NULL",
-            (user_id,),
-        )).fetchall()
-    if not rows:
-        return
-    client = get_client()
-    for row in rows:
-        sid = row.get("sandbox_id")
-        if not sid:
-            continue
-        try:
-            await client.rotate_sandbox_creds(sid, token)
-        except Exception as e:
-            logging.warning("claude creds rotation failed for sandbox %s: %s", sid, e)
+    """No-op — sandbox creds are managed by agent-sdk now."""
+    pass
 
 
 @router.get("/auth/claude/status")
@@ -1278,7 +1258,7 @@ async def delete_agent(agent_id: str, user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         agent = await (await conn.execute(
-            "SELECT id, sandbox_id, session_id, workspace_id FROM agents WHERE id = %s AND user_id = %s",
+            "SELECT id, session_id, workspace_id FROM agents WHERE id = %s AND user_id = %s",
             (agent_id, user_id),
         )).fetchone()
         if not agent:
@@ -1287,13 +1267,7 @@ async def delete_agent(agent_id: str, user: dict = Depends(require_user)):
             "SELECT 1 FROM runs WHERE agent_id = %s LIMIT 1", (agent_id,)
         )).fetchone()) is not None
 
-    # Tear down sandbox via agent-sdk (best-effort)
-    if agent["sandbox_id"]:
-        try:
-            client = get_client()
-            await client.destroy_sandbox(agent["sandbox_id"])
-        except Exception:
-            pass
+    # Clean up session via agent-sdk (best-effort)
     if agent["session_id"]:
         try:
             client = get_client()
@@ -1304,7 +1278,7 @@ async def delete_agent(agent_id: str, user: dict = Depends(require_user)):
     async with get_db() as conn:
         if has_runs:
             await conn.execute(
-                "UPDATE agents SET workspace_id = NULL, sandbox_id = NULL, session_id = NULL WHERE id = %s",
+                "UPDATE agents SET workspace_id = NULL, session_id = NULL WHERE id = %s",
                 (agent_id,),
             )
             return {"status": "unlinked", "reason": "agent has runs and was preserved"}
@@ -2577,14 +2551,14 @@ def _serialize_workspace(row: dict, agents: list | None = None) -> dict:
 
 async def _agents_in_workspace(conn, workspace_id: int) -> list[dict]:
     rows = await (await conn.execute(
-        "SELECT id, type, harness, model, avatar_seed, sandbox_id, session_id, role, description, last_seen_at"
+        "SELECT id, type, harness, model, avatar_seed, session_id, role, description, last_seen_at"
         " FROM agents WHERE workspace_id = %s ORDER BY registered_at ASC",
         (workspace_id,)
     )).fetchall()
     return [{
         "id": r["id"], "type": r["type"], "harness": r["harness"], "model": r["model"],
         "avatar_seed": r["avatar_seed"],
-        "sandbox_id": r["sandbox_id"], "session_id": r["session_id"],
+        "session_id": r["session_id"],
         "role": r["role"], "description": r["description"],
         "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
     } for r in rows]
@@ -2729,61 +2703,43 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             (agent_id, agent_token, ts, ts, user_id, ws_type, harness, model_name, str(uuid.uuid4()), workspace_id, agent_role, agent_desc)
         )
 
-    # Provision session via agent-sdk (user waits)
-    client = get_client()
+    # Provision session via agent_sdk.Agent
+    from agent_sdk import Agent as SdkAgent
+    from .agent_sdk_client import AGENT_SDK_BASE_URL
+
     user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
     agent_row = {"id": agent_id, "role": agent_role, "description": agent_desc, "model": model_name}
-    config: dict[str, Any] = {
-        "name": f"agent-{agent_id}",
-        "provider": AGENT_SDK_PROVIDER,
-        "agent_type": body.get("agent_type", "claude"),
-        "model": model_name,
-        "cwd": body.get("cwd", "/home/daytona"),
-        "prompt": _build_agent_system_prompt(agent_row, workspace_id, ws["name"]),
-        "shared_mounts": [str(workspace_id)],
-        "skills": ["rllm-org/hive#staging"],
-        "pre_start_commands": [
-            'curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH" && uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
-        ],
-    }
-    if GLOBAL_VOLUME_ID:
-        config["volume_id"] = GLOBAL_VOLUME_ID
-    if user_oauth_token:
-        config["oauth_token"] = user_oauth_token
-    if HIVE_SERVER_URL:
-        config["mcp_servers"] = {
-            "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
-        }
-    upstream = await client.create_quick_session(**config)
-    session_id = upstream.get("session_id")
-    sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
-    if not session_id:
-        raise HTTPException(502, f"Failed to create agent session: {upstream}")
+    system_prompt = _build_agent_system_prompt(agent_row, workspace_id, ws["name"])
 
-    # Write system prompt as CLAUDE.md via sandbox files API
-    if sandbox_id:
-        try:
-            import base64
-            system_prompt = _build_agent_system_prompt(agent_row, workspace_id, ws["name"])
-            content_b64 = base64.b64encode(system_prompt.encode()).decode()
-            await client._json("POST", f"/sandboxes/{sandbox_id}/files/upload",
-                               json={"path": "/home/daytona/CLAUDE.md", "content": content_b64})
-        except Exception as e:
-            import logging
-            logging.warning("Failed to write CLAUDE.md for agent %s: %s", agent_id, e)
+    sdk_agent = SdkAgent(
+        name=f"agent-{agent_id}",
+        provider=AGENT_SDK_PROVIDER,
+        agent_type=body.get("agent_type", "claude"),
+        model=model_name,
+        cwd=body.get("cwd", "/home/daytona"),
+        prompt=system_prompt,
+        api_url=AGENT_SDK_BASE_URL,
+        oauth_token=user_oauth_token,
+        skills=["rllm-org/hive#staging"],
+    )
+    # Agent SDK's _ensure_registered calls POST /sessions which provisions eagerly
+    await sdk_agent._ensure_registered()
+    session_id = sdk_agent.session_id
+    if not session_id:
+        raise HTTPException(502, "Failed to create agent session")
 
     async with get_db() as conn:
         await conn.execute(
-            "UPDATE agents SET session_id = %s, sandbox_id = %s WHERE id = %s",
-            (session_id, sandbox_id, agent_id),
+            "UPDATE agents SET session_id = %s WHERE id = %s",
+            (session_id, agent_id),
         )
+    await sdk_agent.aclose()
 
     return {
         "id": agent_id,
         "token": agent_token,
         "workspace_id": workspace_id,
         "session_id": session_id,
-        "sandbox_id": sandbox_id,
         "sdk_base_url": AGENT_SDK_BASE_URL,
     }
 
@@ -2832,80 +2788,33 @@ def _build_agent_system_prompt(agent_row: dict, workspace_id: int, workspace_nam
 async def connect_workspace_agent(
     workspace_id: int, agent_id: str, body: dict[str, Any] = {}, user: dict = Depends(require_user),
 ):
-    """Ensure the agent has a live session. Creates sandbox + session on first call."""
-    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
+    """Return the agent's session_id for the frontend to connect directly to agent-sdk.
+
+    Agent-sdk handles sandbox lifecycle automatically — if the sandbox died,
+    the first /message call will re-provision it.
+    """
+    from .agent_sdk_client import AGENT_SDK_BASE_URL
     user_id = int(user["sub"])
 
     async with get_db() as conn:
         ws = await (await conn.execute(
-            "SELECT id, name, type FROM workspaces WHERE id = %s AND user_id = %s",
+            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s",
             (workspace_id, user_id),
         )).fetchone()
         if not ws:
             raise HTTPException(404, "workspace not found")
         agent = await (await conn.execute(
-            "SELECT id, sandbox_id, session_id, role, description, model FROM agents"
-            " WHERE id = %s AND workspace_id = %s",
+            "SELECT id, session_id FROM agents WHERE id = %s AND workspace_id = %s",
             (agent_id, workspace_id),
         )).fetchone()
         if not agent:
             raise HTTPException(404, "agent not in this workspace")
 
-    # If we already have a session, check if it's alive
-    if agent["session_id"]:
-        try:
-            client = get_client()
-            status = await client.get_status(agent["session_id"])
-            if status:
-                return {
-                    "session_id": agent["session_id"],
-                    "sandbox_id": agent.get("sandbox_id"),
-                    "sdk_base_url": AGENT_SDK_BASE_URL,
-                }
-        except Exception:
-            pass  # session dead, re-create below
-
-    # Create a new session via agent-sdk
-    client = get_client()
-    user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
-
-    config: dict[str, Any] = {
-        "name": f"agent-{agent_id}",
-        "provider": AGENT_SDK_PROVIDER,
-        "agent_type": body.get("agent_type", "claude"),
-        "model": body.get("model") or agent.get("model") or "claude-sonnet-4-6",
-        "cwd": body.get("cwd", "/home/daytona"),
-        "prompt": _build_agent_system_prompt(dict(agent), workspace_id, ws["name"]),
-        "shared_mounts": [str(workspace_id)],
-        "skills": ["rllm-org/hive#staging"],
-        "pre_start_commands": [
-            'curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH" && uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
-        ],
-    }
-    if GLOBAL_VOLUME_ID:
-        config["volume_id"] = GLOBAL_VOLUME_ID
-    if user_oauth_token:
-        config["oauth_token"] = user_oauth_token
-    if HIVE_SERVER_URL:
-        config["mcp_servers"] = {
-            "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
-        }
-
-    upstream = await client.create_quick_session(**config)
-    session_id = upstream.get("session_id")
-    sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
-    if not session_id:
-        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
-
-    async with get_db() as conn:
-        await conn.execute(
-            "UPDATE agents SET session_id = %s, sandbox_id = %s WHERE id = %s",
-            (session_id, sandbox_id, agent_id),
-        )
+    if not agent["session_id"]:
+        raise HTTPException(404, "agent has no session — try recreating the agent")
 
     return {
-        "session_id": session_id,
-        "sandbox_id": sandbox_id,
+        "session_id": agent["session_id"],
         "sdk_base_url": AGENT_SDK_BASE_URL,
     }
 
@@ -3009,7 +2918,7 @@ async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = 
         if not ws:
             raise HTTPException(404, "workspace not found")
         agent_row = await (await conn.execute(
-            "SELECT sandbox_id FROM agents WHERE id = %s AND workspace_id = %s",
+            "SELECT session_id FROM agents WHERE id = %s AND workspace_id = %s",
             (agent_id, workspace_id)
         )).fetchone()
         if not agent_row:
@@ -3018,19 +2927,19 @@ async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = 
             "SELECT 1 FROM runs WHERE agent_id = %s LIMIT 1", (agent_id,)
         )).fetchone()) is not None
 
-    # Tear down sandbox/session via agent-sdk (best-effort)
-    if agent_row["sandbox_id"]:
+    # Clean up session via agent-sdk (best-effort)
+    if agent_row["session_id"]:
         try:
             from .agent_sdk_client import get_client
             client = get_client()
-            await client.destroy_sandbox(agent_row["sandbox_id"])
+            await client.delete_session(agent_row["session_id"])
         except Exception:
             pass
 
     async with get_db() as conn:
         if has_runs:
             await conn.execute(
-                "UPDATE agents SET workspace_id = NULL, sandbox_id = NULL, session_id = NULL WHERE id = %s",
+                "UPDATE agents SET workspace_id = NULL, session_id = NULL WHERE id = %s",
                 (agent_id,)
             )
             return {"status": "unlinked", "reason": "agent has runs and was preserved"}
@@ -3051,20 +2960,20 @@ async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)
         if not ws:
             raise HTTPException(404, "workspace not found")
         agents = await (await conn.execute(
-            "SELECT a.id, a.sandbox_id,"
+            "SELECT a.id, a.session_id,"
             " (SELECT 1 FROM runs WHERE agent_id = a.id LIMIT 1) AS has_runs"
             " FROM agents a WHERE a.workspace_id = %s",
             (workspace_id,)
         )).fetchall()
 
-    # Tear down agent sandboxes via agent-sdk (best-effort)
+    # Clean up agent sessions via agent-sdk (best-effort)
     try:
         from .agent_sdk_client import get_client
         client = get_client()
         for a in agents:
-            if a["sandbox_id"]:
+            if a["session_id"]:
                 try:
-                    await client.destroy_sandbox(a["sandbox_id"])
+                    await client.delete_session(a["session_id"])
                 except Exception:
                     pass
     except Exception:
@@ -3074,7 +2983,7 @@ async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)
         for a in agents:
             if a["has_runs"]:
                 await conn.execute(
-                    "UPDATE agents SET workspace_id = NULL, sandbox_id = NULL, session_id = NULL WHERE id = %s",
+                    "UPDATE agents SET workspace_id = NULL, session_id = NULL WHERE id = %s",
                     (a["id"],)
                 )
             else:
