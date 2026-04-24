@@ -388,16 +388,6 @@ export function useWorkspaceAgents(
           const sdkSid = row.session_id;
           if (!sdkSid) throw new Error("agent has no session");
 
-          // agent-sdk /resume is idempotent: it re-provisions the sandbox
-          // from its own persisted config if needed. A 404 means the
-          // session was truly deleted upstream — surface as error.
-          const resumeResp = await fetch(
-            `${SDK_BASE}/sessions/${sdkSid}/resume`,
-            { method: "POST", signal: ctrl.signal },
-          );
-          if (!resumeResp.ok) throw new Error(`resume failed: ${resumeResp.status}`);
-          if (ctrl.signal.aborted) return;
-
           connectionsRef.current[agentId] = { abort: ctrl, sdkSid };
           updateAgent(agentId, { sessionId: sdkSid });
 

@@ -23,6 +23,7 @@ import { Modal, ModalHeader, ModalBody } from "@/components/shared/modal";
 import { useAuth } from "@/lib/auth";
 import useSWR from "swr";
 import { apiFetch, apiPatch, apiPostJson, apiDelete } from "@/lib/api";
+import { SDK_BASE } from "@/lib/sdk";
 
 interface ChatPanelProps {
   taskPath: string;
@@ -1214,10 +1215,15 @@ function ChatChannelView({
 
 /* ──────────────────────────────────────────────── Workspace settings ──────────────────────────────────────────────── */
 
+const HIVE_VOLUME_ID = process.env.NEXT_PUBLIC_HIVE_VOLUME_ID ?? "";
+
 function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
+  const url = HIVE_VOLUME_ID && SDK_BASE
+    ? `${SDK_BASE}/volumes/${HIVE_VOLUME_ID}/files/tree?path=shared/${workspaceId}/`
+    : null;
   const { data, isLoading, error } = useSWR(
-    `/workspaces/${workspaceId}/files/tree`,
-    apiFetch,
+    url,
+    (u: string) => fetch(u).then(r => r.json()),
     { refreshInterval: 15000 },
   );
 

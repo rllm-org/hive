@@ -354,15 +354,5 @@ export function useAgentSession(sessionId: number | null) {
     }
   }, [sessionId]);
 
-  const resume = useCallback(async () => {
-    if (sessionId == null) return;
-    const sdk = sdkRef.current;
-    if (sdk) {
-      await fetch(`${sdk.baseUrl}/sessions/${sdk.sessionId}/resume`, { method: "POST" });
-    } else {
-      await apiPostJson(`/agent-chat/sessions/${sessionId}/resume`, {});
-    }
-  }, [sessionId]);
-
-  return { turns, meta, busy, error, sendPrompt, cancel, resume };
+  return { turns, meta, busy, error, sendPrompt, cancel };
 }

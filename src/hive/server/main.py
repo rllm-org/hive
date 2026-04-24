@@ -417,8 +417,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        from .agent_sdk_client import close_client
-        await close_client()
+        from .sdk import close_sdk
+        await close_sdk()
         await close_pool()
 
 
@@ -1255,7 +1255,6 @@ async def delete_agent(agent_id: str, user: dict = Depends(require_user)):
     If the agent has runs it is preserved (unlinked from workspace) to keep
     public history intact.
     """
-    from .agent_sdk_client import get_client
     user_id = int(user["sub"])
     async with get_db() as conn:
         agent = await (await conn.execute(
@@ -1269,12 +1268,8 @@ async def delete_agent(agent_id: str, user: dict = Depends(require_user)):
         )).fetchone()) is not None
 
     # Clean up session via agent-sdk (best-effort)
-    if agent["session_id"]:
-        try:
-            client = get_client()
-            await client.delete_session(agent["session_id"])
-        except Exception:
-            pass
+    from . import agents as agents_mod
+    await agents_mod.delete_agent_session(agent["session_id"])
 
     async with get_db() as conn:
         if has_runs:
@@ -2633,9 +2628,8 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
     # Create the shared directory on the volume (write a .keep file)
     if GLOBAL_VOLUME_ID:
         try:
-            from .agent_sdk_client import get_client
-            client = get_client()
-            await client.volume_file_write(
+            from .sdk import sdk
+            await sdk.volume_file_write(
                 GLOBAL_VOLUME_ID,
                 f"shared/{workspace_id}/.keep",
                 "",
@@ -2664,56 +2658,20 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
 async def _create_agent_session(
     agent_row: dict, workspace_row: dict, body: dict[str, Any], user_oauth_token: str | None,
 ) -> str:
-    """Mint a fresh agent-sdk session for this agent.
-
-    Returns ``session_id``. Sandbox identity is agent-sdk's concern and is
-    never persisted by hive — the UI addresses everything via session_id
-    and agent-sdk re-provisions sandboxes transparently on /resume.
-    """
-    from .agent_sdk_client import get_client
-    client = get_client()
-    workspace_id = workspace_row["id"]
+    from . import agents
     workspace_name = workspace_row["name"]
-    model_name = (body.get("model") or agent_row.get("model") or "claude-sonnet-4-6").strip()
+    workspace_id = workspace_row["id"]
     prompt = _build_agent_system_prompt(dict(agent_row), workspace_id, workspace_name)
-    config: dict[str, Any] = {
-        "name": f"agent-{agent_row['id']}",
-        "provider": AGENT_SDK_PROVIDER,
-        "agent_type": body.get("agent_type", "claude"),
-        "model": model_name,
-        "cwd": body.get("cwd", "/home/daytona"),
-        "prompt": prompt,
-        "shared_mounts": [str(workspace_id)],
-        "skills": ["rllm-org/hive#staging"],
-        "pre_start_commands": [
-            'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
-        ],
-    }
-    if GLOBAL_VOLUME_ID:
-        config["volume_id"] = GLOBAL_VOLUME_ID
-    if user_oauth_token:
-        config["oauth_token"] = user_oauth_token
-    if HIVE_SERVER_URL:
-        config["mcp_servers"] = {
-            "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
-        }
-    upstream = await client.create_session(**config)
-    session_id = upstream.get("session_id") or upstream.get("id")
-    if not session_id:
-        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
-
-    # Materialize CLAUDE.md via session-scoped upload. Best-effort — the
-    # session is already usable without the file.
-    try:
-        content_b64 = base64.b64encode(prompt.encode()).decode()
-        await client._json(
-            "POST", f"/sessions/{session_id}/files/upload",
-            json={"path": "CLAUDE.md", "content": content_b64},
-        )
-    except Exception as e:
-        logging.warning("CLAUDE.md upload failed for agent %s: %s", agent_row["id"], e)
-
-    return session_id
+    return await agents.create_agent_session(
+        agent_row=agent_row,
+        workspace_row=workspace_row,
+        body=body,
+        user_oauth_token=user_oauth_token,
+        system_prompt=prompt,
+        provider=AGENT_SDK_PROVIDER,
+        global_volume_id=GLOBAL_VOLUME_ID,
+        hive_server_url=HIVE_SERVER_URL,
+    )
 
 
 @router.post("/workspaces/{workspace_id}/agents")
@@ -2721,9 +2679,9 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
     """Create a new agent and mint its agent-sdk session.
 
     After this returns, the UI talks directly to agent-sdk at
-    ``NEXT_PUBLIC_AGENT_SDK_BASE_URL`` for /resume, /message, /events,
+    ``NEXT_PUBLIC_AGENT_SDK_BASE_URL`` for /log, /message, /events,
     /cancel, and /files/*. Sandbox lifecycle is agent-sdk's concern —
-    /resume re-provisions transparently from its persisted session config.
+    it auto-revives the sandbox via ensure_session_live.
 
     Body:
       name (optional) — custom agent id; otherwise auto-generated
@@ -2785,9 +2743,7 @@ async def get_workspace_agent(
 ):
     """Return agent identity + its agent-sdk session handle.
 
-    Dumb DB read. Sandbox lifecycle is entirely agent-sdk's concern: the
-    UI calls ``POST /sessions/{id}/resume`` on agent-sdk, which
-    re-provisions sandboxes idempotently from its own persisted config.
+    Dumb DB read. The UI fetches /log and subscribes to /events; agent-sdk auto-revives the sandbox via ensure_session_live.
     """
     user_id = int(user["sub"])
     async with get_db() as conn:
@@ -2849,90 +2805,6 @@ def _build_agent_system_prompt(agent_row: dict, workspace_id: int, workspace_nam
     return "\n".join(parts)
 
 
-# ── Workspace file proxy (shared volume) ────────────────────────────────────
-
-
-@router.get("/workspaces/{workspace_id}/files/tree")
-async def workspace_files_tree(workspace_id: int, user: dict = Depends(require_user)):
-    """Browse shared workspace files via the global volume."""
-    user_id = int(user["sub"])
-    async with get_db() as conn:
-        ws = await (await conn.execute(
-            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s", (workspace_id, user_id)
-        )).fetchone()
-        if not ws:
-            raise HTTPException(404, "workspace not found")
-    if not GLOBAL_VOLUME_ID:
-        return {"tree": []}
-    from .agent_sdk_client import get_client
-    client = get_client()
-    return await client.volume_file_tree(GLOBAL_VOLUME_ID, f"shared/{workspace_id}/")
-
-
-@router.get("/workspaces/{workspace_id}/files/read")
-async def workspace_files_read(
-    workspace_id: int, path: str = Query(...), user: dict = Depends(require_user),
-):
-    """Read a file from shared workspace files."""
-    user_id = int(user["sub"])
-    async with get_db() as conn:
-        ws = await (await conn.execute(
-            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s", (workspace_id, user_id)
-        )).fetchone()
-        if not ws:
-            raise HTTPException(404, "workspace not found")
-    if not GLOBAL_VOLUME_ID:
-        raise HTTPException(404, "volume not configured")
-    from .agent_sdk_client import get_client
-    client = get_client()
-    full_path = f"shared/{workspace_id}/{path.lstrip('/')}"
-    return await client.volume_file_read(GLOBAL_VOLUME_ID, full_path)
-
-
-@router.post("/workspaces/{workspace_id}/files/edit")
-async def workspace_files_edit(
-    workspace_id: int, body: dict[str, Any], user: dict = Depends(require_user),
-):
-    """Edit a file in shared workspace files."""
-    user_id = int(user["sub"])
-    async with get_db() as conn:
-        ws = await (await conn.execute(
-            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s", (workspace_id, user_id)
-        )).fetchone()
-        if not ws:
-            raise HTTPException(404, "workspace not found")
-    if not GLOBAL_VOLUME_ID:
-        raise HTTPException(404, "volume not configured")
-    path = body.get("path", "")
-    if not path:
-        raise HTTPException(400, "path is required")
-    from .agent_sdk_client import get_client
-    client = get_client()
-    full_path = f"shared/{workspace_id}/{path.lstrip('/')}"
-    return await client.volume_file_edit(
-        GLOBAL_VOLUME_ID, full_path,
-        body.get("old_string", ""), body.get("new_string", ""),
-        body.get("replace_all", False),
-    )
-
-
-@router.get("/agents/{agent_id}/files/tree")
-async def agent_files_tree(agent_id: str, user: dict = Depends(require_user)):
-    """Browse an agent's home directory on the volume."""
-    user_id = int(user["sub"])
-    async with get_db() as conn:
-        agent = await (await conn.execute(
-            "SELECT id FROM agents WHERE id = %s AND user_id = %s", (agent_id, user_id)
-        )).fetchone()
-        if not agent:
-            raise HTTPException(404, "agent not found")
-    if not GLOBAL_VOLUME_ID:
-        return {"tree": []}
-    from .agent_sdk_client import get_client
-    client = get_client()
-    return await client.volume_file_tree(GLOBAL_VOLUME_ID, f"agents/{agent_id}/home/")
-
-
 @router.delete("/workspaces/{workspace_id}/agents/{agent_id}")
 async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = Depends(require_user)):
     """Remove an agent from a workspace.
@@ -2958,13 +2830,8 @@ async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = 
         )).fetchone()) is not None
 
     # Clean up session via agent-sdk (best-effort)
-    if agent_row["session_id"]:
-        try:
-            from .agent_sdk_client import get_client
-            client = get_client()
-            await client.delete_session(agent_row["session_id"])
-        except Exception:
-            pass
+    from . import agents as agents_mod
+    await agents_mod.delete_agent_session(agent_row["session_id"])
 
     async with get_db() as conn:
         if has_runs:
@@ -2997,17 +2864,9 @@ async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)
         )).fetchall()
 
     # Clean up agent sessions via agent-sdk (best-effort)
-    try:
-        from .agent_sdk_client import get_client
-        client = get_client()
-        for a in agents:
-            if a["session_id"]:
-                try:
-                    await client.delete_session(a["session_id"])
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    from . import agents as agents_mod
+    for a in agents:
+        await agents_mod.delete_agent_session(a["session_id"])
 
     async with get_db() as conn:
         for a in agents:
