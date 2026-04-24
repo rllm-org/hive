@@ -2707,7 +2707,6 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         "prompt": system_prompt,
         "shared_mounts": [str(workspace_id)],
         "skills": ["rllm-org/hive#staging"],
-        "provision": False,  # lazy — don't provision sandbox yet
     }
     if GLOBAL_VOLUME_ID:
         config["volume_id"] = GLOBAL_VOLUME_ID
@@ -2747,15 +2746,11 @@ async def _setup_agent_sandbox(
     client, session_id: str, agent_id: str, agent_token: str,
     system_prompt: str, workspace_id: int,
 ) -> None:
-    """Background task: provision sandbox, install hive CLI, write CLAUDE.md."""
-    import logging
-    try:
-        # Trigger sandbox provisioning by sending start-sandbox
-        await client._json("POST", f"/sessions/{session_id}/start-sandbox", json={})
-    except Exception as e:
-        logging.warning("Failed to provision sandbox for agent %s: %s", agent_id, e)
-        return
+    """Background task: install hive CLI, configure credentials, write CLAUDE.md.
 
+    Sandbox is already running (eager provisioning). This just sets up the tools.
+    """
+    import logging
     hive_server = HIVE_SERVER_URL or "http://localhost:8000"
     setup_commands = " && ".join([
         'curl -LsSf https://astral.sh/uv/install.sh | sh',
