@@ -1214,17 +1214,9 @@ function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
     );
   }
 
-  if (error || tree.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
-        No shared files in this workspace yet.
-      </div>
-    );
-  }
-
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
-      <FileExplorer tree={tree} />
+      <FileExplorer tree={tree} loading={isLoading} />
     </div>
   );
 }
