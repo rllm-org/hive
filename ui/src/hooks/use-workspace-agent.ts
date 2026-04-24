@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { apiPostJson } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+import { SDK_BASE } from "@/lib/sdk";
 import {
   classifyMessageContent,
   extractSseTag,
@@ -39,7 +40,6 @@ export interface AgentState {
   cancelling: boolean;
   connecting: boolean;
   error: string | null;
-  sdkBaseUrl: string | null;
   sessionId: string | null;
 }
 
@@ -50,7 +50,6 @@ const EMPTY_STATE: AgentState = {
   cancelling: false,
   connecting: false,
   error: null,
-  sdkBaseUrl: null,
   sessionId: null,
 };
 
@@ -137,17 +136,13 @@ function processSseBlock(
   setMessages: MsgUpdater,
   setCommands: CmdUpdater,
   setIsLoading: LoadUpdater,
-  innerSessionId?: string | null,
 ) {
   const payload = parseSseData(block);
   if (!payload) return;
 
-  // Filter by session — shared sandbox broadcasts all events to all subscribers
-  if (innerSessionId) {
-    const params = (payload.params ?? {}) as Record<string, unknown>;
-    const eventSessionId = (params.sessionId as string) ?? (params.update as Record<string, unknown> | undefined)?.sessionId as string | undefined;
-    if (eventSessionId && eventSessionId !== innerSessionId) return;
-  }
+  // No client-side session filtering needed: agent-sdk's /events stream is
+  // already scoped per-session via the per-SessionState upstream URL
+  // (/v1/acp/{acp_session_id}) — each subscriber only sees its own events.
 
   const tag = extractSseTag(block);
   const classified = parseAcpPayload(payload, tag);
@@ -288,7 +283,6 @@ function processSseBlock(
 
 interface AgentConnection {
   abort: AbortController;
-  sdkBase: string;
   sdkSid: string;
 }
 
@@ -316,26 +310,14 @@ export function useWorkspaceAgents(
   }, []);
 
   // Start SSE stream for an agent (reusable by both initial connect and reconnect after cancel)
-  const startSseStream = useCallback((agentId: string, sdkBase: string, sdkSid: string, ctrl: AbortController) => {
+  const startSseStream = useCallback((agentId: string, sdkSid: string, ctrl: AbortController) => {
     (async () => {
       try {
-        const sseResp = await fetch(`${sdkBase}/sessions/${sdkSid}/events`, {
+        const sseResp = await fetch(`${SDK_BASE}/sessions/${sdkSid}/events`, {
           headers: { Accept: "text/event-stream" },
           signal: ctrl.signal,
         });
         if (!sseResp.ok || ctrl.signal.aborted) return;
-
-        let innerSessionId: string | null = null;
-        try {
-          const statusResp = await fetch(`${sdkBase}/sessions/${sdkSid}/status`, { signal: ctrl.signal });
-          if (statusResp.ok) {
-            const data = await statusResp.json();
-            if (data?.available_commands && !ctrl.signal.aborted) {
-              updateAgent(agentId, { commands: data.available_commands });
-            }
-            innerSessionId = data?.inner_session_id ?? null;
-          }
-        } catch { /* non-fatal */ }
 
         for await (const block of iterSseBlocks(sseResp, ctrl.signal)) {
           if (ctrl.signal.aborted) break;
@@ -344,7 +326,6 @@ export function useWorkspaceAgents(
             (fn) => updateMessages(agentId, fn),
             (cmds) => updateAgent(agentId, { commands: cmds }),
             (loading) => updateAgent(agentId, { isLoading: loading }),
-            innerSessionId,
           );
         }
       } catch (e) {
@@ -360,7 +341,7 @@ export function useWorkspaceAgents(
           if (!ctrl.signal.aborted) {
             const newCtrl = new AbortController();
             connectionsRef.current[agentId] = { ...conn, abort: newCtrl };
-            startSseStream(agentId, sdkBase, sdkSid, newCtrl);
+            startSseStream(agentId, sdkSid, newCtrl);
           }
         }
       }
@@ -395,47 +376,24 @@ export function useWorkspaceAgents(
 
       (async () => {
         try {
-          const resp = await apiPostJson<{ session_id: string; sdk_base_url: string; status?: string }>(
-            `/workspaces/${workspaceId}/agents/${agentId}/connect`,
-            {}
-          );
-          if (ctrl.signal.aborted) return;
-          const sdkBase = resp.sdk_base_url?.replace(/\/+$/, "");
-          const sdkSid = resp.session_id;
-          if (!sdkBase || !sdkSid) {
-            updateAgent(agentId, { connecting: false, error: "Agent SDK not configured" });
+          if (!SDK_BASE) {
+            updateAgent(agentId, { connecting: false, error: "NEXT_PUBLIC_AGENT_SDK_BASE_URL not set" });
             return;
           }
 
-          // If agent is still provisioning, poll until ready
-          if (resp.status === "provisioning") {
-            updateAgent(agentId, { sdkBaseUrl: sdkBase, sessionId: sdkSid });
-            const pollUntilReady = async () => {
-              for (let i = 0; i < 60; i++) { // poll for up to 5 minutes
-                if (ctrl.signal.aborted) return false;
-                await new Promise(r => setTimeout(r, 5000));
-                try {
-                  const check = await apiPostJson<{ status?: string }>(
-                    `/workspaces/${workspaceId}/agents/${agentId}/connect`, {}
-                  );
-                  if (check.status === "ready") return true;
-                } catch { /* keep polling */ }
-              }
-              return false;
-            };
-            const ready = await pollUntilReady();
-            if (!ready || ctrl.signal.aborted) {
-              updateAgent(agentId, { connecting: false, error: "Agent setup timed out" });
-              return;
-            }
-          }
+          const row = await apiFetch<{ session_id: string | null }>(
+            `/workspaces/${workspaceId}/agents/${agentId}`,
+          );
+          if (ctrl.signal.aborted) return;
+          const sdkSid = row.session_id;
+          if (!sdkSid) throw new Error("agent has no session");
 
-          connectionsRef.current[agentId] = { abort: ctrl, sdkBase, sdkSid };
-          updateAgent(agentId, { sdkBaseUrl: sdkBase, sessionId: sdkSid });
+          connectionsRef.current[agentId] = { abort: ctrl, sdkSid };
+          updateAgent(agentId, { sessionId: sdkSid });
 
           // Cold-load history
           try {
-            const logResp = await fetch(`${sdkBase}/sessions/${sdkSid}/log?limit=500`, { signal: ctrl.signal });
+            const logResp = await fetch(`${SDK_BASE}/sessions/${sdkSid}/log?limit=500`, { signal: ctrl.signal });
             if (logResp.ok) {
               const logData = await logResp.json();
               const events = logData.events ?? logData ?? [];
@@ -447,7 +405,7 @@ export function useWorkspaceAgents(
           updateAgent(agentId, { connecting: false });
 
           // Live SSE
-          startSseStream(agentId, sdkBase, sdkSid, ctrl);
+          startSseStream(agentId, sdkSid, ctrl);
         } catch (e) {
           if (!ctrl.signal.aborted) {
             updateAgent(agentId, { error: e instanceof Error ? e.message : String(e), connecting: false });
@@ -470,15 +428,32 @@ export function useWorkspaceAgents(
     if (!text.trim()) return;
     updateMessages(agentId, (prev) => [...prev, { role: "user", content: text }]);
     updateAgent(agentId, { isLoading: true });
-    const conn = connectionsRef.current[agentId];
-    if (conn) {
-      await fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/message`, {
+    let sdkSid: string | undefined = connectionsRef.current[agentId]?.sdkSid;
+    if (!sdkSid && workspaceId != null) {
+      try {
+        const row = await apiFetch<{ session_id: string | null }>(
+          `/workspaces/${workspaceId}/agents/${agentId}`,
+        );
+        sdkSid = row.session_id ?? undefined;
+      } catch { /* fall through */ }
+    }
+    if (!sdkSid) {
+      updateAgent(agentId, { isLoading: false, error: "agent has no session" });
+      return;
+    }
+    try {
+      const res = await fetch(`${SDK_BASE}/sessions/${sdkSid}/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
       });
+      if (!res.ok) {
+        updateAgent(agentId, { isLoading: false, error: `send failed: ${res.status}` });
+      }
+    } catch (e) {
+      updateAgent(agentId, { isLoading: false, error: `send failed: ${String(e)}` });
     }
-  }, [updateMessages, updateAgent]);
+  }, [updateMessages, updateAgent, workspaceId]);
 
   const cancel = useCallback(async (agentId: string) => {
     const conn = connectionsRef.current[agentId];
@@ -487,7 +462,7 @@ export function useWorkspaceAgents(
     updateAgent(agentId, { cancelling: true });
 
     try {
-      const res = await fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/cancel`, { method: "POST" });
+      const res = await fetch(`${SDK_BASE}/sessions/${conn.sdkSid}/cancel`, { method: "POST" });
       if (res.ok) {
         updateAgent(agentId, { cancelling: false });
         return;
@@ -503,7 +478,7 @@ export function useWorkspaceAgents(
   const setModel = useCallback(async (agentId: string, model: string) => {
     const conn = connectionsRef.current[agentId];
     if (!conn) throw new Error("set_model: agent not connected");
-    const res = await fetch(`${conn.sdkBase}/sessions/${conn.sdkSid}/config`, {
+    const res = await fetch(`${SDK_BASE}/sessions/${conn.sdkSid}/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model }),
@@ -543,7 +518,6 @@ export function useWorkspaceAgent(workspaceId: string | number | null, agentId: 
     error: state.error,
     sendMessage,
     cancel,
-    sdkBaseUrl: state.sdkBaseUrl,
     sessionId: state.sessionId,
   };
 }

@@ -537,8 +537,7 @@ async def _dispatch_workspace_mentions(
     if not mentions:
         return
     try:
-        from .agent_sdk_client import get_client
-        client = get_client()
+        from .sdk import sdk
     except Exception:
         return
 
@@ -570,7 +569,7 @@ async def _dispatch_workspace_mentions(
                 f"Reply if needed using: /home/daytona/.local/bin/hive chat send --workspace {workspace_id} --thread {msg_ts} \"<your reply>\""
             )
 
-            await client.send_message(agent["session_id"], prompt)
+            await sdk.send_message(agent["session_id"], prompt)
             log.info("Dispatched mention to agent %s (session %s)", agent["id"], agent["session_id"])
         except Exception as e:
             log.warning("Failed to dispatch mention to agent %s: %s", agent["id"], e)

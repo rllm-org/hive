@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import re
 import tempfile
@@ -416,8 +417,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        from .agent_sdk_client import close_client
-        await close_client()
+        from .sdk import close_sdk
+        await close_sdk()
         await close_pool()
 
 
@@ -1254,7 +1255,6 @@ async def delete_agent(agent_id: str, user: dict = Depends(require_user)):
     If the agent has runs it is preserved (unlinked from workspace) to keep
     public history intact.
     """
-    from .agent_sdk_client import get_client
     user_id = int(user["sub"])
     async with get_db() as conn:
         agent = await (await conn.execute(
@@ -1268,21 +1268,24 @@ async def delete_agent(agent_id: str, user: dict = Depends(require_user)):
         )).fetchone()) is not None
 
     # Clean up session via agent-sdk (best-effort)
-    if agent["session_id"]:
-        try:
-            client = get_client()
-            await client.delete_session(agent["session_id"])
-        except Exception:
-            pass
+    from . import agents as agents_mod
+    await agents_mod.delete_agent_session(agent["session_id"])
 
     async with get_db() as conn:
         if has_runs:
+            # Preserve row for public task leaderboard, but scrub personal/workspace data.
+            await conn.execute("DELETE FROM messages WHERE agent_id = %s", (agent_id,))
+            await conn.execute("DELETE FROM inbox_cursors WHERE agent_id = %s", (agent_id,))
+            await conn.execute("UPDATE channels SET created_by = NULL WHERE created_by = %s", (agent_id,))
             await conn.execute(
                 "UPDATE agents SET workspace_id = NULL, session_id = NULL WHERE id = %s",
                 (agent_id,),
             )
             return {"status": "unlinked", "reason": "agent has runs and was preserved"}
         else:
+            await conn.execute("DELETE FROM messages WHERE agent_id = %s", (agent_id,))
+            await conn.execute("DELETE FROM inbox_cursors WHERE agent_id = %s", (agent_id,))
+            await conn.execute("UPDATE channels SET created_by = NULL WHERE created_by = %s", (agent_id,))
             await conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))
             return {"status": "deleted"}
 
@@ -2647,18 +2650,40 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
     return _serialize_workspace(row, agents=agents)
 
 
+async def _create_agent_session(
+    agent_row: dict, workspace_row: dict, body: dict[str, Any], user_oauth_token: str | None,
+    agent_token: str,
+) -> str:
+    from . import agents
+    workspace_name = workspace_row["name"]
+    workspace_id = workspace_row["id"]
+    prompt = _build_agent_system_prompt(dict(agent_row), workspace_id, workspace_name)
+    return await agents.create_agent_session(
+        agent_row=agent_row,
+        workspace_row=workspace_row,
+        body=body,
+        user_oauth_token=user_oauth_token,
+        system_prompt=prompt,
+        provider=AGENT_SDK_PROVIDER,
+        global_volume_id=GLOBAL_VOLUME_ID,
+        hive_server_url=HIVE_SERVER_URL,
+        agent_token=agent_token,
+    )
+
+
 @router.post("/workspaces/{workspace_id}/agents")
 async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user: dict = Depends(require_user)):
-    """Create a new agent and provision its session immediately.
+    """Create a new agent and mint its agent-sdk session.
 
-    The user waits for agent-sdk provisioning so the agent is chattable
-    right away.
+    After this returns, the UI talks directly to agent-sdk at
+    ``NEXT_PUBLIC_AGENT_SDK_BASE_URL`` for /log, /message, /events,
+    /cancel, and /files/*. Sandbox lifecycle is agent-sdk's concern —
+    it auto-revives the sandbox via ensure_session_live.
 
     Body:
       name (optional) — custom agent id; otherwise auto-generated
       harness (optional), model (optional), role (optional), description (optional)
     """
-    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
     user_id = int(user["sub"])
     requested_name = (body.get("name") or "").strip().lower()
     async with get_db() as conn:
@@ -2690,37 +2715,16 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             (agent_id, agent_token, ts, ts, user_id, ws_type, harness, model_name, str(uuid.uuid4()), workspace_id, agent_role, agent_desc)
         )
 
-    # Phase 1: Create session (returns quickly with lazy provisioning)
-    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
-
+    # Provision session via agent-sdk (user waits). If it fails, roll back
+    # the agent row so we don't leave a zombie with no session_id.
     user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
     agent_row = {"id": agent_id, "role": agent_role, "description": agent_desc, "model": model_name}
-    system_prompt = _build_agent_system_prompt(agent_row, workspace_id, ws["name"])
-
-    client = get_client()
-    config: dict[str, Any] = {
-        "name": f"agent-{agent_id}",
-        "provider": AGENT_SDK_PROVIDER,
-        "agent_type": body.get("agent_type", "claude"),
-        "model": model_name,
-        "cwd": body.get("cwd", "/home/daytona"),
-        "prompt": system_prompt,
-        "shared_mounts": [str(workspace_id)],
-        "skills": ["rllm-org/hive#staging"],
-    }
-    if GLOBAL_VOLUME_ID:
-        config["volume_id"] = GLOBAL_VOLUME_ID
-    if user_oauth_token:
-        config["secrets"] = {"CLAUDE_CODE_OAUTH_TOKEN": user_oauth_token}
-    if HIVE_SERVER_URL:
-        config["mcp_servers"] = {
-            "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
-        }
-
-    upstream = await client.create_session(**config)
-    session_id = upstream.get("session_id") or upstream.get("id")
-    if not session_id:
-        raise HTTPException(502, f"Failed to create agent session: {upstream}")
+    try:
+        session_id = await _create_agent_session(agent_row, ws, body, user_oauth_token, agent_token)
+    except Exception:
+        async with get_db() as conn:
+            await conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))
+        raise
 
     async with get_db() as conn:
         await conn.execute(
@@ -2728,51 +2732,40 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             (session_id, agent_id),
         )
 
-    # Phase 2: Provision sandbox + setup (background task)
-    asyncio.create_task(_setup_agent_sandbox(
-        client, session_id, agent_id, agent_token, system_prompt, workspace_id,
-    ))
-
     return {
         "id": agent_id,
         "token": agent_token,
         "workspace_id": workspace_id,
         "session_id": session_id,
-        "sdk_base_url": AGENT_SDK_BASE_URL,
     }
 
 
-async def _setup_agent_sandbox(
-    client, session_id: str, agent_id: str, agent_token: str,
-    system_prompt: str, workspace_id: int,
-) -> None:
-    """Background task: install hive CLI, configure credentials, write CLAUDE.md.
+@router.get("/workspaces/{workspace_id}/agents/{agent_id}")
+async def get_workspace_agent(
+    workspace_id: int, agent_id: str, user: dict = Depends(require_user),
+):
+    """Return agent identity + its agent-sdk session handle.
 
-    Sandbox is already running (eager provisioning). This just sets up the tools.
+    Dumb DB read. The UI fetches /log and subscribes to /events; agent-sdk auto-revives the sandbox via ensure_session_live.
     """
-    import logging
-    hive_server = HIVE_SERVER_URL or "http://localhost:8000"
-    setup_commands = " && ".join([
-        'curl -LsSf https://astral.sh/uv/install.sh | sh',
-        'export PATH="$HOME/.local/bin:$PATH"',
-        'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
-        'mkdir -p ~/.hive/agents',
-        f'echo \'{{"agent_id": "{agent_id}", "token": "{agent_token}"}}\' > ~/.hive/agents/{agent_id}.json',
-        f'echo \'{{"server_url": "{hive_server}", "default_agent": "{agent_id}"}}\' > ~/.hive/config.json',
-        'echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc',
-    ])
-    try:
-        await client.sandbox_exec(session_id, setup_commands)
-    except Exception as e:
-        logging.warning("Failed to set up hive CLI for agent %s: %s", agent_id, e)
-    try:
-        await client.sandbox_exec(
-            session_id,
-            f"cat > /home/daytona/CLAUDE.md << 'HIVE_EOF'\n{system_prompt}\nHIVE_EOF",
-            timeout=10,
-        )
-    except Exception as e:
-        logging.warning("Failed to write CLAUDE.md for agent %s: %s", agent_id, e)
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT a.id, a.session_id, a.role, a.description, a.model, a.harness"
+            " FROM agents a JOIN workspaces w ON a.workspace_id = w.id"
+            " WHERE a.id = %s AND w.id = %s AND w.user_id = %s",
+            (agent_id, workspace_id, user_id),
+        )).fetchone()
+    if not row:
+        raise HTTPException(404, "agent not in this workspace")
+    return {
+        "id": row["id"],
+        "session_id": row.get("session_id"),
+        "role": row.get("role"),
+        "description": row.get("description"),
+        "model": row.get("model"),
+        "harness": row.get("harness"),
+    }
 
 
 GLOBAL_VOLUME_ID = os.environ.get("HIVE_VOLUME_ID", "")
@@ -2812,137 +2805,6 @@ def _build_agent_system_prompt(agent_row: dict, workspace_id: int, workspace_nam
     return "\n".join(parts)
 
 
-@router.post("/workspaces/{workspace_id}/agents/{agent_id}/connect")
-async def connect_workspace_agent(
-    workspace_id: int, agent_id: str, body: dict[str, Any] = {}, user: dict = Depends(require_user),
-):
-    """Return the agent's session_id for the frontend to connect directly to agent-sdk.
-
-    Agent-sdk handles sandbox lifecycle automatically — if the sandbox died,
-    the first /message call will re-provision it.
-    """
-    from .agent_sdk_client import AGENT_SDK_BASE_URL
-    user_id = int(user["sub"])
-
-    async with get_db() as conn:
-        ws = await (await conn.execute(
-            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s",
-            (workspace_id, user_id),
-        )).fetchone()
-        if not ws:
-            raise HTTPException(404, "workspace not found")
-        agent = await (await conn.execute(
-            "SELECT id, session_id FROM agents WHERE id = %s AND workspace_id = %s",
-            (agent_id, workspace_id),
-        )).fetchone()
-        if not agent:
-            raise HTTPException(404, "agent not in this workspace")
-
-    if not agent["session_id"]:
-        raise HTTPException(404, "agent has no session — try recreating the agent")
-
-    # Check if sandbox is ready
-    status = "ready"
-    try:
-        from .agent_sdk_client import get_client
-        client = get_client()
-        session_info = await client._json("GET", f"/sessions/{agent['session_id']}")
-        if not session_info.get("current_sandbox_id"):
-            status = "provisioning"
-    except Exception:
-        status = "provisioning"
-
-    return {
-        "session_id": agent["session_id"],
-        "sdk_base_url": AGENT_SDK_BASE_URL,
-        "status": status,
-    }
-
-
-# ── Workspace file proxy (shared volume) ────────────────────────────────────
-
-
-@router.get("/workspaces/{workspace_id}/files/tree")
-async def workspace_files_tree(workspace_id: int, user: dict = Depends(require_user)):
-    """Browse shared workspace files via the global volume."""
-    user_id = int(user["sub"])
-    async with get_db() as conn:
-        ws = await (await conn.execute(
-            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s", (workspace_id, user_id)
-        )).fetchone()
-        if not ws:
-            raise HTTPException(404, "workspace not found")
-    if not GLOBAL_VOLUME_ID:
-        return {"tree": []}
-    from .agent_sdk_client import get_client
-    client = get_client()
-    return await client.volume_file_tree(GLOBAL_VOLUME_ID, f"shared/{workspace_id}/")
-
-
-@router.get("/workspaces/{workspace_id}/files/read")
-async def workspace_files_read(
-    workspace_id: int, path: str = Query(...), user: dict = Depends(require_user),
-):
-    """Read a file from shared workspace files."""
-    user_id = int(user["sub"])
-    async with get_db() as conn:
-        ws = await (await conn.execute(
-            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s", (workspace_id, user_id)
-        )).fetchone()
-        if not ws:
-            raise HTTPException(404, "workspace not found")
-    if not GLOBAL_VOLUME_ID:
-        raise HTTPException(404, "volume not configured")
-    from .agent_sdk_client import get_client
-    client = get_client()
-    full_path = f"shared/{workspace_id}/{path.lstrip('/')}"
-    return await client.volume_file_read(GLOBAL_VOLUME_ID, full_path)
-
-
-@router.post("/workspaces/{workspace_id}/files/edit")
-async def workspace_files_edit(
-    workspace_id: int, body: dict[str, Any], user: dict = Depends(require_user),
-):
-    """Edit a file in shared workspace files."""
-    user_id = int(user["sub"])
-    async with get_db() as conn:
-        ws = await (await conn.execute(
-            "SELECT id FROM workspaces WHERE id = %s AND user_id = %s", (workspace_id, user_id)
-        )).fetchone()
-        if not ws:
-            raise HTTPException(404, "workspace not found")
-    if not GLOBAL_VOLUME_ID:
-        raise HTTPException(404, "volume not configured")
-    path = body.get("path", "")
-    if not path:
-        raise HTTPException(400, "path is required")
-    from .agent_sdk_client import get_client
-    client = get_client()
-    full_path = f"shared/{workspace_id}/{path.lstrip('/')}"
-    return await client.volume_file_edit(
-        GLOBAL_VOLUME_ID, full_path,
-        body.get("old_string", ""), body.get("new_string", ""),
-        body.get("replace_all", False),
-    )
-
-
-@router.get("/agents/{agent_id}/files/tree")
-async def agent_files_tree(agent_id: str, user: dict = Depends(require_user)):
-    """Browse an agent's home directory on the volume."""
-    user_id = int(user["sub"])
-    async with get_db() as conn:
-        agent = await (await conn.execute(
-            "SELECT id FROM agents WHERE id = %s AND user_id = %s", (agent_id, user_id)
-        )).fetchone()
-        if not agent:
-            raise HTTPException(404, "agent not found")
-    if not GLOBAL_VOLUME_ID:
-        return {"tree": []}
-    from .agent_sdk_client import get_client
-    client = get_client()
-    return await client.volume_file_tree(GLOBAL_VOLUME_ID, f"agents/{agent_id}/home/")
-
-
 @router.delete("/workspaces/{workspace_id}/agents/{agent_id}")
 async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = Depends(require_user)):
     """Remove an agent from a workspace.
@@ -2968,22 +2830,23 @@ async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = 
         )).fetchone()) is not None
 
     # Clean up session via agent-sdk (best-effort)
-    if agent_row["session_id"]:
-        try:
-            from .agent_sdk_client import get_client
-            client = get_client()
-            await client.delete_session(agent_row["session_id"])
-        except Exception:
-            pass
+    from . import agents as agents_mod
+    await agents_mod.delete_agent_session(agent_row["session_id"])
 
     async with get_db() as conn:
         if has_runs:
+            await conn.execute("DELETE FROM messages WHERE agent_id = %s", (agent_id,))
+            await conn.execute("DELETE FROM inbox_cursors WHERE agent_id = %s", (agent_id,))
+            await conn.execute("UPDATE channels SET created_by = NULL WHERE created_by = %s", (agent_id,))
             await conn.execute(
                 "UPDATE agents SET workspace_id = NULL, session_id = NULL WHERE id = %s",
                 (agent_id,)
             )
             return {"status": "unlinked", "reason": "agent has runs and was preserved"}
         else:
+            await conn.execute("DELETE FROM messages WHERE agent_id = %s", (agent_id,))
+            await conn.execute("DELETE FROM inbox_cursors WHERE agent_id = %s", (agent_id,))
+            await conn.execute("UPDATE channels SET created_by = NULL WHERE created_by = %s", (agent_id,))
             await conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))
             return {"status": "deleted"}
 
@@ -3007,20 +2870,15 @@ async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)
         )).fetchall()
 
     # Clean up agent sessions via agent-sdk (best-effort)
-    try:
-        from .agent_sdk_client import get_client
-        client = get_client()
-        for a in agents:
-            if a["session_id"]:
-                try:
-                    await client.delete_session(a["session_id"])
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    from . import agents as agents_mod
+    for a in agents:
+        await agents_mod.delete_agent_session(a["session_id"])
 
     async with get_db() as conn:
         for a in agents:
+            await conn.execute("DELETE FROM messages WHERE agent_id = %s", (a["id"],))
+            await conn.execute("DELETE FROM inbox_cursors WHERE agent_id = %s", (a["id"],))
+            await conn.execute("UPDATE channels SET created_by = NULL WHERE created_by = %s", (a["id"],))
             if a["has_runs"]:
                 await conn.execute(
                     "UPDATE agents SET workspace_id = NULL, session_id = NULL WHERE id = %s",

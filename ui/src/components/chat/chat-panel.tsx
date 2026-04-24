@@ -23,6 +23,7 @@ import { Modal, ModalHeader, ModalBody } from "@/components/shared/modal";
 import { useAuth } from "@/lib/auth";
 import useSWR from "swr";
 import { apiFetch, apiPatch, apiPostJson, apiDelete } from "@/lib/api";
+import { SDK_BASE } from "@/lib/sdk";
 
 interface ChatPanelProps {
   taskPath: string;
@@ -564,11 +565,8 @@ function MembersSectionHeader({ workspaceId, onAgentCreated }: { workspaceId?: n
       resetForm();
       setShowModal(false);
       onAgentCreated?.(result.id);
-    } catch {
-      // Agent may have been created despite timeout/500 — close modal and refresh
-      resetForm();
-      setShowModal(false);
-      onAgentCreated?.(name);
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : "Failed to create agent");
     } finally {
       setCreating(false);
     }
@@ -1214,10 +1212,15 @@ function ChatChannelView({
 
 /* ──────────────────────────────────────────────── Workspace settings ──────────────────────────────────────────────── */
 
+const HIVE_VOLUME_ID = process.env.NEXT_PUBLIC_HIVE_VOLUME_ID ?? "";
+
 function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
+  const url = HIVE_VOLUME_ID && SDK_BASE
+    ? `${SDK_BASE}/volumes/${HIVE_VOLUME_ID}/files/tree?path=shared/${workspaceId}/`
+    : null;
   const { data, isLoading, error } = useSWR(
-    `/workspaces/${workspaceId}/files/tree`,
-    apiFetch,
+    url,
+    (u: string) => fetch(u).then(r => r.json()),
     { refreshInterval: 15000 },
   );
 
@@ -1237,6 +1240,17 @@ function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
     return nodes;
   }, [data]);
 
+  const readFile = useCallback(async (path: string) => {
+    if (!HIVE_VOLUME_ID || !SDK_BASE) return undefined;
+    const full = path.startsWith("shared/") ? path : `shared/${workspaceId}/${path.replace(/^\/+/, "")}`;
+    const resp = await fetch(
+      `${SDK_BASE}/volumes/${HIVE_VOLUME_ID}/files/read?path=${encodeURIComponent(full)}`,
+    );
+    if (!resp.ok) return undefined;
+    const j = await resp.json();
+    return { content: (j.content as string) ?? "" };
+  }, [workspaceId]);
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
@@ -1245,7 +1259,7 @@ function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
     );
   }
 
-  return <FileExplorer tree={tree} loading={isLoading} />;
+  return <FileExplorer tree={tree} loading={isLoading} onReadFile={readFile} />;
 }
 
 function WorkspaceSettings({ workspaceId, workspaceName }: { workspaceId: number; workspaceName: string }) {

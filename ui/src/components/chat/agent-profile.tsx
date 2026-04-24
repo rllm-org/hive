@@ -76,19 +76,8 @@ const AGENT_PANEL_TABS: { id: AgentPanelTab; label: string }[] = [
   { id: "activity", label: "Activity" },
 ];
 
-function AgentFilesView({ sdkBaseUrl, sessionId }: { sdkBaseUrl?: string | null; sessionId?: string | null }) {
-  const [sandboxId, setSandboxId] = useState<string | null>(null);
-
-  // Fetch sandbox_id from agent-sdk session status
-  useEffect(() => {
-    if (!sdkBaseUrl || !sessionId) return;
-    fetch(`${sdkBaseUrl}/sessions/${sessionId}/status`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data?.current_sandbox_id) setSandboxId(data.current_sandbox_id); })
-      .catch(() => {});
-  }, [sdkBaseUrl, sessionId]);
-
-  const { tree, loading } = useWorkspaceFiles(sdkBaseUrl ?? null, sandboxId);
+function AgentFilesView({ sessionId }: { sessionId?: string | null }) {
+  const { tree, loading } = useWorkspaceFiles(sessionId ?? null);
   return <FileExplorer tree={tree} loading={loading} />;
 }
 
@@ -96,7 +85,7 @@ export function AgentProfilePanel({ agentId, onClose, width, workspaceId }: Agen
   const { agent } = useAgent(agentId);
   const [tab, setTab] = useState<AgentPanelTab>("profile");
   const needsConnection = tab === "activity" || tab === "workspace";
-  const { messages: activityMessages, sendMessage, cancel, isLoading, sdkBaseUrl, sessionId } = useWorkspaceAgent(
+  const { messages: activityMessages, sendMessage, cancel, isLoading, sessionId } = useWorkspaceAgent(
     workspaceId ?? null, needsConnection ? agentId : null,
   );
 
@@ -157,7 +146,7 @@ export function AgentProfilePanel({ agentId, onClose, width, workspaceId }: Agen
         )}
 
         {tab === "workspace" && (
-          <AgentFilesView sdkBaseUrl={sdkBaseUrl} sessionId={sessionId} />
+          <AgentFilesView sessionId={sessionId} />
         )}
       </div>
     </aside>
