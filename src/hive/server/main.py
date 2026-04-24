@@ -2703,7 +2703,7 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             (agent_id, agent_token, ts, ts, user_id, ws_type, harness, model_name, str(uuid.uuid4()), workspace_id, agent_role, agent_desc)
         )
 
-    # Provision session via POST /sessions
+    # Phase 1: Create session (returns quickly with lazy provisioning)
     from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
 
     user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
@@ -2720,6 +2720,7 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         "prompt": system_prompt,
         "shared_mounts": [str(workspace_id)],
         "skills": ["rllm-org/hive#staging"],
+        "provision": False,  # lazy — don't provision sandbox yet
     }
     if GLOBAL_VOLUME_ID:
         config["volume_id"] = GLOBAL_VOLUME_ID
@@ -2735,15 +2736,44 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
     if not session_id:
         raise HTTPException(502, f"Failed to create agent session: {upstream}")
 
-    # Post-creation setup: install hive CLI and write CLAUDE.md
+    async with get_db() as conn:
+        await conn.execute(
+            "UPDATE agents SET session_id = %s WHERE id = %s",
+            (session_id, agent_id),
+        )
+
+    # Phase 2: Provision sandbox + setup (background task)
+    asyncio.create_task(_setup_agent_sandbox(
+        client, session_id, agent_id, agent_token, system_prompt, workspace_id,
+    ))
+
+    return {
+        "id": agent_id,
+        "token": agent_token,
+        "workspace_id": workspace_id,
+        "session_id": session_id,
+        "sdk_base_url": AGENT_SDK_BASE_URL,
+    }
+
+
+async def _setup_agent_sandbox(
+    client, session_id: str, agent_id: str, agent_token: str,
+    system_prompt: str, workspace_id: int,
+) -> None:
+    """Background task: provision sandbox, install hive CLI, write CLAUDE.md."""
     import logging
+    try:
+        # Trigger sandbox provisioning by sending start-sandbox
+        await client._json("POST", f"/sessions/{session_id}/start-sandbox", json={})
+    except Exception as e:
+        logging.warning("Failed to provision sandbox for agent %s: %s", agent_id, e)
+        return
+
     hive_server = HIVE_SERVER_URL or "http://localhost:8000"
     setup_commands = " && ".join([
-        # Install uv + hive CLI
         'curl -LsSf https://astral.sh/uv/install.sh | sh',
         'export PATH="$HOME/.local/bin:$PATH"',
         'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
-        # Configure hive CLI credentials
         'mkdir -p ~/.hive/agents',
         f'echo \'{{"agent_id": "{agent_id}", "token": "{agent_token}"}}\' > ~/.hive/agents/{agent_id}.json',
         f'echo \'{{"server_url": "{hive_server}", "default_agent": "{agent_id}"}}\' > ~/.hive/config.json',
@@ -2760,20 +2790,6 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         )
     except Exception as e:
         logging.warning("Failed to write CLAUDE.md for agent %s: %s", agent_id, e)
-
-    async with get_db() as conn:
-        await conn.execute(
-            "UPDATE agents SET session_id = %s WHERE id = %s",
-            (session_id, agent_id),
-        )
-
-    return {
-        "id": agent_id,
-        "token": agent_token,
-        "workspace_id": workspace_id,
-        "session_id": session_id,
-        "sdk_base_url": AGENT_SDK_BASE_URL,
-    }
 
 
 GLOBAL_VOLUME_ID = os.environ.get("HIVE_VOLUME_ID", "")
@@ -3020,7 +3036,13 @@ async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)
                 )
             else:
                 await conn.execute("DELETE FROM agents WHERE id = %s", (a["id"],))
-        # Cascade deletes workspace channel + messages
+        # Delete messages → channels → workspace_tasks → workspace
+        await conn.execute(
+            "DELETE FROM messages WHERE channel_id IN (SELECT id FROM channels WHERE workspace_id = %s)",
+            (workspace_id,),
+        )
+        await conn.execute("DELETE FROM channels WHERE workspace_id = %s", (workspace_id,))
+        await conn.execute("DELETE FROM workspace_tasks WHERE workspace_id = %s", (workspace_id,))
         await conn.execute("DELETE FROM workspaces WHERE id = %s", (workspace_id,))
     return {"status": "ok", "agents_deleted": sum(1 for a in agents if not a["has_runs"]),
             "agents_unlinked": sum(1 for a in agents if a["has_runs"])}
