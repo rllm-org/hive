@@ -168,7 +168,7 @@ Without `--workspace`, commands use `--task` (existing behavior for task Slack2)
 
 **Workspace Agents:**
 - `POST /workspaces/{id}/agents` — create + provision session
-- `POST /workspaces/{id}/agents/{id}/connect` — get session_id for frontend
+- `GET /workspaces/{id}/agents/{id}` — get agent details + session_id
 - `DELETE /workspaces/{id}/agents/{id}` — remove from workspace
 
 **Workspace Messaging (Slack1):**
@@ -203,7 +203,7 @@ Without `--workspace`, commands use `--task` (existing behavior for task Slack2)
 |----------|-------------|---------|
 | `AGENT_SDK_BASE_URL` | Agent-SDK server URL | `https://agent-sdk-server.up.railway.app` |
 | `AGENT_SDK_PROVIDER` | Sandbox provider | `daytona` |
-| `HIVE_VOLUME_ID` | Global volume ID | `vol_7d4eb7f21508` |
+| `HIVE_VOLUME_ID` | Global volume ID | — |
 | `HIVE_SERVER` | Hive server URL (for MCP + CLI) | `https://hive-server.up.railway.app` |
 | `JWT_SECRET` | JWT signing key | — |
 | `DATABASE_URL` | PostgreSQL connection | `postgresql://...` |
