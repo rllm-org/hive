@@ -168,7 +168,7 @@ export function AgentChat({
           {modelOpen && models.length > 0 && (
             <div className="absolute bottom-full mb-2 left-0 z-50 bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[220px]" style={{ borderRadius: 8 }}>
               {models.map((m) => {
-                const isCurrent = m.id === currentModel;
+                const isCurrent = m.id === activeModel;
                 return (
                   <button
                     key={m.id}
