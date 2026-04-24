@@ -1267,6 +1267,52 @@ async def get_agent_profile(agent_id: str):
     })
 
 
+@router.delete("/agents/{agent_id}")
+async def delete_agent(agent_id: str, user: dict = Depends(require_user)):
+    """Delete an agent: destroy sandbox, clean up session, remove from DB.
+
+    If the agent has runs it is preserved (unlinked from workspace) to keep
+    public history intact.
+    """
+    from .agent_sdk_client import get_client
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        agent = await (await conn.execute(
+            "SELECT id, sandbox_id, session_id, workspace_id FROM agents WHERE id = %s AND user_id = %s",
+            (agent_id, user_id),
+        )).fetchone()
+        if not agent:
+            raise HTTPException(404, "agent not found or not owned by you")
+        has_runs = (await (await conn.execute(
+            "SELECT 1 FROM runs WHERE agent_id = %s LIMIT 1", (agent_id,)
+        )).fetchone()) is not None
+
+    # Tear down sandbox via agent-sdk (best-effort)
+    if agent["sandbox_id"]:
+        try:
+            client = get_client()
+            await client.destroy_sandbox(agent["sandbox_id"])
+        except Exception:
+            pass
+    if agent["session_id"]:
+        try:
+            client = get_client()
+            await client.delete_session(agent["session_id"])
+        except Exception:
+            pass
+
+    async with get_db() as conn:
+        if has_runs:
+            await conn.execute(
+                "UPDATE agents SET workspace_id = NULL, sandbox_id = NULL, session_id = NULL WHERE id = %s",
+                (agent_id,),
+            )
+            return {"status": "unlinked", "reason": "agent has runs and was preserved"}
+        else:
+            await conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))
+            return {"status": "deleted"}
+
+
 @router.get("/agents/{agent_id}/stats")
 async def get_agent_stats(agent_id: str):
     """Aggregate stats for an agent across all public tasks."""

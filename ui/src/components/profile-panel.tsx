@@ -6,7 +6,7 @@ import { ClaimAgentModal } from "@/components/claim-agent-modal";
 import { ClaudeConnectModal } from "@/components/claude-connect-modal";
 import { Avatar } from "@/components/shared";
 import { useRouter } from "next/navigation";
-import { LuBot, LuActivity, LuPlus, LuGithub, LuLogOut, LuRefreshCw, LuMonitor, LuLaptop, LuCloud, LuMail, LuKeyRound } from "react-icons/lu";
+import { LuBot, LuActivity, LuPlus, LuGithub, LuLogOut, LuRefreshCw, LuMonitor, LuLaptop, LuCloud, LuMail, LuKeyRound, LuMoreVertical, LuTrash2 } from "react-icons/lu";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PasswordSection } from "@/components/settings-panel";
@@ -355,6 +355,105 @@ function CreateWorkspaceModal({ onClose, onCreated, existingNames }: { onClose: 
   );
 }
 
+function AgentCard({ agent, onDeleted }: { agent: AgentInfo; onDeleted: () => void }) {
+  const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+        setConfirmDelete(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`${API_BASE}/agents/${agent.id}`, {
+        method: "DELETE",
+        headers: getAuthHeader(),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail ?? "Failed to delete");
+      }
+      setMenuOpen(false);
+      onDeleted();
+    } catch {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="relative flex items-center gap-3 p-4 bg-[var(--color-surface)] border border-[var(--color-border)] hover:bg-[var(--color-layer-1)] transition-colors">
+      <div
+        className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+        onClick={() => router.push(`/agents/${agent.id}?from=Account`)}
+      >
+        <Avatar id={agent.id} seed={agent.avatar_seed} kind="agent" size="md" />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-[var(--color-text)] truncate">
+            {agent.id}
+          </div>
+          <div className="text-xs text-[var(--color-text-tertiary)] flex items-center gap-1.5 mt-0.5">
+            <LuActivity size={11} />
+            {agent.total_runs} runs
+          </div>
+        </div>
+      </div>
+      <div ref={menuRef} className="relative shrink-0">
+        <button
+          onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); setConfirmDelete(false); }}
+          className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-layer-2)] transition-colors"
+        >
+          <LuMoreVertical size={14} />
+        </button>
+        {menuOpen && (
+          <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg py-1 min-w-[140px]" style={{ borderRadius: 6 }}>
+            {!confirmDelete ? (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors text-left"
+              >
+                <LuTrash2 size={13} />
+                Delete agent
+              </button>
+            ) : (
+              <div className="px-3 py-2">
+                <p className="text-[12px] text-red-500 mb-2">Delete {agent.id}?</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    disabled={deleting}
+                    className="px-2 py-1 text-[12px] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="px-2 py-1 text-[12px] font-medium text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 transition-colors rounded"
+                  >
+                    {deleting ? "..." : "Confirm"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ProfilePanel() {
   const { user, logout, disconnectGithub, claudeStatus, claudeDisconnect } = useAuth();
   const router = useRouter();
@@ -593,22 +692,7 @@ export function ProfilePanel() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {profile?.agents.map((agent) => (
-                <div
-                  key={agent.id}
-                  onClick={() => router.push(`/agents/${agent.id}?from=Account`)}
-                  className="flex items-center gap-3 p-4 bg-[var(--color-surface)] border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-layer-1)] transition-colors"
-                >
-                  <Avatar id={agent.id} seed={agent.avatar_seed} kind="agent" size="md" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-[var(--color-text)] truncate">
-                      {agent.id}
-                    </div>
-                    <div className="text-xs text-[var(--color-text-tertiary)] flex items-center gap-1.5 mt-0.5">
-                      <LuActivity size={11} />
-                      {agent.total_runs} runs
-                    </div>
-                  </div>
-                </div>
+                <AgentCard key={agent.id} agent={agent} onDeleted={fetchProfile} />
               ))}
             </div>
           </div>
