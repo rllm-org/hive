@@ -2664,6 +2664,7 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
     agent_row = {"id": agent_id, "role": agent_role, "description": agent_desc, "model": model_name}
     config: dict[str, Any] = {
         "name": f"agent-{agent_id}",
+        "provider": AGENT_SDK_PROVIDER,
         "agent_type": body.get("agent_type", "claude"),
         "model": model_name,
         "cwd": body.get("cwd", "/home/daytona"),
@@ -2703,6 +2704,7 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
 
 
 GLOBAL_VOLUME_ID = os.environ.get("HIVE_VOLUME_ID", "")
+AGENT_SDK_PROVIDER = os.environ.get("AGENT_SDK_PROVIDER", "daytona")
 
 
 def _build_agent_system_prompt(agent_row: dict, workspace_id: int, workspace_name: str) -> str:
@@ -2762,6 +2764,7 @@ async def connect_workspace_agent(
 
     config: dict[str, Any] = {
         "name": f"agent-{agent_id}",
+        "provider": AGENT_SDK_PROVIDER,
         "agent_type": body.get("agent_type", "claude"),
         "model": body.get("model") or agent.get("model") or "claude-sonnet-4-6",
         "cwd": body.get("cwd", "/home/daytona"),
