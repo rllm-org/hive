@@ -2717,11 +2717,6 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             (session_id, agent_id),
         )
 
-    # Phase 2: Provision sandbox + setup (background task)
-    asyncio.create_task(_setup_agent_sandbox(
-        client, session_id, agent_id, agent_token, system_prompt, workspace_id,
-    ))
-
     return {
         "id": agent_id,
         "token": agent_token,
@@ -2756,39 +2751,6 @@ async def get_workspace_agent(
         "model": row.get("model"),
         "harness": row.get("harness"),
     }
-
-
-async def _setup_agent_sandbox(
-    client, session_id: str, agent_id: str, agent_token: str,
-    system_prompt: str, workspace_id: int,
-) -> None:
-    """Background task: install hive CLI, configure credentials, write CLAUDE.md.
-
-    Sandbox is already running (eager provisioning). This just sets up the tools.
-    """
-    import logging
-    hive_server = HIVE_SERVER_URL or "http://localhost:8000"
-    setup_commands = " && ".join([
-        'curl -LsSf https://astral.sh/uv/install.sh | sh',
-        'export PATH="$HOME/.local/bin:$PATH"',
-        'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
-        'mkdir -p ~/.hive/agents',
-        f'echo \'{{"agent_id": "{agent_id}", "token": "{agent_token}"}}\' > ~/.hive/agents/{agent_id}.json',
-        f'echo \'{{"server_url": "{hive_server}", "default_agent": "{agent_id}"}}\' > ~/.hive/config.json',
-        'echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc',
-    ])
-    try:
-        await client.sandbox_exec(session_id, setup_commands)
-    except Exception as e:
-        logging.warning("Failed to set up hive CLI for agent %s: %s", agent_id, e)
-    try:
-        await client.sandbox_exec(
-            session_id,
-            f"cat > /home/daytona/CLAUDE.md << 'HIVE_EOF'\n{system_prompt}\nHIVE_EOF",
-            timeout=10,
-        )
-    except Exception as e:
-        logging.warning("Failed to write CLAUDE.md for agent %s: %s", agent_id, e)
 
 
 GLOBAL_VOLUME_ID = os.environ.get("HIVE_VOLUME_ID", "")
