@@ -2711,8 +2711,6 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
     system_prompt = _build_agent_system_prompt(agent_row, workspace_id, ws["name"])
 
     client = get_client()
-    # Escape single quotes in system prompt for heredoc
-    escaped_prompt = system_prompt.replace("'", "'\\''")
     config: dict[str, Any] = {
         "name": f"agent-{agent_id}",
         "provider": AGENT_SDK_PROVIDER,
@@ -2722,10 +2720,6 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         "prompt": system_prompt,
         "shared_mounts": [str(workspace_id)],
         "skills": ["rllm-org/hive#staging"],
-        "pre_start_commands": [
-            'curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH" && uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
-            f"cat > /home/daytona/CLAUDE.md << 'HIVE_EOF'\n{system_prompt}\nHIVE_EOF",
-        ],
     }
     if GLOBAL_VOLUME_ID:
         config["volume_id"] = GLOBAL_VOLUME_ID
@@ -2741,12 +2735,22 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
     if not session_id:
         raise HTTPException(502, f"Failed to create agent session: {upstream}")
 
-    # Write CLAUDE.md to the sandbox so Claude Code reads it every turn
+    # Post-creation setup: install hive CLI and write CLAUDE.md
+    import logging
     try:
-        escaped_prompt = system_prompt.replace("'", "'\\''")
-        await client.sandbox_exec(session_id, f"cat > /home/daytona/CLAUDE.md << 'HIVE_EOF'\n{system_prompt}\nHIVE_EOF")
+        await client.sandbox_exec(
+            session_id,
+            'curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH" && uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
+        )
     except Exception as e:
-        import logging
+        logging.warning("Failed to install hive CLI for agent %s: %s", agent_id, e)
+    try:
+        await client.sandbox_exec(
+            session_id,
+            f"cat > /home/daytona/CLAUDE.md << 'HIVE_EOF'\n{system_prompt}\nHIVE_EOF",
+            timeout=10,
+        )
+    except Exception as e:
         logging.warning("Failed to write CLAUDE.md for agent %s: %s", agent_id, e)
 
     async with get_db() as conn:

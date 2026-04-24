@@ -69,6 +69,14 @@ class AgentSdkClient:
             )
         return resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
 
+    async def sandbox_exec(self, session_id: str, command: str, timeout: int = 300) -> dict[str, Any]:
+        """Run a command in the session's sandbox."""
+        return await self._json(
+            "POST", f"/sessions/{session_id}/sandbox/exec",
+            json={"command": command, "timeout": timeout},
+            timeout=httpx.Timeout(float(timeout) + 10, read=None),
+        )
+
     # --- Mention dispatch ---
 
     async def send_message(self, sid: str, text: str, interrupt: bool = False) -> dict[str, Any]:
