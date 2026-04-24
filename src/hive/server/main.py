@@ -2694,6 +2694,7 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         "model": model_name,
         "cwd": body.get("cwd", "/home/daytona"),
         "prompt": _build_agent_system_prompt(agent_row, workspace_id, ws["name"]),
+        "shared_mounts": [str(workspace_id)],
     }
     if GLOBAL_VOLUME_ID:
         config["volume_id"] = GLOBAL_VOLUME_ID
@@ -2703,14 +2704,11 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         config["mcp_servers"] = {
             "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
         }
-    # Step 1: create session (no sandbox yet)
-    upstream = await client.create_session_lazy(**config)
-    session_id = upstream.get("id") or upstream.get("session_id")
+    upstream = await client.create_quick_session(**config)
+    session_id = upstream.get("session_id")
+    sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
     if not session_id:
         raise HTTPException(502, f"Failed to create agent session: {upstream}")
-    # Step 2: provision sandbox and wait until ready
-    resume_resp = await client.resume(session_id)
-    sandbox_id = resume_resp.get("current_sandbox_id") or resume_resp.get("sandbox_id")
 
     async with get_db() as conn:
         await conn.execute(
@@ -2794,6 +2792,7 @@ async def connect_workspace_agent(
         "model": body.get("model") or agent.get("model") or "claude-sonnet-4-6",
         "cwd": body.get("cwd", "/home/daytona"),
         "prompt": _build_agent_system_prompt(dict(agent), workspace_id, ws["name"]),
+        "shared_mounts": [str(workspace_id)],
     }
     if GLOBAL_VOLUME_ID:
         config["volume_id"] = GLOBAL_VOLUME_ID
@@ -2804,12 +2803,11 @@ async def connect_workspace_agent(
             "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
         }
 
-    upstream = await client.create_session_lazy(**config)
-    session_id = upstream.get("id") or upstream.get("session_id")
+    upstream = await client.create_quick_session(**config)
+    session_id = upstream.get("session_id")
+    sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
     if not session_id:
         raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
-    resume_resp = await client.resume(session_id)
-    sandbox_id = resume_resp.get("current_sandbox_id") or resume_resp.get("sandbox_id")
 
     async with get_db() as conn:
         await conn.execute(
