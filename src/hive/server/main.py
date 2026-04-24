@@ -2760,13 +2760,17 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
     if not session_id:
         raise HTTPException(502, f"Failed to create agent session: {upstream}")
 
-    # Write system prompt as CLAUDE.md so Claude Code picks it up
+    # Write system prompt as CLAUDE.md via sandbox files API
     if sandbox_id:
         try:
+            import base64
             system_prompt = _build_agent_system_prompt(agent_row, workspace_id, ws["name"])
-            await client.sandbox_exec(session_id, f"cat > /home/daytona/CLAUDE.md << 'HIVE_EOF'\n{system_prompt}\nHIVE_EOF")
-        except Exception:
-            pass  # best-effort
+            content_b64 = base64.b64encode(system_prompt.encode()).decode()
+            await client._json("POST", f"/sandboxes/{sandbox_id}/files/upload",
+                               json={"path": "CLAUDE.md", "content": content_b64})
+        except Exception as e:
+            import logging
+            logging.warning("Failed to write CLAUDE.md for agent %s: %s", agent_id, e)
 
     async with get_db() as conn:
         await conn.execute(
