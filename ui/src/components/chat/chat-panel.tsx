@@ -554,17 +554,21 @@ function MembersSectionHeader({ workspaceId, onAgentCreated }: { workspaceId?: n
     if (!workspaceId || !agentName.trim()) return;
     setCreating(true);
     setCreateError("");
+    const name = agentName.trim().toLowerCase();
     try {
       const result = await apiPostJson<{ id: string }>(`/workspaces/${workspaceId}/agents`, {
-        name: agentName.trim().toLowerCase(),
+        name,
         role: agentRole.trim() || undefined,
         description: agentDesc.trim() || undefined,
       });
       resetForm();
       setShowModal(false);
       onAgentCreated?.(result.id);
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "Failed to create agent");
+    } catch {
+      // Agent may have been created despite timeout/500 — close modal and refresh
+      resetForm();
+      setShowModal(false);
+      onAgentCreated?.(name);
     } finally {
       setCreating(false);
     }
