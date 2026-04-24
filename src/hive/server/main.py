@@ -2737,13 +2737,21 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
 
     # Post-creation setup: install hive CLI and write CLAUDE.md
     import logging
+    hive_server = HIVE_SERVER_URL or "http://localhost:8000"
+    setup_commands = " && ".join([
+        # Install uv + hive CLI
+        'curl -LsSf https://astral.sh/uv/install.sh | sh',
+        'export PATH="$HOME/.local/bin:$PATH"',
+        'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
+        # Configure hive CLI credentials
+        'mkdir -p ~/.hive/agents',
+        f'echo \'{{"agent_id": "{agent_id}", "token": "{agent_token}"}}\' > ~/.hive/agents/{agent_id}.json',
+        f'echo \'{{"server_url": "{hive_server}", "default_agent": "{agent_id}"}}\' > ~/.hive/config.json',
+    ])
     try:
-        await client.sandbox_exec(
-            session_id,
-            'curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH" && uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
-        )
+        await client.sandbox_exec(session_id, setup_commands)
     except Exception as e:
-        logging.warning("Failed to install hive CLI for agent %s: %s", agent_id, e)
+        logging.warning("Failed to set up hive CLI for agent %s: %s", agent_id, e)
     try:
         await client.sandbox_exec(
             session_id,
@@ -2795,7 +2803,7 @@ def _build_agent_system_prompt(agent_row: dict, workspace_id: int, workspace_nam
     parts.append("")
     parts.append("You are connected to workspace Slack. When someone @-mentions you,")
     parts.append("reply in the Slack thread using:")
-    parts.append(f"  hive chat send --workspace {workspace_id} --thread <ts> '<your reply>'")
+    parts.append(f'  hive chat send --workspace {workspace_id} --thread <ts> "<your reply>"')
     parts.append("")
     parts.append("Respond once to acknowledge, do your work, then reply again with results")
     parts.append("using the same command.")
