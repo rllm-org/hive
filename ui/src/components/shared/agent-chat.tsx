@@ -352,7 +352,7 @@ export function AgentChat({
                 return (
                   <button
                     key={m.id}
-                    onClick={() => handleModelSelect(m.id)}
+                    onMouseDown={(e) => { e.preventDefault(); handleModelSelect(m.id); }}
                     className={`w-full text-left px-3 py-2 text-[12px] transition-colors ${
                       isCurrent
                         ? "bg-[var(--color-layer-1)] text-[var(--color-text)] font-medium"
