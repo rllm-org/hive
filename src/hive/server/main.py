@@ -2816,7 +2816,7 @@ async def workspace_files_tree(workspace_id: int, user: dict = Depends(require_u
         return {"tree": []}
     from .agent_sdk_client import get_client
     client = get_client()
-    return await client.volume_file_tree(GLOBAL_VOLUME_ID, f"shared/{workspace_id}/")
+    return await client.volume_file_tree(GLOBAL_VOLUME_ID, "")
 
 
 @router.get("/workspaces/{workspace_id}/files/read")
