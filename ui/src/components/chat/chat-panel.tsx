@@ -1618,6 +1618,7 @@ function MentionPill({
 }
 
 function ThreadAvatars({ participants }: { participants: ThreadParticipant[] }) {
+  const agentMapCtx = useContext(AgentMapContext);
   // Defensive: an older cached server response may have used `string[]` instead of objects.
   // Normalize each entry so the render path always sees {kind, name, avatar_url}.
   const normalized: ThreadParticipant[] = (participants ?? [])
@@ -1647,8 +1648,9 @@ function ThreadAvatars({ participants }: { participants: ThreadParticipant[] }) 
             />
           );
         }
+        const seed = p.kind === "agent" ? (agentMapCtx.get(p.name)?.avatar_seed ?? null) : null;
         return (
-          <Avatar key={`${p.kind}:${p.name}`} id={p.name} seed={null} kind={p.kind === "user" ? "user" : "agent"} size="xs" />
+          <Avatar key={`${p.kind}:${p.name}`} id={p.name} seed={seed} kind={p.kind === "user" ? "user" : "agent"} size="xs" />
         );
       })}
     </span>

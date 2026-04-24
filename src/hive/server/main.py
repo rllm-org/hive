@@ -2625,18 +2625,6 @@ async def create_workspace(body: dict[str, Any], user: dict = Depends(require_us
     async with get_db() as conn:
         await _ensure_workspace_channel(workspace_id, name, conn)
 
-    # Create the shared directory on the volume (write a .keep file)
-    if GLOBAL_VOLUME_ID:
-        try:
-            from .sdk import sdk
-            await sdk.volume_file_write(
-                GLOBAL_VOLUME_ID,
-                f"shared/{workspace_id}/.keep",
-                "",
-            )
-        except Exception:
-            pass  # best-effort — volume may not be ready yet
-
     return _serialize_workspace(row)
 
 
@@ -2729,6 +2717,11 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             (session_id, agent_id),
         )
 
+    # Phase 2: Provision sandbox + setup (background task)
+    asyncio.create_task(_setup_agent_sandbox(
+        client, session_id, agent_id, agent_token, system_prompt, workspace_id,
+    ))
+
     return {
         "id": agent_id,
         "token": agent_token,
@@ -2765,6 +2758,39 @@ async def get_workspace_agent(
     }
 
 
+async def _setup_agent_sandbox(
+    client, session_id: str, agent_id: str, agent_token: str,
+    system_prompt: str, workspace_id: int,
+) -> None:
+    """Background task: install hive CLI, configure credentials, write CLAUDE.md.
+
+    Sandbox is already running (eager provisioning). This just sets up the tools.
+    """
+    import logging
+    hive_server = HIVE_SERVER_URL or "http://localhost:8000"
+    setup_commands = " && ".join([
+        'curl -LsSf https://astral.sh/uv/install.sh | sh',
+        'export PATH="$HOME/.local/bin:$PATH"',
+        'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
+        'mkdir -p ~/.hive/agents',
+        f'echo \'{{"agent_id": "{agent_id}", "token": "{agent_token}"}}\' > ~/.hive/agents/{agent_id}.json',
+        f'echo \'{{"server_url": "{hive_server}", "default_agent": "{agent_id}"}}\' > ~/.hive/config.json',
+        'echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc',
+    ])
+    try:
+        await client.sandbox_exec(session_id, setup_commands)
+    except Exception as e:
+        logging.warning("Failed to set up hive CLI for agent %s: %s", agent_id, e)
+    try:
+        await client.sandbox_exec(
+            session_id,
+            f"cat > /home/daytona/CLAUDE.md << 'HIVE_EOF'\n{system_prompt}\nHIVE_EOF",
+            timeout=10,
+        )
+    except Exception as e:
+        logging.warning("Failed to write CLAUDE.md for agent %s: %s", agent_id, e)
+
+
 GLOBAL_VOLUME_ID = os.environ.get("HIVE_VOLUME_ID", "")
 AGENT_SDK_PROVIDER = os.environ.get("AGENT_SDK_PROVIDER", "daytona")
 
@@ -2790,18 +2816,15 @@ def _build_agent_system_prompt(agent_row: dict, workspace_id: int, workspace_nam
     parts.append("")
     parts.append("## Slack")
     parts.append("")
-    parts.append("You are connected to workspace Slack. When someone @-mentions you,")
-    parts.append("reply in the Slack thread using:")
-    parts.append(f"  hive chat send --workspace {workspace_id} --thread <ts> '<your reply>'")
-    parts.append("")
-    parts.append("Respond once to acknowledge, do your work, then reply again with results")
-    parts.append("using the same command.")
+    parts.append("You are connected to workspace Slack. When someone @-mentions you, reply if needed. When you do reply, use:")
+    parts.append(f'  /home/daytona/.local/bin/hive chat send --workspace {workspace_id} --thread <ts> "<your reply>"')
+    parts.append("If the task requires work, reply once briefly to acknowledge, do the work, then reply again with results.")
     parts.append("")
     parts.append("To see who else is in this workspace:")
-    parts.append(f"  hive workspace agents --workspace {workspace_id}")
+    parts.append(f"  /home/daytona/.local/bin/hive workspace agents --workspace {workspace_id}")
     parts.append("")
     parts.append("To read recent messages:")
-    parts.append(f"  hive chat history --workspace {workspace_id}")
+    parts.append(f"  /home/daytona/.local/bin/hive chat history --workspace {workspace_id}")
     return "\n".join(parts)
 
 
@@ -2877,7 +2900,13 @@ async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)
                 )
             else:
                 await conn.execute("DELETE FROM agents WHERE id = %s", (a["id"],))
-        # Cascade deletes workspace channel + messages
+        # Delete messages → channels → workspace_tasks → workspace
+        await conn.execute(
+            "DELETE FROM messages WHERE channel_id IN (SELECT id FROM channels WHERE workspace_id = %s)",
+            (workspace_id,),
+        )
+        await conn.execute("DELETE FROM channels WHERE workspace_id = %s", (workspace_id,))
+        await conn.execute("DELETE FROM workspace_tasks WHERE workspace_id = %s", (workspace_id,))
         await conn.execute("DELETE FROM workspaces WHERE id = %s", (workspace_id,))
     return {"status": "ok", "agents_deleted": sum(1 for a in agents if not a["has_runs"]),
             "agents_unlinked": sum(1 for a in agents if a["has_runs"])}
