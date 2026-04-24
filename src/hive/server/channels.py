@@ -566,7 +566,8 @@ async def _dispatch_workspace_mentions(
         try:
             prompt = (
                 f"@{author_name} mentioned you in workspace Slack: {text}\n"
-                f"Thread ts: {msg_ts}"
+                f"Thread ts: {msg_ts}\n"
+                f"Reply if needed using: /home/daytona/.local/bin/hive chat send --workspace {workspace_id} --thread {msg_ts} \"<your reply>\""
             )
 
             await client.send_message(agent["session_id"], prompt)
