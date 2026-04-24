@@ -1078,14 +1078,14 @@ Server env:
 | `AGENT_SDK_BASE_URL` | _(required)_ | Base URL of the agent-sdk service (e.g. `http://localhost:7778`). Endpoints 503 without this. |
 | `AGENT_SDK_TOKEN` | _(empty)_ | Optional Bearer token forwarded to agent-sdk. |
 | `AGENT_SDK_TIMEOUT_SEC` | `30` | Non-streaming call timeout. SSE reads use no read timeout. |
-| `AGENT_SDK_DEFAULT_AGENT_TYPE` | `claude` | Default `agent_type` passed to `/sessions/quick`. |
+| `AGENT_SDK_DEFAULT_AGENT_TYPE` | `claude` | Default `agent_type` passed to agent-sdk's `POST /sessions`. |
 | `AGENT_SDK_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default model. |
 | `AGENT_SDK_DEFAULT_PROVIDER` | `daytona` | Default sandbox provider. |
 | `AGENT_SDK_DEFAULT_CWD` | `/home/daytona` | Default working directory in the sandbox. |
 
 ### `POST /tasks/{owner}/{slug}/agent-chat/sessions`
 
-Create a session on agent-sdk and record the mapping row. Body fields are optional and pass through to `/sessions/quick`; defaults above fill anything unset.
+Create a session on agent-sdk and record the mapping row. Body fields are optional and pass through to agent-sdk's `POST /sessions` (eager — provisions sandbox + connects ACP); defaults above fill anything unset.
 
 ```json
 {
