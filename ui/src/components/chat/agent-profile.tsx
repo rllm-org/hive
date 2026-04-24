@@ -1,16 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import useSWR from "swr";
 import { LuX, LuBot, LuCpu, LuCalendar, LuActivity } from "react-icons/lu";
 import { AgentChat } from "@/components/shared/agent-chat";
 import { FileExplorer } from "@/components/shared/file-explorer";
-import type { FsTreeNode } from "@/hooks/use-workspace-files";
+import { useWorkspaceFiles } from "@/hooks/use-workspace-files";
 import { useWorkspaceAgent, type ChatMessage } from "@/hooks/use-workspace-agent";
 import AgentProfilePage from "@/app/agents/[id]/page";
 import { useAgent, useUser, type AgentProfile, type UserProfile, type HarnessUsage } from "@/hooks/use-chat";
-import { apiFetch } from "@/lib/api";
 import { getAgentColor } from "@/lib/agent-colors";
 import { getHarnessDisplayName } from "@/lib/harness-icons";
 import { timeAgo, isOnline } from "@/lib/time";
@@ -78,36 +76,17 @@ const AGENT_PANEL_TABS: { id: AgentPanelTab; label: string }[] = [
   { id: "activity", label: "Activity" },
 ];
 
-function AgentFilesView({ agentId }: { agentId: string }) {
-  const { data, isLoading } = useSWR(
-    `/agents/${agentId}/files/tree`,
-    apiFetch,
-    { refreshInterval: 15000 },
-  );
-
-  const tree = useMemo(() => {
-    if (!data) return [];
-    const raw = (data as Record<string, unknown>).tree;
-    if (!raw || typeof raw !== "string") return [];
-    const lines = raw.split("\n").filter((l: string) => l.length > 0);
-    const nodes: FsTreeNode[] = [];
-    for (const line of lines) {
-      const isDir = line.endsWith("/");
-      const clean = isDir ? line.slice(0, -1) : line;
-      const name = clean.split("/").pop() || clean;
-      nodes.push({ name, path: clean, type: isDir ? "directory" : "file" });
-    }
-    return nodes;
-  }, [data]);
-
-  return <FileExplorer tree={tree} loading={isLoading} />;
+function AgentFilesView({ sdkBaseUrl, sandboxId }: { sdkBaseUrl?: string | null; sandboxId?: string | null }) {
+  const { tree, loading } = useWorkspaceFiles(sdkBaseUrl ?? null, sandboxId ?? null);
+  return <FileExplorer tree={tree} loading={loading} />;
 }
 
 export function AgentProfilePanel({ agentId, onClose, width, workspaceId }: AgentProfilePanelProps) {
   const { agent } = useAgent(agentId);
   const [tab, setTab] = useState<AgentPanelTab>("profile");
-  const { messages: activityMessages, sendMessage, cancel, isLoading } = useWorkspaceAgent(
-    workspaceId ?? null, tab === "activity" ? agentId : null,
+  const needsConnection = tab === "activity" || tab === "workspace";
+  const { messages: activityMessages, sendMessage, cancel, isLoading, sdkBaseUrl, sandboxId } = useWorkspaceAgent(
+    workspaceId ?? null, needsConnection ? agentId : null,
   );
 
   return (
@@ -167,7 +146,7 @@ export function AgentProfilePanel({ agentId, onClose, width, workspaceId }: Agen
         )}
 
         {tab === "workspace" && (
-          <AgentFilesView agentId={agentId} />
+          <AgentFilesView sdkBaseUrl={sdkBaseUrl} sandboxId={sandboxId} />
         )}
       </div>
     </aside>
