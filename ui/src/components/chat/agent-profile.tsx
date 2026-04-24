@@ -77,8 +77,9 @@ const AGENT_PANEL_TABS: { id: AgentPanelTab; label: string }[] = [
 ];
 
 function AgentFilesView({ sessionId }: { sessionId?: string | null }) {
-  const { tree, loading } = useWorkspaceFiles(sessionId ?? null);
-  return <FileExplorer tree={tree} loading={loading} />;
+  const { tree, loading, readFile } = useWorkspaceFiles(sessionId ?? null);
+  const read = async (path: string) => (await readFile(path)) ?? undefined;
+  return <FileExplorer tree={tree} loading={loading} onReadFile={read} />;
 }
 
 export function AgentProfilePanel({ agentId, onClose, width, workspaceId }: AgentProfilePanelProps) {
