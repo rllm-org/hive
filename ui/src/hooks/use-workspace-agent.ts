@@ -428,15 +428,32 @@ export function useWorkspaceAgents(
     if (!text.trim()) return;
     updateMessages(agentId, (prev) => [...prev, { role: "user", content: text }]);
     updateAgent(agentId, { isLoading: true });
-    const conn = connectionsRef.current[agentId];
-    if (conn) {
-      await fetch(`${SDK_BASE}/sessions/${conn.sdkSid}/message`, {
+    let sdkSid = connectionsRef.current[agentId]?.sdkSid;
+    if (!sdkSid && workspaceId != null) {
+      try {
+        const row = await apiFetch<{ session_id: string | null }>(
+          `/workspaces/${workspaceId}/agents/${agentId}`,
+        );
+        sdkSid = row.session_id ?? undefined;
+      } catch { /* fall through */ }
+    }
+    if (!sdkSid) {
+      updateAgent(agentId, { isLoading: false, error: "agent has no session" });
+      return;
+    }
+    try {
+      const res = await fetch(`${SDK_BASE}/sessions/${sdkSid}/message`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
       });
+      if (!res.ok) {
+        updateAgent(agentId, { isLoading: false, error: `send failed: ${res.status}` });
+      }
+    } catch (e) {
+      updateAgent(agentId, { isLoading: false, error: `send failed: ${String(e)}` });
     }
-  }, [updateMessages, updateAgent]);
+  }, [updateMessages, updateAgent, workspaceId]);
 
   const cancel = useCallback(async (agentId: string) => {
     const conn = connectionsRef.current[agentId];

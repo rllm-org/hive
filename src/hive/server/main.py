@@ -2645,6 +2645,7 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
 
 async def _create_agent_session(
     agent_row: dict, workspace_row: dict, body: dict[str, Any], user_oauth_token: str | None,
+    agent_token: str,
 ) -> str:
     from . import agents
     workspace_name = workspace_row["name"]
@@ -2659,6 +2660,7 @@ async def _create_agent_session(
         provider=AGENT_SDK_PROVIDER,
         global_volume_id=GLOBAL_VOLUME_ID,
         hive_server_url=HIVE_SERVER_URL,
+        agent_token=agent_token,
     )
 
 
@@ -2709,7 +2711,7 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
     # Provision session via agent-sdk (user waits)
     user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
     agent_row = {"id": agent_id, "role": agent_role, "description": agent_desc, "model": model_name}
-    session_id = await _create_agent_session(agent_row, ws, body, user_oauth_token)
+    session_id = await _create_agent_session(agent_row, ws, body, user_oauth_token, agent_token)
 
     async with get_db() as conn:
         await conn.execute(

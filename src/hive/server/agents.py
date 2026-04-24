@@ -21,9 +21,15 @@ async def create_agent_session(
     provider: str,
     global_volume_id: str,
     hive_server_url: str,
+    agent_token: str,
 ) -> str:
     workspace_id = workspace_row["id"]
+    agent_id = agent_row["id"]
     model_name = (body.get("model") or agent_row.get("model") or "claude-sonnet-4-6").strip()
+    hive_cfg = (
+        f'{{"server_url": "{hive_server_url.rstrip("/")}", "default_agent": "{agent_id}"}}'
+    )
+    agent_cfg = f'{{"agent_id": "{agent_id}", "token": "{agent_token}"}}'
     config: dict[str, Any] = {
         "name": f"agent-{agent_row['id']}",
         "provider": provider,
@@ -33,14 +39,18 @@ async def create_agent_session(
         "prompt": system_prompt,
         "shared_mounts": [str(workspace_id)],
         "pre_start_commands": [
-            'apt-get update -qq && apt-get install -y -qq curl git ca-certificates '
+            '{ command -v curl >/dev/null && command -v git >/dev/null; } '
+            '|| { apt-get update -qq && apt-get install -y -qq curl git ca-certificates; } '
             '&& curl -LsSf https://astral.sh/uv/install.sh | sh '
             '&& export PATH="$HOME/.local/bin:$PATH" '
-            '&& UV_TOOL_BIN_DIR=/usr/local/bin uv tool install --reinstall '
+            '&& uv tool install --reinstall '
             '"git+https://github.com/rllm-org/hive.git@staging" '
-            '&& HOME=/root npx -y skills add rllm-org/hive#staging --all -g',
+            '&& npx -y skills add rllm-org/hive#staging --all -g',
             f'mkdir -p /home/daytona && echo {base64.b64encode(system_prompt.encode()).decode()} '
             f'| base64 -d > /home/daytona/CLAUDE.md',
+            f'mkdir -p $HOME/.hive/agents '
+            f'&& echo {base64.b64encode(hive_cfg.encode()).decode()} | base64 -d > $HOME/.hive/config.json '
+            f'&& echo {base64.b64encode(agent_cfg.encode()).decode()} | base64 -d > $HOME/.hive/agents/{agent_id}.json',
         ],
     }
     if global_volume_id:
