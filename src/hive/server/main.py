@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import re
 import tempfile
@@ -2728,6 +2729,23 @@ async def _create_agent_session(
     sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
     if not session_id:
         raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
+
+    # Materialize CLAUDE.md on the fresh sandbox so claude-agent-acp picks
+    # up the workspace-specific instructions. Best-effort: the session is
+    # already usable without the file, so a failed upload shouldn't block
+    # the caller. (Note: upload lands after supervisor start — in practice
+    # the ACP child re-reads CLAUDE.md on session/new, so this still wins;
+    # if that ever changes, switch to a pre_start_commands heredoc.)
+    if sandbox_id:
+        try:
+            content_b64 = base64.b64encode(prompt.encode()).decode()
+            await client._json(
+                "POST", f"/sandboxes/{sandbox_id}/files/upload",
+                json={"path": "CLAUDE.md", "content": content_b64},
+            )
+        except Exception as e:
+            logging.warning("CLAUDE.md upload failed for agent %s: %s", agent_row["id"], e)
+
     return session_id, sandbox_id
 
 
