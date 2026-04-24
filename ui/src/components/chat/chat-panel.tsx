@@ -1243,6 +1243,17 @@ function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
     return nodes;
   }, [data]);
 
+  const readFile = useCallback(async (path: string) => {
+    if (!HIVE_VOLUME_ID || !SDK_BASE) return undefined;
+    const full = path.startsWith("shared/") ? path : `shared/${workspaceId}/${path.replace(/^\/+/, "")}`;
+    const resp = await fetch(
+      `${SDK_BASE}/volumes/${HIVE_VOLUME_ID}/files/read?path=${encodeURIComponent(full)}`,
+    );
+    if (!resp.ok) return undefined;
+    const j = await resp.json();
+    return { content: (j.content as string) ?? "" };
+  }, [workspaceId]);
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
@@ -1251,7 +1262,7 @@ function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
     );
   }
 
-  return <FileExplorer tree={tree} loading={isLoading} />;
+  return <FileExplorer tree={tree} loading={isLoading} onReadFile={readFile} />;
 }
 
 function WorkspaceSettings({ workspaceId, workspaceName }: { workspaceId: number; workspaceName: string }) {

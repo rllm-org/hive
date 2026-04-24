@@ -428,7 +428,7 @@ export function useWorkspaceAgents(
     if (!text.trim()) return;
     updateMessages(agentId, (prev) => [...prev, { role: "user", content: text }]);
     updateAgent(agentId, { isLoading: true });
-    let sdkSid = connectionsRef.current[agentId]?.sdkSid;
+    let sdkSid: string | undefined = connectionsRef.current[agentId]?.sdkSid;
     if (!sdkSid && workspaceId != null) {
       try {
         const row = await apiFetch<{ session_id: string | null }>(
