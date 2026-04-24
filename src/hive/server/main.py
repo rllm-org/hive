@@ -2743,7 +2743,7 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         "shared_mounts": [str(workspace_id)],
         "skills": ["rllm-org/hive#staging"],
         "pre_start_commands": [
-            'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
+            'curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH" && uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
         ],
     }
     if GLOBAL_VOLUME_ID:
@@ -2767,7 +2767,7 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
             system_prompt = _build_agent_system_prompt(agent_row, workspace_id, ws["name"])
             content_b64 = base64.b64encode(system_prompt.encode()).decode()
             await client._json("POST", f"/sandboxes/{sandbox_id}/files/upload",
-                               json={"path": "CLAUDE.md", "content": content_b64})
+                               json={"path": "/home/daytona/CLAUDE.md", "content": content_b64})
         except Exception as e:
             import logging
             logging.warning("Failed to write CLAUDE.md for agent %s: %s", agent_id, e)
@@ -2879,7 +2879,7 @@ async def connect_workspace_agent(
         "shared_mounts": [str(workspace_id)],
         "skills": ["rllm-org/hive#staging"],
         "pre_start_commands": [
-            'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
+            'curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH="$HOME/.local/bin:$PATH" && uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
         ],
     }
     if GLOBAL_VOLUME_ID:
