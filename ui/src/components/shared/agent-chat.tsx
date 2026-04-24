@@ -47,6 +47,10 @@ export function AgentChat({
   const modelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (currentModel) setActiveModel(currentModel);
+  }, [currentModel]);
+
+  useEffect(() => {
     fetch(`${API_BASE}/models`, { headers: getAuthHeader() })
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d?.models) setModels(d.models); })

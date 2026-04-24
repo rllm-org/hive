@@ -41,6 +41,7 @@ export interface AgentState {
   connecting: boolean;
   error: string | null;
   sessionId: string | null;
+  model: string | null;
 }
 
 const EMPTY_STATE: AgentState = {
@@ -51,6 +52,7 @@ const EMPTY_STATE: AgentState = {
   connecting: false,
   error: null,
   sessionId: null,
+  model: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -488,7 +490,8 @@ export function useWorkspaceAgents(
       try { const body = await res.json(); if (body.error) detail = `: ${body.error}`; } catch {}
       throw new Error(`set_model failed (${res.status})${detail}`);
     }
-  }, []);
+    updateAgent(agentId, { model });
+  }, [updateAgent]);
 
   return { states, sendMessage, cancel, setModel };
 }

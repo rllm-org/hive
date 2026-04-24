@@ -1129,6 +1129,7 @@ function ChatChannelView({
                         onSend={(text) => sendAgentMessage(selectedAgentId, text)}
                         onCancel={() => cancelAgent(selectedAgentId)}
                         onModelChange={async (model) => { await setAgentModel(selectedAgentId, model); }}
+                        currentModel={activeAgentState.model ?? undefined}
                         loading={activeAgentState.isLoading}
                         cancelling={activeAgentState.cancelling}
                       />
