@@ -60,7 +60,7 @@ class AgentSdkClient:
         """
         resp = await self._client.request(
             "POST", "/sessions", json=config,
-            timeout=httpx.Timeout(180.0, read=None),
+            timeout=httpx.Timeout(300.0, read=None),
         )
         if resp.status_code >= 400:
             raise HTTPException(
