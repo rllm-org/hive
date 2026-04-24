@@ -2879,6 +2879,23 @@ async def workspace_files_edit(
     )
 
 
+@router.get("/agents/{agent_id}/files/tree")
+async def agent_files_tree(agent_id: str, user: dict = Depends(require_user)):
+    """Browse an agent's home directory on the volume."""
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        agent = await (await conn.execute(
+            "SELECT id FROM agents WHERE id = %s AND user_id = %s", (agent_id, user_id)
+        )).fetchone()
+        if not agent:
+            raise HTTPException(404, "agent not found")
+    if not GLOBAL_VOLUME_ID:
+        return {"tree": []}
+    from .agent_sdk_client import get_client
+    client = get_client()
+    return await client.volume_file_tree(GLOBAL_VOLUME_ID, f"agents/{agent_id}/home/")
+
+
 @router.delete("/workspaces/{workspace_id}/agents/{agent_id}")
 async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = Depends(require_user)):
     """Remove an agent from a workspace.

@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import useSWR from "swr";
 import { LuX, LuBot, LuCpu, LuCalendar, LuActivity } from "react-icons/lu";
 import { AgentChat } from "@/components/shared/agent-chat";
+import { FileExplorer } from "@/components/shared/file-explorer";
+import type { FsTreeNode } from "@/hooks/use-workspace-files";
 import type { ChatMessage } from "@/hooks/use-workspace-agent";
 import AgentProfilePage from "@/app/agents/[id]/page";
 import { useAgent, useUser, type AgentProfile, type UserProfile, type HarnessUsage } from "@/hooks/use-chat";
+import { apiFetch } from "@/lib/api";
 import { getAgentColor } from "@/lib/agent-colors";
 import { getHarnessDisplayName } from "@/lib/harness-icons";
 import { timeAgo, isOnline } from "@/lib/time";
@@ -74,6 +78,35 @@ const AGENT_PANEL_TABS: { id: AgentPanelTab; label: string }[] = [
   { id: "activity", label: "Activity" },
 ];
 
+function AgentFilesView({ agentId }: { agentId: string }) {
+  const { data, isLoading } = useSWR(
+    `/agents/${agentId}/files/tree`,
+    apiFetch,
+    { refreshInterval: 15000 },
+  );
+
+  const tree = useMemo(() => {
+    if (!data) return [];
+    const raw = (data as Record<string, unknown>).tree;
+    if (!raw || typeof raw !== "string") return [];
+    const lines = raw.split("\n").filter((l: string) => l.length > 0);
+    const nodes: FsTreeNode[] = [];
+    for (const line of lines) {
+      const isDir = line.endsWith("/");
+      const clean = isDir ? line.slice(0, -1) : line;
+      const name = clean.split("/").pop() || clean;
+      nodes.push({ name, path: clean, type: isDir ? "directory" : "file" });
+    }
+    return nodes;
+  }, [data]);
+
+  return (
+    <div className="flex-1 min-h-0">
+      <FileExplorer tree={tree} loading={isLoading} />
+    </div>
+  );
+}
+
 export function AgentProfilePanel({ agentId, onClose, width, chatMessages }: AgentProfilePanelProps) {
   const { agent } = useAgent(agentId);
   const [tab, setTab] = useState<AgentPanelTab>("profile");
@@ -137,9 +170,7 @@ export function AgentProfilePanel({ agentId, onClose, width, chatMessages }: Age
         )}
 
         {tab === "workspace" && (
-          <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
-            Connect the agent to browse its workspace files.
-          </div>
+          <AgentFilesView agentId={agentId} />
         )}
       </div>
     </aside>
