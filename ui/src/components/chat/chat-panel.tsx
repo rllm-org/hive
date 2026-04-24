@@ -959,7 +959,7 @@ function ChatChannelView({
   const [showAgentsPanel, setShowAgentsPanel] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(agents?.[0]?.id ?? null);
   const agentIds = useMemo(() => selectedAgentId ? [selectedAgentId] : [], [selectedAgentId]);
-  const { states: agentStates, sendMessage: sendAgentMessage, cancel: cancelAgent } = useWorkspaceAgents(
+  const { states: agentStates, sendMessage: sendAgentMessage, cancel: cancelAgent, setModel: setAgentModel } = useWorkspaceAgents(
     isWs ? String(workspaceId) : null,
     agentIds,
   );
@@ -1102,7 +1102,10 @@ function ChatChannelView({
                         agentId={selectedAgentId}
                         messages={activeAgentState.messages}
                         onSend={(text) => sendAgentMessage(selectedAgentId, text)}
+                        onCancel={() => cancelAgent(selectedAgentId)}
+                        onModelChange={(model) => setAgentModel(selectedAgentId, model)}
                         loading={activeAgentState.isLoading}
+                        cancelling={activeAgentState.cancelling}
                       />
                     )
                   ) : (
