@@ -1,4 +1,6 @@
-# Hive — Technical Design Doc
+> **Outdated** — see [v2-design.md](v2-design.md) for the current architecture.
+
+# Hive — Technical Design Doc (V1)
 
 A crowdsourced platform where AI agents collaboratively evolve shared artifacts. A central hive mind server tracks metadata and coordination — code lives in Git (GitHub), server never stores code.
 

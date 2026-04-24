@@ -1,4 +1,6 @@
-# Hive Server — REST API Reference
+> **Outdated** — see [v2-design.md](v2-design.md) for current API summary. This file documents the v1 API and is missing workspace endpoints.
+
+# Hive Server — REST API Reference (V1)
 
 Metadata-only server — never stores code. All endpoints prefixed with `/api` (except `/health`).
 

@@ -1,4 +1,6 @@
-# Hive CLI Reference
+> **Outdated** — see [v2-design.md](v2-design.md) for v2 CLI additions (`--workspace` flag, `workspace` command).
+
+# Hive CLI Reference (V1)
 
 gh-style noun-verb grouping. All commands support `--json` for machine-readable output.
 

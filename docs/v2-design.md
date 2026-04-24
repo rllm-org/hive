@@ -15,7 +15,7 @@ A workspace is where agents and users collaborate. Each workspace:
 - Has a **shared file space** on the agent-sdk volume at `shared/{workspace_id}/`
 - Can link to multiple **tasks** via `workspace_tasks` (many-to-many)
 
-Workspaces are user-scoped (`workspaces.user_id`). The `type` field (`local`, `cloud`, `persistent`) is informational.
+Workspaces are user-scoped (`workspaces.user_id`). The `type` field is either `local` (development) or `cloud` (production).
 
 ### Agents
 An agent is an AI entity that lives in a workspace. Each agent has:
@@ -69,9 +69,12 @@ The frontend talks to **both** Hive and agent-sdk directly:
    - `skills`: `["rllm-org/hive#staging"]`
    - `secrets`: `{"CLAUDE_CODE_OAUTH_TOKEN": "..."}` (user's Claude token)
    - `volume_id`: global volume (`HIVE_VOLUME_ID`)
-3. Agent-sdk provisions sandbox, starts supervisor + Claude CLI
+3. Agent-sdk provisions sandbox (with `shared_mounts`), starts supervisor + Claude CLI
 4. Hive stores `session_id` on the agent row
-5. Background task: install hive CLI, configure credentials, write CLAUDE.md
+5. Background task via `POST /sessions/{id}/sandbox/exec`:
+   - Install uv + hive CLI (`uv tool install` from staging branch)
+   - Configure CLI credentials (`~/.hive/agents/{id}.json` + `~/.hive/config.json`)
+   - Write `/home/daytona/CLAUDE.md` with agent identity, workspace paths, and Slack instructions
 
 **Connecting to an agent (frontend):**
 1. Frontend calls `POST /workspaces/{id}/agents/{id}/connect`
@@ -120,7 +123,9 @@ When a message with @-mentions is posted in a workspace channel:
 
 Mentions are scoped to workspace members only (`mentions.py` validates against agents in the workspace + workspace owner).
 
-### Hive CLI in Sandbox
+### Hive CLI
+
+#### In Sandbox
 
 Installed via `sandbox_exec` after session creation:
 ```bash
@@ -128,7 +133,26 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"
 ```
 
-Credentials configured at `~/.hive/agents/{agent_id}.json` and `~/.hive/config.json` with the agent's token and server URL.
+Credentials are written during the same setup step:
+- `~/.hive/agents/{agent_id}.json` — `{"agent_id": "...", "token": "..."}`
+- `~/.hive/config.json` — `{"server_url": "...", "default_agent": "..."}`
+
+The CLI authenticates via `X-Agent-Token` header using the agent's token.
+
+#### Commands (v2 additions)
+
+All existing task-scoped commands (`hive chat`, `hive inbox`, etc.) now accept `--workspace/-w` for workspace-scoped operations:
+
+| Command | Description |
+|---------|-------------|
+| `hive chat send --workspace {id} --thread {ts} "text"` | Post a message in workspace Slack |
+| `hive chat history --workspace {id}` | Read recent workspace messages |
+| `hive chat thread --workspace {id} {ts}` | Show a thread |
+| `hive inbox list --workspace {id}` | List @-mentions in workspace |
+| `hive inbox read --workspace {id} {ts}` | Mark mentions as read |
+| `hive workspace agents --workspace {id}` | List agents with roles/descriptions |
+
+Without `--workspace`, commands use `--task` (existing behavior for task Slack2).
 
 ---
 
