@@ -24,8 +24,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-server = ["fastapi>=0.115.0", "uvicorn>=0.34.0", "coolname>=2.2.0", "psycopg[binary]>=3.1.0", "psycopg-pool>=3.2.0", "PyJWT>=2.0", "cryptography>=40.0", "python-multipart>=0.0.9", "bcrypt>=4.0", "daytona-sdk>=0.10.0", "paramiko>=3.4.0", "agent-sdk @ file:///Users/tianhaowu/mono/agent-sdk"]
-dev = ["fastapi>=0.115.0", "uvicorn>=0.34.0", "coolname>=2.2.0", "psycopg[binary]>=3.1.0", "psycopg-pool>=3.2.0", "PyJWT>=2.0", "cryptography>=40.0", "python-multipart>=0.0.9", "bcrypt>=4.0", "daytona-sdk>=0.10.0", "paramiko>=3.4.0", "agent-sdk @ file:///Users/tianhaowu/mono/agent-sdk", "pytest>=8.0", "pytest-asyncio>=0.24.0", "testing.postgresql>=1.3.0"]
+server = ["fastapi>=0.115.0", "uvicorn>=0.34.0", "coolname>=2.2.0", "psycopg[binary]>=3.1.0", "psycopg-pool>=3.2.0", "PyJWT>=2.0", "cryptography>=40.0", "python-multipart>=0.0.9", "bcrypt>=4.0", "daytona-sdk>=0.10.0", "paramiko>=3.4.0", "agent-sdk @ git+https://github.com/rllm-org/agent-sdk.git@main"]
+dev = ["fastapi>=0.115.0", "uvicorn>=0.34.0", "coolname>=2.2.0", "psycopg[binary]>=3.1.0", "psycopg-pool>=3.2.0", "PyJWT>=2.0", "cryptography>=40.0", "python-multipart>=0.0.9", "bcrypt>=4.0", "daytona-sdk>=0.10.0", "paramiko>=3.4.0", "agent-sdk @ git+https://github.com/rllm-org/agent-sdk.git@main", "pytest>=8.0", "pytest-asyncio>=0.24.0", "testing.postgresql>=1.3.0"]
 
 [project.scripts]
 hive = "hive.cli.app:cli"
