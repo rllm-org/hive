@@ -803,6 +803,9 @@ _SUPPORTED_MODEL_IDS = {
 }
 
 
+_ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+
 @router.get("/models")
 async def list_models(user: dict = Depends(require_user)):
     """Return available models with metadata from the Anthropic API."""
@@ -812,29 +815,38 @@ async def list_models(user: dict = Depends(require_user)):
     if _models_cache and (time.time() - _models_cache_at) < _MODELS_CACHE_TTL:
         return _models_cache
 
-    user_id = int(user["sub"])
-    token = await _get_user_claude_token(user_id)
-    if not token:
-        # No token — return IDs only
-        return {"models": [{"id": mid} for mid in sorted(_SUPPORTED_MODEL_IDS)]}
+    # Try fetching from Anthropic API using server API key
+    api_key = _ANTHROPIC_API_KEY
+    if not api_key:
+        # Fall back to user's OAuth token (may not work for /v1/models)
+        user_id = int(user["sub"])
+        api_key = await _get_user_claude_token(user_id) or ""
 
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(
-                "https://api.anthropic.com/v1/models",
-                headers={"x-api-key": token, "anthropic-version": "2023-06-01"},
-            )
-            if r.status_code == 200:
-                data = r.json()
-                models = [m for m in data.get("data", []) if m.get("id") in _SUPPORTED_MODEL_IDS]
-                result = {"models": models}
-                _models_cache = result
-                _models_cache_at = time.time()
-                return result
-    except Exception:
-        pass
+    if api_key:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(
+                    "https://api.anthropic.com/v1/models",
+                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    models = [m for m in data.get("data", []) if m.get("id") in _SUPPORTED_MODEL_IDS]
+                    if models:
+                        result = {"models": models}
+                        _models_cache = result
+                        _models_cache_at = time.time()
+                        return result
+        except Exception:
+            pass
 
-    return {"models": [{"id": mid} for mid in sorted(_SUPPORTED_MODEL_IDS)]}
+    # Fallback: static display names
+    _DISPLAY_NAMES = {
+        "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+        "claude-sonnet-4-6": "Claude Sonnet 4.6",
+        "claude-opus-4-6": "Claude Opus 4.6",
+    }
+    return {"models": [{"id": mid, "display_name": _DISPLAY_NAMES.get(mid, mid)} for mid in sorted(_SUPPORTED_MODEL_IDS)]}
 
 
 @router.get("/auth/github/authorize")
