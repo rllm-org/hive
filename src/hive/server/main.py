@@ -2686,18 +2686,64 @@ async def get_workspace(workspace_id: int, user: dict = Depends(require_user)):
     return _serialize_workspace(row, agents=agents)
 
 
+async def _create_agent_session(
+    agent_row: dict, workspace_row: dict, body: dict[str, Any], user_oauth_token: str | None,
+) -> tuple[str, str | None]:
+    """Mint a fresh agent-sdk session for this agent. Single source of truth
+    for the session config — called by ``/agents`` (first time) and
+    ``/agents/{id}/bootstrap`` (resume-404 fallback).
+
+    Returns ``(session_id, sandbox_id)``. Caller persists them on the row.
+    Raises HTTPException(502) if agent-sdk returns an incomplete session.
+    """
+    from .agent_sdk_client import get_client
+    client = get_client()
+    workspace_id = workspace_row["id"]
+    workspace_name = workspace_row["name"]
+    model_name = (body.get("model") or agent_row.get("model") or "claude-sonnet-4-6").strip()
+    prompt = _build_agent_system_prompt(dict(agent_row), workspace_id, workspace_name)
+    config: dict[str, Any] = {
+        "name": f"agent-{agent_row['id']}",
+        "provider": AGENT_SDK_PROVIDER,
+        "agent_type": body.get("agent_type", "claude"),
+        "model": model_name,
+        "cwd": body.get("cwd", "/home/daytona"),
+        "prompt": prompt,
+        "shared_mounts": [str(workspace_id)],
+        "skills": ["rllm-org/hive#staging"],
+        "pre_start_commands": [
+            'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
+        ],
+    }
+    if GLOBAL_VOLUME_ID:
+        config["volume_id"] = GLOBAL_VOLUME_ID
+    if user_oauth_token:
+        config["oauth_token"] = user_oauth_token
+    if HIVE_SERVER_URL:
+        config["mcp_servers"] = {
+            "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
+        }
+    upstream = await client.create_quick_session(**config)
+    session_id = upstream.get("session_id")
+    sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
+    if not session_id:
+        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
+    return session_id, sandbox_id
+
+
 @router.post("/workspaces/{workspace_id}/agents")
 async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user: dict = Depends(require_user)):
-    """Create a new agent and provision its session immediately.
+    """Create a new agent and bootstrap its first agent-sdk session.
 
-    The user waits for agent-sdk provisioning so the agent is chattable
-    right away.
+    After this returns, the UI talks directly to agent-sdk at
+    ``NEXT_PUBLIC_AGENT_SDK_BASE_URL`` for /resume, /message, /events,
+    /cancel. The only subsequent hive call the UI needs is
+    ``POST /agents/{id}/bootstrap`` if /resume later returns 404.
 
     Body:
       name (optional) — custom agent id; otherwise auto-generated
       harness (optional), model (optional), role (optional), description (optional)
     """
-    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
     user_id = int(user["sub"])
     requested_name = (body.get("name") or "").strip().lower()
     async with get_db() as conn:
@@ -2730,47 +2776,9 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         )
 
     # Provision session via agent-sdk (user waits)
-    client = get_client()
     user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
     agent_row = {"id": agent_id, "role": agent_role, "description": agent_desc, "model": model_name}
-    config: dict[str, Any] = {
-        "name": f"agent-{agent_id}",
-        "provider": AGENT_SDK_PROVIDER,
-        "agent_type": body.get("agent_type", "claude"),
-        "model": model_name,
-        "cwd": body.get("cwd", "/home/daytona"),
-        "prompt": _build_agent_system_prompt(agent_row, workspace_id, ws["name"]),
-        "shared_mounts": [str(workspace_id)],
-        "skills": ["rllm-org/hive#staging"],
-        "pre_start_commands": [
-            'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
-        ],
-    }
-    if GLOBAL_VOLUME_ID:
-        config["volume_id"] = GLOBAL_VOLUME_ID
-    if user_oauth_token:
-        config["oauth_token"] = user_oauth_token
-    if HIVE_SERVER_URL:
-        config["mcp_servers"] = {
-            "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
-        }
-    upstream = await client.create_quick_session(**config)
-    session_id = upstream.get("session_id")
-    sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
-    if not session_id:
-        raise HTTPException(502, f"Failed to create agent session: {upstream}")
-
-    # Write system prompt as CLAUDE.md via sandbox files API
-    if sandbox_id:
-        try:
-            import base64
-            system_prompt = _build_agent_system_prompt(agent_row, workspace_id, ws["name"])
-            content_b64 = base64.b64encode(system_prompt.encode()).decode()
-            await client._json("POST", f"/sandboxes/{sandbox_id}/files/upload",
-                               json={"path": "CLAUDE.md", "content": content_b64})
-        except Exception as e:
-            import logging
-            logging.warning("Failed to write CLAUDE.md for agent %s: %s", agent_id, e)
+    session_id, sandbox_id = await _create_agent_session(agent_row, ws, body, user_oauth_token)
 
     async with get_db() as conn:
         await conn.execute(
@@ -2784,7 +2792,84 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
         "workspace_id": workspace_id,
         "session_id": session_id,
         "sandbox_id": sandbox_id,
-        "sdk_base_url": AGENT_SDK_BASE_URL,
+    }
+
+
+@router.get("/workspaces/{workspace_id}/agents/{agent_id}")
+async def get_workspace_agent(
+    workspace_id: int, agent_id: str, user: dict = Depends(require_user),
+):
+    """Return agent identity + current sdk session handle.
+
+    ``session_id`` may be ``null`` — the UI should call ``/bootstrap`` in
+    that case. This is a dumb DB read; it never calls agent-sdk. Use
+    ``POST /agents/{id}/bootstrap`` to (re)mint a session after a
+    ``/resume`` 404.
+    """
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        row = await (await conn.execute(
+            "SELECT a.id, a.session_id, a.sandbox_id, a.role, a.description, a.model, a.harness"
+            " FROM agents a JOIN workspaces w ON a.workspace_id = w.id"
+            " WHERE a.id = %s AND w.id = %s AND w.user_id = %s",
+            (agent_id, workspace_id, user_id),
+        )).fetchone()
+    if not row:
+        raise HTTPException(404, "agent not in this workspace")
+    return {
+        "id": row["id"],
+        "session_id": row.get("session_id"),
+        "sandbox_id": row.get("sandbox_id"),
+        "role": row.get("role"),
+        "description": row.get("description"),
+        "model": row.get("model"),
+        "harness": row.get("harness"),
+    }
+
+
+@router.post("/workspaces/{workspace_id}/agents/{agent_id}/bootstrap")
+async def bootstrap_workspace_agent(
+    workspace_id: int, agent_id: str, body: dict[str, Any] = {}, user: dict = Depends(require_user),
+):
+    """Mint a new agent-sdk session for an existing agent.
+
+    Call this when the UI's stored ``session_id`` is stale (e.g. /resume
+    returned 404). Overwrites the row's ``session_id`` + ``sandbox_id``
+    with the new ones. First-time agent creation goes through
+    ``POST /agents`` instead; this endpoint is strictly "I have an agent
+    but need a fresh sdk session for it."
+    """
+    user_id = int(user["sub"])
+    async with get_db() as conn:
+        ws = await (await conn.execute(
+            "SELECT id, name, type FROM workspaces WHERE id = %s AND user_id = %s",
+            (workspace_id, user_id),
+        )).fetchone()
+        if not ws:
+            raise HTTPException(404, "workspace not found")
+        agent = await (await conn.execute(
+            "SELECT id, role, description, model FROM agents"
+            " WHERE id = %s AND workspace_id = %s",
+            (agent_id, workspace_id),
+        )).fetchone()
+        if not agent:
+            raise HTTPException(404, "agent not in this workspace")
+
+    user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
+    session_id, sandbox_id = await _create_agent_session(
+        dict(agent), ws, body, user_oauth_token,
+    )
+
+    async with get_db() as conn:
+        await conn.execute(
+            "UPDATE agents SET session_id = %s, sandbox_id = %s WHERE id = %s",
+            (session_id, sandbox_id, agent_id),
+        )
+
+    return {
+        "id": agent_id,
+        "session_id": session_id,
+        "sandbox_id": sandbox_id,
     }
 
 
@@ -2826,88 +2911,6 @@ def _build_agent_system_prompt(agent_row: dict, workspace_id: int, workspace_nam
     parts.append("To read recent messages:")
     parts.append(f"  hive chat history --workspace {workspace_id}")
     return "\n".join(parts)
-
-
-@router.post("/workspaces/{workspace_id}/agents/{agent_id}/connect")
-async def connect_workspace_agent(
-    workspace_id: int, agent_id: str, body: dict[str, Any] = {}, user: dict = Depends(require_user),
-):
-    """Ensure the agent has a live session. Creates sandbox + session on first call."""
-    from .agent_sdk_client import get_client, AGENT_SDK_BASE_URL
-    user_id = int(user["sub"])
-
-    async with get_db() as conn:
-        ws = await (await conn.execute(
-            "SELECT id, name, type FROM workspaces WHERE id = %s AND user_id = %s",
-            (workspace_id, user_id),
-        )).fetchone()
-        if not ws:
-            raise HTTPException(404, "workspace not found")
-        agent = await (await conn.execute(
-            "SELECT id, sandbox_id, session_id, role, description, model FROM agents"
-            " WHERE id = %s AND workspace_id = %s",
-            (agent_id, workspace_id),
-        )).fetchone()
-        if not agent:
-            raise HTTPException(404, "agent not in this workspace")
-
-    # If we already have a session, check if it's alive
-    if agent["session_id"]:
-        try:
-            client = get_client()
-            status = await client.get_status(agent["session_id"])
-            if status:
-                return {
-                    "session_id": agent["session_id"],
-                    "sandbox_id": agent.get("sandbox_id"),
-                    "sdk_base_url": AGENT_SDK_BASE_URL,
-                }
-        except Exception:
-            pass  # session dead, re-create below
-
-    # Create a new session via agent-sdk
-    client = get_client()
-    user_oauth_token = None if HIVE_USE_SERVER_KEY else await _get_user_claude_token(user_id)
-
-    config: dict[str, Any] = {
-        "name": f"agent-{agent_id}",
-        "provider": AGENT_SDK_PROVIDER,
-        "agent_type": body.get("agent_type", "claude"),
-        "model": body.get("model") or agent.get("model") or "claude-sonnet-4-6",
-        "cwd": body.get("cwd", "/home/daytona"),
-        "prompt": _build_agent_system_prompt(dict(agent), workspace_id, ws["name"]),
-        "shared_mounts": [str(workspace_id)],
-        "skills": ["rllm-org/hive#staging"],
-        "pre_start_commands": [
-            'uv tool install --reinstall "git+https://github.com/rllm-org/hive.git@staging"',
-        ],
-    }
-    if GLOBAL_VOLUME_ID:
-        config["volume_id"] = GLOBAL_VOLUME_ID
-    if user_oauth_token:
-        config["oauth_token"] = user_oauth_token
-    if HIVE_SERVER_URL:
-        config["mcp_servers"] = {
-            "hive": {"type": "http", "url": f"{HIVE_SERVER_URL.rstrip('/')}/api/mcp"},
-        }
-
-    upstream = await client.create_quick_session(**config)
-    session_id = upstream.get("session_id")
-    sandbox_id = upstream.get("sandbox_id") or upstream.get("current_sandbox_id")
-    if not session_id:
-        raise HTTPException(502, f"agent-sdk returned incomplete session: {upstream}")
-
-    async with get_db() as conn:
-        await conn.execute(
-            "UPDATE agents SET session_id = %s, sandbox_id = %s WHERE id = %s",
-            (session_id, sandbox_id, agent_id),
-        )
-
-    return {
-        "session_id": session_id,
-        "sandbox_id": sandbox_id,
-        "sdk_base_url": AGENT_SDK_BASE_URL,
-    }
 
 
 # ── Workspace file proxy (shared volume) ────────────────────────────────────
