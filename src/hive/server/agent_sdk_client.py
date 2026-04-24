@@ -51,11 +51,12 @@ class AgentSdkClient:
         return {}
 
     async def create_quick_session(self, oauth_token: str | None = None, **config: Any) -> dict[str, Any]:
+        # agent-sdk collapsed /sessions/quick into /sessions (eager by default).
         body = dict(config)
         if oauth_token:
             secrets = body.setdefault("secrets", {})
             secrets["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
-        return await self._json("POST", "/sessions/quick", json=body)
+        return await self._json("POST", "/sessions", json=body)
 
     async def create_session(self, sandbox_id: str, oauth_token: str | None = None, **config: Any) -> dict[str, Any]:
         body: dict[str, Any] = {"sandbox_id": sandbox_id, **config}
@@ -65,8 +66,13 @@ class AgentSdkClient:
 
     async def create_session_lazy(self, oauth_token: str | None = None, **config: Any) -> dict[str, Any]:
         """Create a session without provisioning a sandbox. Sandbox is created
-        lazily on the first /message or /resume."""
+        lazily on the first /message or /resume.
+
+        agent-sdk's /sessions defaults to eager (provision=true); opt out
+        with provision=false to keep the old lazy semantics.
+        """
         body = dict(config)
+        body["provision"] = False
         if oauth_token:
             secrets = body.setdefault("secrets", {})
             secrets["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
@@ -112,7 +118,8 @@ class AgentSdkClient:
         body = dict(config)
         if oauth_token:
             body["oauth_token"] = oauth_token
-        return await self._json("POST", "/sandboxes/provision", json=body)
+        # agent-sdk renamed /sandboxes/provision → /sandboxes (same body shape).
+        return await self._json("POST", "/sandboxes", json=body)
 
     async def rotate_sandbox_creds(self, sandbox_id: str, oauth_token: str | None) -> dict[str, Any]:
         """Update (or wipe) the user creds stored on a sandbox row. Called
