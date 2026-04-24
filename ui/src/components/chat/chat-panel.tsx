@@ -1079,15 +1079,6 @@ function ChatChannelView({
             <div className="flex-1 min-h-0 flex flex-col">
               {agents && agents.length > 0 ? (
                 <>
-                  <div className="sticky top-0 z-10 px-3 pt-3 pb-2">
-                    <div className="inline-block border border-[var(--color-border)] rounded-lg">
-                      <AgentSelector
-                        agents={agents.map((a) => ({ id: a.id, avatar_seed: a.avatar_seed }))}
-                        activeId={selectedAgentId}
-                        onSelect={setSelectedAgentId}
-                      />
-                    </div>
-                  </div>
                   {selectedAgentId && activeAgentState ? (
                     activeAgentState.connecting ? (
                       <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
@@ -1106,6 +1097,13 @@ function ChatChannelView({
                         onModelChange={(model) => setAgentModel(selectedAgentId, model)}
                         loading={activeAgentState.isLoading}
                         cancelling={activeAgentState.cancelling}
+                        headerSlot={
+                          <AgentSelector
+                            agents={agents.map((a) => ({ id: a.id, avatar_seed: a.avatar_seed }))}
+                            activeId={selectedAgentId}
+                            onSelect={setSelectedAgentId}
+                          />
+                        }
                       />
                     )
                   ) : (
