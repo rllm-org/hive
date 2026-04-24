@@ -35,6 +35,11 @@ export function AgentChat({
   messages, commands = [], onSend, onCancel, onModelChange, agentId,
   currentModel = "claude-sonnet-4-6", loading, cancelling, streaming, headerSlot,
 }: AgentChatProps) {
+  // Debug: log commands received from parent
+  useEffect(() => {
+    if (commands.length > 0) console.log("[AgentChat] commands received:", commands.length, commands.map(c => c.name));
+  }, [commands]);
+
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
