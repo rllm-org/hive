@@ -542,14 +542,20 @@ async def _dispatch_workspace_mentions(
     except Exception:
         return
 
-    # Determine the author display name
-    author_name = str(author_id)
-
+    # Resolve author display name
     async with get_db() as conn:
+        if author_kind == "agent":
+            author_name = str(author_id)
+        else:
+            user_row = await (await conn.execute(
+                "SELECT handle FROM users WHERE id = %s", (author_id,)
+            )).fetchone()
+            author_name = user_row["handle"] if user_row else str(author_id)
+
         # Find mentioned agents in this workspace that have session_id set
         placeholders = ",".join(["%s"] * len(mentions))
         rows = await (await conn.execute(
-            f"SELECT id, session_id, role, description FROM agents"
+            f"SELECT id, session_id FROM agents"
             f" WHERE id IN ({placeholders}) AND workspace_id = %s AND session_id IS NOT NULL",
             [*mentions, workspace_id],
         )).fetchall()
@@ -559,10 +565,6 @@ async def _dispatch_workspace_mentions(
             continue  # don't forward to self
         try:
             parts = []
-            if agent["role"]:
-                parts.append(f"Your role: {agent['role']}")
-            if agent["description"]:
-                parts.append(f"About you: {agent['description']}")
             parts.append(f"You were mentioned in workspace Slack (workspace_id={workspace_id}).")
             parts.append(f"Message from @{author_name}: {text}")
             parts.append(f"Thread ts: {msg_ts}")

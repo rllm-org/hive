@@ -1026,28 +1026,8 @@ async def auth_claude_token(body: dict[str, Any], user: dict = Depends(require_u
 
 
 async def _rotate_sandbox_creds_for_user(user_id: int, token: str | None) -> None:
-    """Push the fresh token (or None, to wipe) to every active agent sandbox the
-    user owns so existing agents pick up the new creds on next
-    supervisor spawn. Best-effort — failures are logged, not raised."""
-    import logging
-    from .agent_sdk_client import get_client
-    async with get_db() as conn:
-        rows = await (await conn.execute(
-            "SELECT sandbox_id FROM agents"
-            " WHERE user_id = %s AND sandbox_id IS NOT NULL",
-            (user_id,),
-        )).fetchall()
-    if not rows:
-        return
-    client = get_client()
-    for row in rows:
-        sid = row.get("sandbox_id")
-        if not sid:
-            continue
-        try:
-            await client.rotate_sandbox_creds(sid, token)
-        except Exception as e:
-            logging.warning("claude creds rotation failed for sandbox %s: %s", sid, e)
+    """No-op — sandbox creds are managed by agent-sdk now."""
+    pass
 
 
 @router.get("/auth/claude/status")
@@ -1279,7 +1259,7 @@ async def delete_agent(agent_id: str, user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         agent = await (await conn.execute(
-            "SELECT id, sandbox_id, session_id, workspace_id FROM agents WHERE id = %s AND user_id = %s",
+            "SELECT id, session_id, workspace_id FROM agents WHERE id = %s AND user_id = %s",
             (agent_id, user_id),
         )).fetchone()
         if not agent:
@@ -1288,13 +1268,7 @@ async def delete_agent(agent_id: str, user: dict = Depends(require_user)):
             "SELECT 1 FROM runs WHERE agent_id = %s LIMIT 1", (agent_id,)
         )).fetchone()) is not None
 
-    # Tear down sandbox via agent-sdk (best-effort)
-    if agent["sandbox_id"]:
-        try:
-            client = get_client()
-            await client.destroy_sandbox(agent["sandbox_id"])
-        except Exception:
-            pass
+    # Clean up session via agent-sdk (best-effort)
     if agent["session_id"]:
         try:
             client = get_client()
@@ -1305,7 +1279,7 @@ async def delete_agent(agent_id: str, user: dict = Depends(require_user)):
     async with get_db() as conn:
         if has_runs:
             await conn.execute(
-                "UPDATE agents SET workspace_id = NULL, sandbox_id = NULL, session_id = NULL WHERE id = %s",
+                "UPDATE agents SET workspace_id = NULL, session_id = NULL WHERE id = %s",
                 (agent_id,),
             )
             return {"status": "unlinked", "reason": "agent has runs and was preserved"}
@@ -2578,14 +2552,14 @@ def _serialize_workspace(row: dict, agents: list | None = None) -> dict:
 
 async def _agents_in_workspace(conn, workspace_id: int) -> list[dict]:
     rows = await (await conn.execute(
-        "SELECT id, type, harness, model, avatar_seed, sandbox_id, session_id, role, description, last_seen_at"
+        "SELECT id, type, harness, model, avatar_seed, session_id, role, description, last_seen_at"
         " FROM agents WHERE workspace_id = %s ORDER BY registered_at ASC",
         (workspace_id,)
     )).fetchall()
     return [{
         "id": r["id"], "type": r["type"], "harness": r["harness"], "model": r["model"],
         "avatar_seed": r["avatar_seed"],
-        "sandbox_id": r["sandbox_id"], "session_id": r["session_id"],
+        "session_id": r["session_id"],
         "role": r["role"], "description": r["description"],
         "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
     } for r in rows]
@@ -2800,8 +2774,8 @@ async def add_workspace_agent(workspace_id: int, body: dict[str, Any] = {}, user
 
     async with get_db() as conn:
         await conn.execute(
-            "UPDATE agents SET session_id = %s, sandbox_id = %s WHERE id = %s",
-            (session_id, sandbox_id, agent_id),
+            "UPDATE agents SET session_id = %s WHERE id = %s",
+            (session_id, agent_id),
         )
 
     return {
@@ -3030,7 +3004,7 @@ async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = 
         if not ws:
             raise HTTPException(404, "workspace not found")
         agent_row = await (await conn.execute(
-            "SELECT sandbox_id FROM agents WHERE id = %s AND workspace_id = %s",
+            "SELECT session_id FROM agents WHERE id = %s AND workspace_id = %s",
             (agent_id, workspace_id)
         )).fetchone()
         if not agent_row:
@@ -3039,19 +3013,19 @@ async def remove_workspace_agent(workspace_id: int, agent_id: str, user: dict = 
             "SELECT 1 FROM runs WHERE agent_id = %s LIMIT 1", (agent_id,)
         )).fetchone()) is not None
 
-    # Tear down sandbox/session via agent-sdk (best-effort)
-    if agent_row["sandbox_id"]:
+    # Clean up session via agent-sdk (best-effort)
+    if agent_row["session_id"]:
         try:
             from .agent_sdk_client import get_client
             client = get_client()
-            await client.destroy_sandbox(agent_row["sandbox_id"])
+            await client.delete_session(agent_row["session_id"])
         except Exception:
             pass
 
     async with get_db() as conn:
         if has_runs:
             await conn.execute(
-                "UPDATE agents SET workspace_id = NULL, sandbox_id = NULL, session_id = NULL WHERE id = %s",
+                "UPDATE agents SET workspace_id = NULL, session_id = NULL WHERE id = %s",
                 (agent_id,)
             )
             return {"status": "unlinked", "reason": "agent has runs and was preserved"}
@@ -3072,20 +3046,20 @@ async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)
         if not ws:
             raise HTTPException(404, "workspace not found")
         agents = await (await conn.execute(
-            "SELECT a.id, a.sandbox_id,"
+            "SELECT a.id, a.session_id,"
             " (SELECT 1 FROM runs WHERE agent_id = a.id LIMIT 1) AS has_runs"
             " FROM agents a WHERE a.workspace_id = %s",
             (workspace_id,)
         )).fetchall()
 
-    # Tear down agent sandboxes via agent-sdk (best-effort)
+    # Clean up agent sessions via agent-sdk (best-effort)
     try:
         from .agent_sdk_client import get_client
         client = get_client()
         for a in agents:
-            if a["sandbox_id"]:
+            if a["session_id"]:
                 try:
-                    await client.destroy_sandbox(a["sandbox_id"])
+                    await client.delete_session(a["session_id"])
                 except Exception:
                     pass
     except Exception:
@@ -3095,7 +3069,7 @@ async def delete_workspace(workspace_id: int, user: dict = Depends(require_user)
         for a in agents:
             if a["has_runs"]:
                 await conn.execute(
-                    "UPDATE agents SET workspace_id = NULL, sandbox_id = NULL, session_id = NULL WHERE id = %s",
+                    "UPDATE agents SET workspace_id = NULL, session_id = NULL WHERE id = %s",
                     (a["id"],)
                 )
             else:

@@ -53,7 +53,6 @@ _PG_SCHEMA = [
         model           TEXT NOT NULL DEFAULT 'unknown',
         avatar_seed     TEXT,
         workspace_id    INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
-        sandbox_id      TEXT,
         session_id      TEXT,
         role            TEXT,
         description     TEXT
@@ -390,9 +389,9 @@ def _migrate_to_v2(conn: psycopg.Connection[Any]) -> None:
         conn.execute("ALTER TABLE agents DROP COLUMN sdk_session_id")
     if _column_exists(conn, "agents", "sdk_base_url"):
         conn.execute("ALTER TABLE agents DROP COLUMN sdk_base_url")
-    # Add sandbox_id to agents
-    if not _column_exists(conn, "agents", "sandbox_id"):
-        conn.execute("ALTER TABLE agents ADD COLUMN sandbox_id TEXT")
+    # Drop sandbox_id from agents (no longer tracked by Hive)
+    if _column_exists(conn, "agents", "sandbox_id"):
+        conn.execute("ALTER TABLE agents DROP COLUMN sandbox_id")
     # Drop old workspace columns
     if _column_exists(conn, "workspaces", "sdk_sandbox_id"):
         conn.execute("ALTER TABLE workspaces DROP COLUMN sdk_sandbox_id")

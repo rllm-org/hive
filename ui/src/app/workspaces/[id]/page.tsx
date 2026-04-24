@@ -190,7 +190,6 @@ interface WorkspaceAgent {
   harness: string;
   model: string;
   avatar_seed: string | null;
-  sandbox_id: string | null;
   session_id: string | null;
   role: string | null;
   description: string | null;
