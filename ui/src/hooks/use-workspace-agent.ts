@@ -395,7 +395,7 @@ export function useWorkspaceAgents(
 
       (async () => {
         try {
-          const resp = await apiPostJson<{ session_id: string; sdk_base_url: string }>(
+          const resp = await apiPostJson<{ session_id: string; sdk_base_url: string; status?: string }>(
             `/workspaces/${workspaceId}/agents/${agentId}/connect`,
             {}
           );
@@ -405,6 +405,29 @@ export function useWorkspaceAgents(
           if (!sdkBase || !sdkSid) {
             updateAgent(agentId, { connecting: false, error: "Agent SDK not configured" });
             return;
+          }
+
+          // If agent is still provisioning, poll until ready
+          if (resp.status === "provisioning") {
+            updateAgent(agentId, { sdkBaseUrl: sdkBase, sessionId: sdkSid });
+            const pollUntilReady = async () => {
+              for (let i = 0; i < 60; i++) { // poll for up to 5 minutes
+                if (ctrl.signal.aborted) return false;
+                await new Promise(r => setTimeout(r, 5000));
+                try {
+                  const check = await apiPostJson<{ status?: string }>(
+                    `/workspaces/${workspaceId}/agents/${agentId}/connect`, {}
+                  );
+                  if (check.status === "ready") return true;
+                } catch { /* keep polling */ }
+              }
+              return false;
+            };
+            const ready = await pollUntilReady();
+            if (!ready || ctrl.signal.aborted) {
+              updateAgent(agentId, { connecting: false, error: "Agent setup timed out" });
+              return;
+            }
           }
 
           connectionsRef.current[agentId] = { abort: ctrl, sdkBase, sdkSid };

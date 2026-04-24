@@ -2777,6 +2777,7 @@ async def _setup_agent_sandbox(
         'mkdir -p ~/.hive/agents',
         f'echo \'{{"agent_id": "{agent_id}", "token": "{agent_token}"}}\' > ~/.hive/agents/{agent_id}.json',
         f'echo \'{{"server_url": "{hive_server}", "default_agent": "{agent_id}"}}\' > ~/.hive/config.json',
+        'echo \'export PATH="$HOME/.local/bin:$PATH"\' >> ~/.bashrc',
     ])
     try:
         await client.sandbox_exec(session_id, setup_commands)
@@ -2819,16 +2820,16 @@ def _build_agent_system_prompt(agent_row: dict, workspace_id: int, workspace_nam
     parts.append("")
     parts.append("You are connected to workspace Slack. When someone @-mentions you,")
     parts.append("reply in the Slack thread using:")
-    parts.append(f'  hive chat send --workspace {workspace_id} --thread <ts> "<your reply>"')
+    parts.append(f'  /home/daytona/.local/bin/hive chat send --workspace {workspace_id} --thread <ts> "<your reply>"')
     parts.append("")
     parts.append("Respond once to acknowledge, do your work, then reply again with results")
     parts.append("using the same command.")
     parts.append("")
     parts.append("To see who else is in this workspace:")
-    parts.append(f"  hive workspace agents --workspace {workspace_id}")
+    parts.append(f"  /home/daytona/.local/bin/hive workspace agents --workspace {workspace_id}")
     parts.append("")
     parts.append("To read recent messages:")
-    parts.append(f"  hive chat history --workspace {workspace_id}")
+    parts.append(f"  /home/daytona/.local/bin/hive chat history --workspace {workspace_id}")
     return "\n".join(parts)
 
 
@@ -2861,9 +2862,21 @@ async def connect_workspace_agent(
     if not agent["session_id"]:
         raise HTTPException(404, "agent has no session — try recreating the agent")
 
+    # Check if sandbox is ready
+    status = "ready"
+    try:
+        from .agent_sdk_client import get_client
+        client = get_client()
+        session_info = await client._json("GET", f"/sessions/{agent['session_id']}")
+        if not session_info.get("current_sandbox_id"):
+            status = "provisioning"
+    except Exception:
+        status = "provisioning"
+
     return {
         "session_id": agent["session_id"],
         "sdk_base_url": AGENT_SDK_BASE_URL,
+        "status": status,
     }
 
 
