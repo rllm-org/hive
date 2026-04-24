@@ -216,7 +216,6 @@ function processSseBlock(
       }
     } else if (su === "available_commands_update") {
       const cmds = classified.data.availableCommands as SlashCommand[] | undefined;
-      console.log("[sse] available_commands_update", cmds?.length, cmds);
       if (Array.isArray(cmds)) setCommands(cmds);
     } else if (su === "tool_call" || su === "execute_tool_started") {
       const name = extractToolName(classified.data);
@@ -394,7 +393,7 @@ export function useWorkspaceAgents(
           connectionsRef.current[agentId] = { abort: ctrl, sdkSid };
           updateAgent(agentId, { sessionId: sdkSid });
 
-          // Cold-load history
+          // Cold-load history + available commands
           try {
             const logResp = await fetch(`${SDK_BASE}/sessions/${sdkSid}/log?limit=500`, { signal: ctrl.signal });
             if (logResp.ok) {
@@ -402,6 +401,15 @@ export function useWorkspaceAgents(
               const events = logData.events ?? logData ?? [];
               const msgs = buildMessagesFromLog(events);
               if (!ctrl.signal.aborted) updateAgent(agentId, { messages: msgs });
+            }
+          } catch { /* non-fatal */ }
+          try {
+            const statusResp = await fetch(`${SDK_BASE}/sessions/${sdkSid}/status`, { signal: ctrl.signal });
+            if (statusResp.ok) {
+              const status = await statusResp.json();
+              if (Array.isArray(status.available_commands) && !ctrl.signal.aborted) {
+                updateAgent(agentId, { commands: status.available_commands });
+              }
             }
           } catch { /* non-fatal */ }
 
@@ -481,24 +489,17 @@ export function useWorkspaceAgents(
   const setModel = useCallback(async (agentId: string, model: string) => {
     const conn = connectionsRef.current[agentId];
     if (!conn) throw new Error("set_model: agent not connected");
-    const url = `${SDK_BASE}/sessions/${conn.sdkSid}/config`;
-    console.log("[setModel]", { url, agentId, model, sdkSid: conn.sdkSid });
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model }),
-      });
-      const body = await res.json();
-      console.log("[setModel] response", { status: res.status, body });
-      if (!res.ok) {
-        throw new Error(`set_model failed (${res.status})${body.error ? `: ${body.error}` : ""}`);
-      }
-      updateAgent(agentId, { model });
-    } catch (err) {
-      console.error("[setModel] error", err);
-      throw err;
+    const res = await fetch(`${SDK_BASE}/sessions/${conn.sdkSid}/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+    });
+    if (!res.ok) {
+      let detail = "";
+      try { const body = await res.json(); if (body.error) detail = `: ${body.error}`; } catch {}
+      throw new Error(`set_model failed (${res.status})${detail}`);
     }
+    updateAgent(agentId, { model });
   }, [updateAgent]);
 
   return { states, sendMessage, cancel, setModel };

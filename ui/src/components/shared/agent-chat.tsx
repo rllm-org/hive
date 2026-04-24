@@ -35,11 +35,6 @@ export function AgentChat({
   messages, commands = [], onSend, onCancel, onModelChange, agentId,
   currentModel = "claude-sonnet-4-6", loading, cancelling, streaming, headerSlot,
 }: AgentChatProps) {
-  // Debug: log commands received from parent
-  useEffect(() => {
-    if (commands.length > 0) console.log("[AgentChat] commands received:", commands.length, commands.map(c => c.name));
-  }, [commands]);
-
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -65,9 +60,9 @@ export function AgentChat({
 
   useEffect(() => {
     fetch(`${API_BASE}/models`, { headers: getAuthHeader() })
-      .then((r) => { console.log("[AgentChat] /models response", r.status); return r.ok ? r.json() : null; })
-      .then((d) => { console.log("[AgentChat] models fetched:", d?.models?.length, d?.models?.map((m: ModelInfo) => m.id)); if (d?.models) setModels(d.models); })
-      .catch((e) => { console.error("[AgentChat] /models fetch failed", e); });
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.models) setModels(d.models); })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -221,7 +216,6 @@ export function AgentChat({
   };
 
   const handleModelSelect = async (modelId: string) => {
-    console.log("[handleModelSelect]", { modelId, hasOnModelChange: !!onModelChange, models: models.length, activeModel });
     if (!onModelChange) return;
     setModelChanging(true);
     setModelOpen(false);
@@ -229,9 +223,7 @@ export function AgentChat({
     try {
       await onModelChange(modelId);
       setActiveModel(modelId);
-      console.log("[handleModelSelect] success, activeModel ->", modelId);
     } catch (err) {
-      console.error("[handleModelSelect] error", err);
       setModelError(err instanceof Error ? err.message : "Failed to switch model");
     }
     setModelChanging(false);
