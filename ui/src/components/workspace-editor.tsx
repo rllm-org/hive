@@ -140,20 +140,10 @@ export function WorkspaceEditor({ openFiles, activePath, onSelectTab, onCloseTab
   );
 }
 
-function mimeFromName(name: string): string {
-  const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  const map: Record<string, string> = {
-    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
-    bmp: "image/bmp", svg: "image/svg+xml", webp: "image/webp", tiff: "image/tiff",
-    pdf: "application/pdf", csv: "text/csv",
-  };
-  return map[ext] ?? "application/octet-stream";
-}
-
 function DocViewerPane({ file }: { file: OpenFile }) {
   const docs = useMemo(() => {
-    const mime = mimeFromName(file.name);
-    const uri = `data:${mime};base64,${file.content}`;
+    // Content from the supervisor is already a data URI (e.g., "data:image/png;base64,...")
+    const uri = file.content.startsWith("data:") ? file.content : `data:application/octet-stream;base64,${file.content}`;
     const ext = file.name.split(".").pop()?.toLowerCase();
     return [{ uri, fileType: ext, fileName: file.name }];
   }, [file.name, file.content]);
