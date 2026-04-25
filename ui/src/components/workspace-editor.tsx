@@ -115,7 +115,7 @@ export function WorkspaceEditor({ openFiles, activePath, onSelectTab, onCloseTab
 
       {/* Editor */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {activeFile && (activeFile.image || activeFile.pdf || activeFile.binary) ? (
+        {activeFile && (activeFile.image || activeFile.pdf || activeFile.binary || activeFile.content.startsWith("data:")) ? (
           <DocViewerPane file={activeFile} />
         ) : activeFile ? (
           <CodeMirror
