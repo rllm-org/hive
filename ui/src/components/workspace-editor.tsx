@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LuX } from "react-icons/lu";
 import CodeMirror, { Extension } from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
@@ -8,11 +8,15 @@ import { python } from "@codemirror/lang-python";
 import { markdown } from "@codemirror/lang-markdown";
 import { json } from "@codemirror/lang-json";
 import { oneDark } from "@codemirror/theme-one-dark";
+import DocViewer, { DocViewerRenderers } from "react-doc-viewer";
 
 export interface OpenFile {
   path: string;
   name: string;
   content: string;
+  image?: boolean;
+  pdf?: boolean;
+  binary?: boolean;
 }
 
 function getLanguageExtension(filename: string): Extension[] {
@@ -112,7 +116,9 @@ export function WorkspaceEditor({ openFiles, activePath, onSelectTab, onCloseTab
 
       {/* Editor */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {activeFile && (
+        {activeFile && (activeFile.image || activeFile.pdf || activeFile.binary) ? (
+          <DocViewerPane file={activeFile} />
+        ) : activeFile ? (
           <CodeMirror
             key={activeFile.path}
             value={activeFile.content}
@@ -128,8 +134,36 @@ export function WorkspaceEditor({ openFiles, activePath, onSelectTab, onCloseTab
               highlightActiveLineGutter: true,
             }}
           />
-        )}
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function mimeFromName(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  const map: Record<string, string> = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+    bmp: "image/bmp", svg: "image/svg+xml", webp: "image/webp", tiff: "image/tiff",
+    pdf: "application/pdf", csv: "text/csv",
+  };
+  return map[ext] ?? "application/octet-stream";
+}
+
+function DocViewerPane({ file }: { file: OpenFile }) {
+  const docs = useMemo(() => {
+    const mime = mimeFromName(file.name);
+    const uri = `data:${mime};base64,${file.content}`;
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    return [{ uri, fileType: ext, fileName: file.name }];
+  }, [file.name, file.content]);
+
+  return (
+    <DocViewer
+      documents={docs}
+      pluginRenderers={DocViewerRenderers}
+      config={{ header: { disableHeader: true } }}
+      style={{ height: "100%" }}
+    />
   );
 }

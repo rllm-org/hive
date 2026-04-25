@@ -6,7 +6,7 @@ import { FileTree, type FsTreeNode } from "@/components/shared/file-tree";
 
 interface FileExplorerProps {
   tree: FsTreeNode[];
-  onReadFile?: (path: string) => Promise<{ content: string } | undefined>;
+  onReadFile?: (path: string) => Promise<{ content: string; image?: boolean; pdf?: boolean; binary?: boolean } | undefined>;
   onEditFile?: (path: string, content: string) => Promise<void>;
   onDelete?: (path: string) => void;
   onRename?: (path: string) => void;
@@ -62,12 +62,20 @@ export function FileExplorer({
     }
 
     let content = "";
+    let image: boolean | undefined;
+    let pdf: boolean | undefined;
+    let binary: boolean | undefined;
     if (onReadFile) {
       const result = await onReadFile(node.path);
-      if (result) content = result.content;
+      if (result) {
+        content = result.content;
+        image = result.image;
+        pdf = result.pdf;
+        binary = result.binary;
+      }
     }
 
-    setOpenFiles((prev) => [...prev, { path: node.path, name: node.name, content }]);
+    setOpenFiles((prev) => [...prev, { path: node.path, name: node.name, content, image, pdf, binary }]);
     setActivePath(node.path);
   }, [openFiles, onReadFile]);
 
