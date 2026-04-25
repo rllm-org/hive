@@ -8,7 +8,6 @@ import { python } from "@codemirror/lang-python";
 import { markdown } from "@codemirror/lang-markdown";
 import { json } from "@codemirror/lang-json";
 import { oneDark } from "@codemirror/theme-one-dark";
-import DocViewer, { DocViewerRenderers } from "react-doc-viewer";
 
 export interface OpenFile {
   path: string;
@@ -141,17 +140,29 @@ export function WorkspaceEditor({ openFiles, activePath, onSelectTab, onCloseTab
 }
 
 function DocViewerPane({ file }: { file: OpenFile }) {
+  const [viewer, setViewer] = useState<{ DocViewer: typeof import("react-doc-viewer").default; renderers: typeof import("react-doc-viewer").DocViewerRenderers } | null>(null);
+
+  useEffect(() => {
+    import("react-doc-viewer").then((mod) => {
+      setViewer({ DocViewer: mod.default, renderers: mod.DocViewerRenderers });
+    });
+  }, []);
+
   const docs = useMemo(() => {
-    // Content from the supervisor is already a data URI (e.g., "data:image/png;base64,...")
     const uri = file.content.startsWith("data:") ? file.content : `data:application/octet-stream;base64,${file.content}`;
     const ext = file.name.split(".").pop()?.toLowerCase();
     return [{ uri, fileType: ext, fileName: file.name }];
   }, [file.name, file.content]);
 
+  if (!viewer) {
+    return <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-tertiary)]">Loading viewer...</div>;
+  }
+
+  const DV = viewer.DocViewer;
   return (
-    <DocViewer
+    <DV
       documents={docs}
-      pluginRenderers={DocViewerRenderers}
+      pluginRenderers={viewer.renderers}
       config={{ header: { disableHeader: true } }}
       style={{ height: "100%" }}
     />
