@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { LuX } from "react-icons/lu";
 import CodeMirror, { Extension } from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
@@ -113,7 +113,7 @@ export function WorkspaceEditor({ openFiles, activePath, onSelectTab, onCloseTab
       {/* Editor */}
       <div className="flex-1 min-h-0 overflow-auto">
         {activeFile && activeFile.content.startsWith("data:") ? (
-          <DocViewerPane file={activeFile} />
+          <BinaryFilePane file={activeFile} />
         ) : activeFile ? (
           <CodeMirror
             key={activeFile.path}
@@ -136,32 +136,24 @@ export function WorkspaceEditor({ openFiles, activePath, onSelectTab, onCloseTab
   );
 }
 
-function DocViewerPane({ file }: { file: OpenFile }) {
-  const [viewer, setViewer] = useState<{ DocViewer: typeof import("react-doc-viewer").default; renderers: typeof import("react-doc-viewer").DocViewerRenderers } | null>(null);
+function BinaryFilePane({ file }: { file: OpenFile }) {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
 
-  useEffect(() => {
-    import("react-doc-viewer").then((mod) => {
-      setViewer({ DocViewer: mod.default, renderers: mod.DocViewerRenderers });
-    });
-  }, []);
-
-  const docs = useMemo(() => {
-    const uri = file.content.startsWith("data:") ? file.content : `data:application/octet-stream;base64,${file.content}`;
-    const ext = file.name.split(".").pop()?.toLowerCase();
-    return [{ uri, fileType: ext, fileName: file.name }];
-  }, [file.name, file.content]);
-
-  if (!viewer) {
-    return <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-tertiary)]">Loading viewer...</div>;
+  if (file.content.startsWith("data:image/")) {
+    return (
+      <div className="h-full flex items-center justify-center p-4 overflow-auto bg-[var(--color-bg)]">
+        <img src={file.content} alt={file.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+      </div>
+    );
   }
 
-  const DV = viewer.DocViewer;
+  if (ext === "pdf" || file.content.startsWith("data:application/pdf")) {
+    return <iframe src={file.content} title={file.name} style={{ width: "100%", height: "100%", border: "none" }} />;
+  }
+
   return (
-    <DV
-      documents={docs}
-      pluginRenderers={viewer.renderers}
-      config={{ header: { disableHeader: true } }}
-      style={{ height: "100%" }}
-    />
+    <div className="h-full flex items-center justify-center text-[13px] text-[var(--color-text-tertiary)]">
+      Cannot preview {file.name}
+    </div>
   );
 }
