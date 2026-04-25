@@ -64,7 +64,6 @@ export function FileExplorer({
     let content = "";
     if (onReadFile) {
       const result = await onReadFile(node.path);
-      console.log("[FileExplorer] readFile result:", node.path, { contentLength: result?.content?.length, contentStart: result?.content?.substring(0, 80), keys: result ? Object.keys(result) : null });
       if (result) content = result.content;
     }
 

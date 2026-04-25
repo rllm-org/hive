@@ -3005,11 +3005,29 @@ async def workspace_files_read(workspace_id: int, path: str, user: dict = Depend
     full = f"shared/{workspace_id}/{path.lstrip('/')}"
     from .sdk import sdk
     try:
-        return await sdk.volume_file_read(GLOBAL_VOLUME_ID, full)
+        data = await sdk.volume_file_read(GLOBAL_VOLUME_ID, full)
     except httpx.HTTPStatusError as e:
         raise HTTPException(502, f"agent-sdk error: {e}")
     except Exception as e:
         raise HTTPException(502, f"agent-sdk unreachable: {e}")
+    # Volume endpoint returns content_base64 for binary files, or raw text for
+    # files like PDF that happen to decode as latin-1/utf-8. Convert both to data URIs.
+    if isinstance(data, dict):
+        import base64 as _b64
+        ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+        _BINARY_EXTS = {
+            "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "gif": "image/gif", "bmp": "image/bmp", "svg": "image/svg+xml",
+            "webp": "image/webp", "ico": "image/x-icon", "pdf": "application/pdf",
+        }
+        if "content_base64" in data:
+            mime = _BINARY_EXTS.get(ext, "application/octet-stream")
+            data["content"] = f"data:{mime};base64,{data.pop('content_base64')}"
+        elif ext in _BINARY_EXTS and "content" in data:
+            mime = _BINARY_EXTS.get(ext, "application/octet-stream")
+            b64 = _b64.b64encode(data["content"].encode("utf-8")).decode("ascii")
+            data["content"] = f"data:{mime};base64,{b64}"
+    return data
 
 
 @router.post("/workspaces/{workspace_id}/files/edit")
