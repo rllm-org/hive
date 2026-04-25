@@ -75,14 +75,6 @@ export function FileExplorer({
       }
     }
 
-    // Detect file type from extension if backend didn't provide flags
-    if (!image && !pdf && !binary) {
-      const ext = node.name.split(".").pop()?.toLowerCase() ?? "";
-      const imageExts = new Set(["png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "tiff", "ico"]);
-      if (imageExts.has(ext)) image = true;
-      else if (ext === "pdf") pdf = true;
-    }
-
     setOpenFiles((prev) => [...prev, { path: node.path, name: node.name, content, image, pdf, binary }]);
     setActivePath(node.path);
   }, [openFiles, onReadFile]);
