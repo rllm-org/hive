@@ -1242,6 +1242,22 @@ function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
     }
   }, [workspaceId]);
 
+  const downloadFile = useCallback(async (path: string) => {
+    try {
+      const data = await apiFetch<{ content?: string }>(`/workspaces/${workspaceId}/files/read?path=${encodeURIComponent(path)}`);
+      if (!data.content) return;
+      const blob = new Blob([data.content], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = path.split("/").pop() || "download";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch { /* non-fatal */ }
+  }, [workspaceId]);
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-text-secondary)]">
@@ -1250,7 +1266,7 @@ function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
     );
   }
 
-  return <FileExplorer tree={tree} loading={isLoading} onReadFile={readFile} />;
+  return <FileExplorer tree={tree} loading={isLoading} onReadFile={readFile} onDownload={downloadFile} />;
 }
 
 function WorkspaceSettings({ workspaceId, workspaceName }: { workspaceId: number; workspaceName: string }) {
