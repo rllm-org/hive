@@ -3005,19 +3005,11 @@ async def workspace_files_read(workspace_id: int, path: str, user: dict = Depend
     full = f"shared/{workspace_id}/{path.lstrip('/')}"
     from .sdk import sdk
     try:
-        data = await sdk.volume_file_read(GLOBAL_VOLUME_ID, full)
+        return await sdk.volume_file_read(GLOBAL_VOLUME_ID, full)
     except httpx.HTTPStatusError as e:
         raise HTTPException(502, f"agent-sdk error: {e}")
     except Exception as e:
         raise HTTPException(502, f"agent-sdk unreachable: {e}")
-    # Add file type flags if the upstream SDK didn't provide them
-    if isinstance(data, dict) and "image" not in data:
-        ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
-        image_exts = {"png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "tiff", "ico"}
-        data["image"] = ext in image_exts
-        data["pdf"] = ext == "pdf"
-        data["binary"] = data["image"] or data["pdf"]
-    return data
 
 
 @router.post("/workspaces/{workspace_id}/files/edit")

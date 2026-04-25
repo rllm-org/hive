@@ -1235,8 +1235,8 @@ function WorkspaceFilesView({ workspaceId }: { workspaceId: number }) {
 
   const readFile = useCallback(async (path: string) => {
     try {
-      const data = await apiFetch<{ content?: string; image?: boolean; pdf?: boolean; binary?: boolean }>(`/workspaces/${workspaceId}/files/read?path=${encodeURIComponent(path)}`);
-      return { content: data.content ?? "", image: data.image, pdf: data.pdf, binary: data.binary };
+      const data = await apiFetch<{ content?: string }>(`/workspaces/${workspaceId}/files/read?path=${encodeURIComponent(path)}`);
+      return { content: data.content ?? "" };
     } catch {
       return undefined;
     }
