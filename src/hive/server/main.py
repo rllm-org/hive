@@ -341,8 +341,9 @@ def _sync_tasks_from_github():
                     continue
                 desc = repo.get("description") or ""
                 conn.execute(
-                    "INSERT INTO tasks (id, name, description, repo_url, created_at) VALUES (%s, %s, %s, %s, %s)",
-                    (task_id, task_id, desc, repo["html_url"], now()),
+                    "INSERT INTO tasks (id, slug, owner, name, description, repo_url, created_at)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (task_id, task_id, "hive", task_id, desc, repo["html_url"], now()),
                 )
     except Exception:
         pass  # best-effort; server starts even if GitHub is unreachable
@@ -886,32 +887,37 @@ def _validate_task_description(description: str):
 @router.post("/tasks", status_code=201)
 async def create_task(
     archive: UploadFile = File(...),
-    id: str = Form(...),
+    id: str | None = Form(None),
+    slug: str | None = Form(None),
     name: str = Form(...),
     description: str = Form(...),
     config: str | None = Form(None),
     x_admin_key: str = Header(""), authorization: str = Header(""),
 ):
     await require_admin(x_admin_key, authorization)
-    _validate_task_id(id)
+    task_id = (id or slug or "").strip()
+    if not task_id:
+        raise HTTPException(400, "id (or slug) is required")
+    _validate_task_id(task_id)
     _validate_task_description(description)
     async with get_db() as conn:
-        if await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (id,))).fetchone():
+        if await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))).fetchone():
             raise HTTPException(409, "A public or private task with this ID already exists. Try a different ID.")
     try:
         gh = get_github_app()
     except Exception as e:
         raise HTTPException(503, f"GitHub App not configured: {e}")
     try:
-        repo_url = await asyncio.to_thread(gh.create_task_repo, id, archive.file.read(), description)
+        repo_url = await asyncio.to_thread(gh.create_task_repo, task_id, archive.file.read(), description)
     except Exception as e:
         raise HTTPException(502, f"Failed to create GitHub repo: {e}")
     async with get_db() as conn:
         await conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, config, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
-            (id, name, description, repo_url, config, now()),
+            "INSERT INTO tasks (id, slug, owner, name, description, repo_url, config, created_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (task_id, task_id, "hive", name, description, repo_url, config, now()),
         )
-    return JSONResponse({"id": id, "name": name, "repo_url": repo_url, "status": "active"}, status_code=201)
+    return JSONResponse({"id": task_id, "name": name, "repo_url": repo_url, "status": "active"}, status_code=201)
 
 
 @router.get("/tasks/mine")
@@ -992,9 +998,9 @@ async def create_private_task(body: dict[str, Any], user: dict = Depends(require
             except Exception:
                 pass  # best-effort
         await conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, task_type, owner_id, visibility, source_repo, installation_id, created_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (task_id, task_name, description, repo_url, "private", user_id, "private", repo_full_name, installation_id, now()),
+            "INSERT INTO tasks (id, slug, owner, name, description, repo_url, task_type, owner_id, visibility, source_repo, installation_id, created_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (task_id, task_id, str(user_id), task_name, description, repo_url, "private", user_id, "private", repo_full_name, installation_id, now()),
         )
     resp_body: dict[str, Any] = {
         "id": task_id, "name": task_name, "repo_url": repo_url,

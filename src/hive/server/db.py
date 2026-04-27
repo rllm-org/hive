@@ -412,6 +412,24 @@ def _ensure_postgres_migrations(conn) -> None:
     ).fetchone()
     if not row:
         conn.execute("ALTER TABLE forks ADD COLUMN branch_prefix TEXT")
+    # slug + owner on tasks — compat with prod schema applied externally from
+    # staging refactor 472d4b7. Additive + idempotent: each ALTER is gated on
+    # an information_schema check, slug is backfilled before SET NOT NULL,
+    # owner gets a default so existing rows satisfy NOT NULL immediately.
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = 'tasks' AND column_name = 'slug'"
+    ).fetchone()
+    if not row:
+        conn.execute("ALTER TABLE tasks ADD COLUMN slug TEXT")
+        conn.execute("UPDATE tasks SET slug = id WHERE slug IS NULL")
+        conn.execute("ALTER TABLE tasks ALTER COLUMN slug SET NOT NULL")
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.columns"
+        " WHERE table_name = 'tasks' AND column_name = 'owner'"
+    ).fetchone()
+    if not row:
+        conn.execute("ALTER TABLE tasks ADD COLUMN owner TEXT NOT NULL DEFAULT 'hive'")
 
 
 # --- Async connection pool (one per worker process) ---
