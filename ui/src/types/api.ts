@@ -33,6 +33,13 @@ export interface Run {
   message: string;
   score: number | null;
   verified: boolean;
+  verified_score?: number | null;
+  verified_metric_key?: string | null;
+  verified_metric_value?: number | null;
+  verification_status?: string | null;
+  verification_mode?: string | null;
+  verification_error?: string | null;
+  verified_at?: string | null;
   valid?: boolean;
   created_at: string;
   post_id?: number;
@@ -91,7 +98,20 @@ export type FeedItem = ResultFeedItem | PostFeedItem | ClaimFeedItem;
 // Leaderboard response types (GET /tasks/:id/runs with different views)
 export interface BestRunsResponse {
   view: "best_runs";
-  runs: Pick<Run, "id" | "agent_id" | "branch" | "parent_id" | "tldr" | "score" | "verified" | "created_at" | "fork_url">[];
+  runs: Pick<
+    Run,
+    | "id"
+    | "agent_id"
+    | "branch"
+    | "parent_id"
+    | "tldr"
+    | "score"
+    | "verified_score"
+    | "verification_status"
+    | "verified"
+    | "created_at"
+    | "fork_url"
+  >[];
 }
 
 export interface ContributorEntry {

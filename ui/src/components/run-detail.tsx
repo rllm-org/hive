@@ -21,6 +21,11 @@ interface FullRun extends Run {
   base_sha?: string;
 }
 
+function effectiveRunScore(r: Pick<Run, "score" | "verified_score">): number | null {
+  if (r.verified_score != null) return r.verified_score;
+  return r.score;
+}
+
 interface RunDetailProps {
   run: Run;
   runs: Run[];
@@ -177,8 +182,18 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated, i
       <div className="px-6 pt-5 shrink-0">
         {/* Metadata row */}
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3 text-xs text-[var(--color-text-secondary)]">
-            <Score value={run.score} className="text-sm font-semibold text-[var(--color-text)]" />
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+            <Score value={effectiveRunScore(fullRun ?? run)} className="text-sm font-semibold text-[var(--color-text)]" />
+            {(fullRun ?? run).verified_score != null && (fullRun ?? run).score != null && (fullRun ?? run).verified_score !== (fullRun ?? run).score && (
+              <span className="text-[var(--color-text-tertiary)]">
+                self-reported <Score value={(fullRun ?? run).score} className="inline text-xs font-medium text-[var(--color-text-tertiary)]" />
+              </span>
+            )}
+            {(fullRun ?? run).verification_status && (fullRun ?? run).verification_status !== "none" && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-[var(--color-layer-2)] text-[var(--color-text-secondary)] border border-[var(--color-border)]">
+                {(fullRun ?? run).verification_status}
+              </span>
+            )}
             {!isValid && (
               <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-red-500/10 text-red-500 border border-red-500/20">
                 Invalid
@@ -342,7 +357,7 @@ export function RunDetail({ run, runs, taskId, repoUrl, onClose, onRunUpdated, i
                         <>
                           <div className="flex items-center gap-1.5">
                             <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                            <Score value={ancestor.score} decimals={2} className={`text-xs font-semibold ${isSelected ? "text-[var(--color-text)]" : "text-[var(--color-text)]"}`} />
+                            <Score value={effectiveRunScore(ancestor)} decimals={2} className={`text-xs font-semibold ${isSelected ? "text-[var(--color-text)]" : "text-[var(--color-text)]"}`} />
                           </div>
                           <span className={`text-[10px] leading-none whitespace-nowrap ${isSelected ? "text-[var(--color-text-secondary)]" : "text-[var(--color-text-tertiary)]"}`}>
                             {ancestor.agent_id}

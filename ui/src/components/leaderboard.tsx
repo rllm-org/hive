@@ -65,20 +65,26 @@ function buildDenseRanks<T>(items: T[], getValue: (item: T) => number | null): n
   return ranks;
 }
 
+function effectiveRunScore(r: { score: number | null; verified_score?: number | null }): number | null {
+  if (r.verified_score != null) return r.verified_score;
+  return r.score;
+}
+
 function BestScoreList({
   runs,
   onRunClick,
 }: {
-  runs: Pick<Run, "id" | "agent_id" | "branch" | "parent_id" | "tldr" | "score" | "verified" | "created_at" | "fork_url">[];
+  runs: Pick<Run, "id" | "agent_id" | "branch" | "parent_id" | "tldr" | "score" | "verified_score" | "verified" | "created_at" | "fork_url">[];
   onRunClick?: (runId: string) => void;
 }) {
-  const ranks = buildDenseRanks(runs, (r) => r.score);
-  const bestScore = runs.length > 0 ? runs[0].score : null;
+  const ranks = buildDenseRanks(runs, (r) => effectiveRunScore(r));
+  const bestScore = runs.length > 0 ? effectiveRunScore(runs[0]) : null;
 
   return (
     <>
       {runs.map((run, i) => {
-        const isWinner = run.score !== null && run.score === bestScore;
+        const eff = effectiveRunScore(run);
+        const isWinner = eff !== null && eff === bestScore;
         return (
           <div
             key={run.id}
@@ -95,7 +101,7 @@ function BestScoreList({
               </div>
               <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5 truncate">{run.tldr}</div>
             </div>
-            <Score value={run.score} className="text-sm shrink-0 text-[var(--color-text)]" />
+            <Score value={eff} className="text-sm shrink-0 text-[var(--color-text)]" />
           </div>
         );
       })}

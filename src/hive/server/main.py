@@ -16,11 +16,21 @@ import httpx
 import jwt
 import psycopg.errors
 from cryptography.fernet import Fernet
-from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse as _BaseJSONResponse
 
+from pathlib import Path
+
 from .db import init_pool, close_pool, get_db, get_db_sync, now, paginate
+from .daytona_client import provision_eval_volume
+from .verify_config import (
+    is_verify_enabled,
+    merge_verify_into_config,
+    parse_json_config,
+    validate_verify_task_config,
+)
+from .verifier import verify_run_background
 
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 JWT_SECRET = os.environ.get("JWT_SECRET", "hive-dev-secret-change-me")
@@ -884,6 +894,56 @@ def _validate_task_description(description: str):
         raise HTTPException(400, f"description must be {_TASK_DESCRIPTION_MAX_LENGTH} characters or fewer")
 
 
+def _safe_artifact_rel_path(name: str) -> str | None:
+    if not name or not isinstance(name, str):
+        return None
+    p = name.replace("\\", "/").strip().lstrip("/")
+    if not p or any(part == ".." for part in p.split("/")):
+        return None
+    return p
+
+
+async def _parse_submit_request(request: Request) -> tuple[dict[str, Any], list[tuple[str, UploadFile]]]:
+    ct = (request.headers.get("content-type") or "").lower()
+    if "multipart/form-data" in ct:
+        form = await request.form()
+        body: dict[str, Any] = {}
+        for key in ("sha", "branch", "parent_id", "tldr", "message", "score"):
+            if key not in form:
+                continue
+            val = form.get(key)
+            if hasattr(val, "read"):
+                continue
+            if val is None:
+                continue
+            body[key] = val
+        if body.get("score") not in (None, ""):
+            try:
+                body["score"] = float(body["score"])
+            except (TypeError, ValueError):
+                raise HTTPException(400, "score must be a number")
+        if "score" in body and body["score"] == "":
+            body["score"] = None
+        if body.get("parent_id") == "":
+            body["parent_id"] = None
+        files: list[tuple[str, UploadFile]] = []
+        for key, val in form.multi_items():
+            if hasattr(val, "read") and callable(getattr(val, "read", None)):
+                if key in ("sha", "branch", "parent_id", "tldr", "message", "score"):
+                    continue
+                files.append((key, val))
+        return body, files
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "JSON body must be an object")
+    if body.get("parent_id") == "":
+        body["parent_id"] = None
+    return body, []
+
+
 @router.post("/tasks", status_code=201)
 async def create_task(
     archive: UploadFile = File(...),
@@ -892,6 +952,8 @@ async def create_task(
     name: str = Form(...),
     description: str = Form(...),
     config: str | None = Form(None),
+    verify_config: str | None = Form(None),
+    eval_bundle: UploadFile | None = File(None),
     x_admin_key: str = Header(""), authorization: str = Header(""),
 ):
     await require_admin(x_admin_key, authorization)
@@ -900,6 +962,21 @@ async def create_task(
         raise HTTPException(400, "id (or slug) is required")
     _validate_task_id(task_id)
     _validate_task_description(description)
+    merged = merge_verify_into_config(config, verify_config)
+    eval_bytes = b""
+    has_bundle = False
+    if eval_bundle is not None:
+        try:
+            eval_bytes = await eval_bundle.read()
+        except Exception as e:
+            raise HTTPException(400, f"failed to read eval_bundle: {e}")
+        has_bundle = len(eval_bytes) > 0
+    if has_bundle and not merged.get("verify"):
+        raise HTTPException(400, "eval_bundle requires verify=true in verify_config")
+    try:
+        validate_verify_task_config(merged, has_bundle)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     async with get_db() as conn:
         if await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))).fetchone():
             raise HTTPException(409, "A public or private task with this ID already exists. Try a different ID.")
@@ -908,15 +985,38 @@ async def create_task(
     except Exception as e:
         raise HTTPException(503, f"GitHub App not configured: {e}")
     try:
-        repo_url = await asyncio.to_thread(gh.create_task_repo, task_id, archive.file.read(), description)
+        repo_url = await asyncio.to_thread(gh.create_task_repo, task_id, await archive.read(), description)
     except Exception as e:
         raise HTTPException(502, f"Failed to create GitHub repo: {e}")
+    version = (merged.get("server_eval") or {}).get("volume_version") or "v1"
+    if merged.get("verify"):
+        try:
+            volume_id, bundle_sha = provision_eval_volume(task_id, version, eval_bytes)
+        except Exception as e:
+            try:
+                await asyncio.to_thread(gh.delete_repo, f"{gh.org}/task--{task_id}")
+            except Exception:
+                pass
+            raise HTTPException(502, f"eval bundle provision failed: {e}")
+        merged.setdefault("server_eval", {})
+        merged["server_eval"]["volume_id"] = volume_id
+        merged["server_eval"]["volume_version"] = version
+        merged["server_eval"]["bundle_sha256"] = bundle_sha
+    final_config = json.dumps(merged)
+    ts = now()
     async with get_db() as conn:
         await conn.execute(
             "INSERT INTO tasks (id, slug, owner, name, description, repo_url, config, created_at)"
             " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            (task_id, task_id, "hive", name, description, repo_url, config, now()),
+            (task_id, task_id, "hive", name, description, repo_url, final_config, ts),
         )
+        if merged.get("verify"):
+            se = merged.get("server_eval") or {}
+            await conn.execute(
+                "INSERT INTO task_eval_bundles (task_id, version, volume_id, bundle_sha256, created_at)"
+                " VALUES (%s, %s, %s, %s, %s)",
+                (task_id, version, se.get("volume_id", ""), se.get("bundle_sha256"), ts),
+            )
     return JSONResponse({"id": task_id, "name": name, "repo_url": repo_url, "status": "active"}, status_code=201)
 
 
@@ -925,7 +1025,7 @@ async def list_my_tasks(user: dict = Depends(require_user)):
     user_id = int(user["sub"])
     async with get_db() as conn:
         rows = await (await conn.execute(
-            "SELECT t.*, COUNT(r.id) AS total_runs, MAX(r.score) AS best_score_calc,"
+            "SELECT t.*, COUNT(r.id) AS total_runs, MAX(COALESCE(r.verified_score, r.score)) AS best_score_calc,"
             " COUNT(DISTINCT r.agent_id) AS agents_contributing,"
             " GREATEST(MAX(r.created_at), (SELECT MAX(p.created_at) FROM posts p WHERE p.task_id = t.id)) AS last_activity"
             " FROM tasks t LEFT JOIN runs r ON r.task_id = t.id"
@@ -1070,7 +1170,7 @@ async def list_tasks(q: str | None = Query(None), page: int = Query(1), per_page
             params.append(q)
         params.extend([per_page + 1, offset])
         rows = await (await conn.execute(
-            f"SELECT t.*, COUNT(r.id) AS total_runs, MAX(r.score) AS best_score_calc,"
+            f"SELECT t.*, COUNT(r.id) AS total_runs, MAX(COALESCE(r.verified_score, r.score)) AS best_score_calc,"
             f" COUNT(DISTINCT r.agent_id) AS agents_contributing,"
             f" GREATEST(MAX(r.created_at), (SELECT MAX(p.created_at) FROM posts p WHERE p.task_id = t.id)) AS last_activity"
             f" FROM tasks t LEFT JOIN runs r ON r.task_id = t.id"
@@ -1282,10 +1382,12 @@ async def push_to_task(task_id: str, branch: str = Form(""), bundle: UploadFile 
         expected_prefix = fork_row["branch_prefix"]
     if not branch:
         raise HTTPException(400, "branch is required")
-    if ".." in branch or not re.match(r"^hive/[a-z0-9-]+/[a-z0-9._/-]+$", branch):
+    if ".." in branch:
         raise HTTPException(400, "invalid branch name")
     if not branch.startswith(expected_prefix):
         raise HTTPException(403, f"branch must start with '{expected_prefix}'")
+    if not re.match(r"^hive/[a-z0-9-]+/[a-z0-9._/-]+$", branch):
+        raise HTTPException(400, "invalid branch name")
     # Save bundle to temp file and push (100MB limit)
     MAX_BUNDLE_SIZE = 100 * 1024 * 1024
     gh = get_github_app()
@@ -1307,13 +1409,24 @@ async def push_to_task(task_id: str, branch: str = Form(""), bundle: UploadFile 
 
 
 @router.post("/tasks/{task_id}/submit", status_code=201)
-async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(""), x_agent_token: str = Header(""), authorization: str = Header("")):
+async def submit_run(
+    task_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    token: str = Query(""), x_agent_token: str = Header(""), authorization: str = Header(""),
+):
     await require_task_access(task_id, authorization)
+    body, upload_files = await _parse_submit_request(request)
     ts = now()
     async with get_db() as conn:
         agent_id = await get_agent(_resolve_agent_token(token, x_agent_token), conn)
-        if not await (await conn.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))).fetchone():
+        task_row = await (await conn.execute("SELECT config FROM tasks WHERE id = %s", (task_id,))).fetchone()
+        if not task_row:
             raise HTTPException(404, "task not found")
+        task_cfg = parse_json_config(task_row.get("config"))
+        verify_on = is_verify_enabled(task_cfg)
+        if upload_files and not verify_on:
+            raise HTTPException(400, "artifact upload is only allowed for verified tasks")
         score = body.get("score")
         if score is not None:
             try:
@@ -1321,7 +1434,8 @@ async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(""),
             except (TypeError, ValueError):
                 raise HTTPException(400, "score must be a number")
         sha = body.get("sha")
-        if not sha: raise HTTPException(400, "sha required")
+        if not sha:
+            raise HTTPException(400, "sha required")
         existing = await (await conn.execute("SELECT id FROM runs WHERE id = %s", (sha,))).fetchone()
         if existing:
             raise HTTPException(409, f"run '{sha}' already submitted")
@@ -1330,21 +1444,38 @@ async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(""),
             parent_row = await (await conn.execute("SELECT id FROM runs WHERE id = %s", (parent_id,))).fetchone()
             if not parent_row:
                 matches = await (await conn.execute("SELECT id FROM runs WHERE id LIKE %s", (parent_id + "%",))).fetchall()
-                if len(matches) == 1: parent_id = matches[0]["id"]
-                elif len(matches) > 1: raise HTTPException(400, f"ambiguous parent prefix '{parent_id}', matches {len(matches)} runs")
-                else: raise HTTPException(404, f"parent run '{parent_id}' not found")
+                if len(matches) == 1:
+                    parent_id = matches[0]["id"]
+                elif len(matches) > 1:
+                    raise HTTPException(400, f"ambiguous parent prefix '{parent_id}', matches {len(matches)} runs")
+                else:
+                    raise HTTPException(404, f"parent run '{parent_id}' not found")
             else:
                 parent_id = parent_row["id"]
         fork_row = await (await conn.execute("SELECT id FROM forks WHERE task_id = %s AND agent_id = %s", (task_id, agent_id))).fetchone()
         fork_id = fork_row["id"] if fork_row else None
+        if verify_on:
+            if not upload_files:
+                raise HTTPException(400, "verified task requires artifact upload (multipart submit)")
+            req_pre = (task_cfg.get("artifact") or {}).get("required_paths") or []
+            present: set[str] = set()
+            for field_name, _uf in upload_files:
+                rel = _safe_artifact_rel_path(field_name)
+                if rel:
+                    present.add(rel)
+            missing_pre = [p for p in req_pre if p not in present]
+            if missing_pre:
+                raise HTTPException(400, f"missing required artifacts: {missing_pre}")
+        vstat = "pending" if verify_on else "none"
         await conn.execute(
-            "INSERT INTO runs (id, task_id, parent_id, agent_id, branch, tldr, message, score, verified, created_at, fork_id)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s, %s)",
+            "INSERT INTO runs (id, task_id, parent_id, agent_id, branch, tldr, message, score, verified,"
+            " verification_status, created_at, fork_id)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s, %s, %s)",
             (sha, task_id, parent_id, agent_id, body.get("branch", ""),
-             body.get("tldr", ""), body.get("message", ""), score, ts, fork_id),
+             body.get("tldr", ""), body.get("message", ""), score, vstat, ts, fork_id),
         )
         await conn.execute("UPDATE agents SET total_runs = total_runs + 1 WHERE id = %s", (agent_id,))
-        if score is not None:
+        if score is not None and not verify_on:
             await conn.execute(
                 "UPDATE tasks SET"
                 " improvements = CASE WHEN %s > COALESCE(best_score, '-Infinity'::float) THEN improvements + 1 ELSE improvements END,"
@@ -1357,9 +1488,45 @@ async def submit_run(task_id: str, body: dict[str, Any], token: str = Query(""),
             " VALUES (%s, %s, %s, %s, 0, 0, %s) RETURNING id",
             (task_id, agent_id, body.get("message", ""), sha, ts),
         )).fetchone())["id"]
-    run = {"id": sha, "task_id": task_id, "agent_id": agent_id, "branch": body.get("branch", ""),
-           "parent_id": parent_id, "tldr": body.get("tldr", ""), "message": body.get("message", ""),
-           "score": score, "verified": False, "created_at": ts, "fork_id": fork_id}
+        art_cfg = task_cfg.get("artifact") or {}
+        max_mb = float(art_cfg.get("max_size_mb") or 50)
+        max_b = int(max_mb * 1024 * 1024)
+        attempt_id: str | None = None
+        if verify_on:
+            root = Path(os.environ.get("HIVE_ARTIFACT_ROOT", "/tmp/hive_artifacts")) / task_id / sha
+            root.mkdir(parents=True, exist_ok=True)
+            for field_name, uf in upload_files:
+                rel = _safe_artifact_rel_path(field_name)
+                if not rel:
+                    raise HTTPException(400, f"invalid artifact path: {field_name!r}")
+                dest = root / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                total = 0
+                with dest.open("wb") as out:
+                    while chunk := await uf.read(64 * 1024):
+                        total += len(chunk)
+                        if total > max_b:
+                            raise HTTPException(413, "artifact too large")
+                        out.write(chunk)
+                await conn.execute(
+                    "INSERT INTO run_artifacts (run_id, task_id, rel_path, storage_path, size_bytes, created_at)"
+                    " VALUES (%s, %s, %s, %s, %s, %s)",
+                    (sha, task_id, rel, str(dest.resolve()), total, ts),
+                )
+            attempt_id = str(uuid.uuid4())
+            await conn.execute(
+                "INSERT INTO verification_attempts (id, task_id, run_id, status, created_at)"
+                " VALUES (%s, %s, %s, %s, %s)",
+                (attempt_id, task_id, sha, "pending", ts),
+            )
+    if verify_on and attempt_id:
+        background_tasks.add_task(verify_run_background, sha, task_id, attempt_id)
+    run = {
+        "id": sha, "task_id": task_id, "agent_id": agent_id, "branch": body.get("branch", ""),
+        "parent_id": parent_id, "tldr": body.get("tldr", ""), "message": body.get("message", ""),
+        "score": score, "verified": False, "verified_score": None, "verification_status": vstat,
+        "created_at": ts, "fork_id": fork_id,
+    }
     return JSONResponse({"run": run, "post_id": post_id}, status_code=201)
 
 
@@ -1372,16 +1539,17 @@ async def list_runs(task_id: str, authorization: str = Header(""), sort: str = Q
 
         if view == "contributors":
             rows = await (await conn.execute(
-                "SELECT agent_id, COUNT(*) AS total_runs, MAX(score) AS best_score,"
+                "SELECT agent_id, COUNT(*) AS total_runs, MAX(COALESCE(verified_score, score)) AS best_score,"
                 " COUNT(*) FILTER ("
-                "   WHERE score > COALESCE("
-                "     (SELECT MAX(r2.score) FROM runs r2"
+                "   WHERE COALESCE(verified_score, score) > COALESCE("
+                "     (SELECT MAX(COALESCE(r2.verified_score, r2.score)) FROM runs r2"
                 "      WHERE r2.task_id = runs.task_id"
-                "      AND r2.created_at < runs.created_at AND r2.score IS NOT NULL),"
+                "      AND r2.created_at < runs.created_at"
+                "      AND (r2.score IS NOT NULL OR r2.verified_score IS NOT NULL)),"
                 "     '-Infinity'::float)"
                 " ) AS improvements"
                 " FROM runs"
-                " WHERE task_id = %s AND score IS NOT NULL"
+                " WHERE task_id = %s AND (score IS NOT NULL OR verified_score IS NOT NULL)"
                 " GROUP BY agent_id ORDER BY improvements DESC, best_score DESC LIMIT %s OFFSET %s",
                 (task_id, per_page + 1, offset)
             )).fetchall()
@@ -1393,10 +1561,12 @@ async def list_runs(task_id: str, authorization: str = Header(""), sort: str = Q
 
         if view == "deltas":
             rows = await (await conn.execute(
-                "SELECT r.id AS run_id, r.agent_id, r.score - p.score AS delta,"
-                " p.score AS from_score, r.score AS to_score, r.tldr"
+                "SELECT r.id AS run_id, r.agent_id,"
+                " COALESCE(r.verified_score, r.score) - COALESCE(p.verified_score, p.score) AS delta,"
+                " COALESCE(p.verified_score, p.score) AS from_score, COALESCE(r.verified_score, r.score) AS to_score, r.tldr"
                 " FROM runs r JOIN runs p ON r.parent_id = p.id"
-                " WHERE r.task_id = %s AND r.score IS NOT NULL AND p.score IS NOT NULL"
+                " WHERE r.task_id = %s AND (r.score IS NOT NULL OR r.verified_score IS NOT NULL)"
+                " AND (p.score IS NOT NULL OR p.verified_score IS NOT NULL)"
                 " ORDER BY delta DESC LIMIT %s OFFSET %s",
                 (task_id, per_page + 1, offset)
             )).fetchall()
@@ -1407,14 +1577,14 @@ async def list_runs(task_id: str, authorization: str = Header(""), sort: str = Q
         if view == "improvers":
             rows = await (await conn.execute(
                 "WITH ranked AS ("
-                " SELECT agent_id, score,"
-                " MAX(score) OVER (ORDER BY created_at"
+                " SELECT agent_id, COALESCE(verified_score, score) AS eff,"
+                " MAX(COALESCE(verified_score, score)) OVER (ORDER BY created_at"
                 " ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_best"
-                " FROM runs WHERE task_id = %s AND score IS NOT NULL"
+                " FROM runs WHERE task_id = %s AND (score IS NOT NULL OR verified_score IS NOT NULL)"
                 ")"
                 " SELECT agent_id,"
-                " COUNT(*) FILTER (WHERE score > COALESCE(prev_best, '-Infinity'::float)) AS improvements_to_best,"
-                " MAX(score) AS best_score"
+                " COUNT(*) FILTER (WHERE eff > COALESCE(prev_best, '-Infinity'::float)) AS improvements_to_best,"
+                " MAX(eff) AS best_score"
                 " FROM ranked"
                 " GROUP BY agent_id"
                 " ORDER BY improvements_to_best DESC"
@@ -1425,12 +1595,16 @@ async def list_runs(task_id: str, authorization: str = Header(""), sort: str = Q
             rows = rows[:per_page]
             return {"view": "improvers", "entries": [dict(r) for r in rows], "page": page, "per_page": per_page, "has_next": has_next}
 
-        where, params = "r.task_id = %s AND r.score IS NOT NULL AND r.valid IS NOT FALSE", [task_id]
+        where, params = (
+            "r.task_id = %s AND (r.score IS NOT NULL OR r.verified_score IS NOT NULL) AND r.valid IS NOT FALSE",
+            [task_id],
+        )
         if agent: where += " AND r.agent_id = %s"; params.append(agent)
-        order = _parse_sort(sort, {"score": "r.score", "recent": "r.created_at"})
+        order = _parse_sort(sort, {"score": "COALESCE(r.verified_score, r.score)", "recent": "r.created_at"})
         params.extend([per_page + 1, offset])
         rows = await (await conn.execute(
-            f"SELECT r.id, r.agent_id, r.branch, r.parent_id, r.tldr, r.score, r.verified, r.valid, r.created_at, f.fork_url"
+            f"SELECT r.id, r.agent_id, r.branch, r.parent_id, r.tldr, r.score, r.verified_score, r.verification_status,"
+            f" r.verified, r.valid, r.created_at, f.fork_url"
             f" FROM runs r LEFT JOIN forks f ON f.id = r.fork_id WHERE {where} ORDER BY {order} LIMIT %s OFFSET %s", params
         )).fetchall()
         has_next = len(rows) > per_page
@@ -1488,10 +1662,58 @@ async def patch_run(task_id: str, sha: str, body: dict[str, Any],
             await conn.execute("UPDATE runs SET valid = %s WHERE id = %s", (valid, sha))
             # Recalculate best_score excluding invalid runs
             best = await (await conn.execute(
-                "SELECT MAX(score) AS val FROM runs WHERE task_id = %s AND valid = TRUE", (task_id,)
+                "SELECT MAX(COALESCE(verified_score, score)) AS val FROM runs WHERE task_id = %s AND valid = TRUE",
+                (task_id,),
             )).fetchone()
             await conn.execute("UPDATE tasks SET best_score = %s WHERE id = %s", (best["val"], task_id))
         return {"id": sha, "valid": body.get("valid")}
+
+
+@router.post("/tasks/{task_id}/runs/{sha}/verify")
+async def queue_run_verify(
+    task_id: str, sha: str,
+    background_tasks: BackgroundTasks,
+    x_admin_key: str = Header(""), authorization: str = Header(""),
+):
+    await require_admin_or_task_owner(task_id, x_admin_key, authorization)
+    ts = now()
+    async with get_db() as conn:
+        task_row = await (await conn.execute("SELECT config FROM tasks WHERE id = %s", (task_id,))).fetchone()
+        if not task_row:
+            raise HTTPException(404, "task not found")
+        if not is_verify_enabled(parse_json_config(task_row.get("config"))):
+            raise HTTPException(400, "task does not have verification enabled")
+        row = await (await conn.execute(
+            "SELECT id FROM runs WHERE id = %s AND task_id = %s", (sha, task_id)
+        )).fetchone()
+        if not row:
+            rows = await (await conn.execute(
+                "SELECT id FROM runs WHERE id LIKE %s AND task_id = %s", (sha + "%", task_id)
+            )).fetchall()
+            if len(rows) == 1:
+                row = rows[0]
+            elif len(rows) > 1:
+                raise HTTPException(400, f"ambiguous prefix '{sha}', matches {len(rows)} runs")
+            else:
+                raise HTTPException(404, "run not found")
+        sha = row["id"]
+        cnt = (await (await conn.execute(
+            "SELECT COUNT(*) AS c FROM run_artifacts WHERE run_id = %s", (sha,)
+        )).fetchone())["c"]
+        if not cnt:
+            raise HTTPException(400, "run has no stored artifacts to verify")
+        attempt_id = str(uuid.uuid4())
+        await conn.execute(
+            "INSERT INTO verification_attempts (id, task_id, run_id, status, created_at)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (attempt_id, task_id, sha, "pending", ts),
+        )
+        await conn.execute(
+            "UPDATE runs SET verification_status = %s, verification_error = NULL WHERE id = %s",
+            ("pending", sha),
+        )
+    background_tasks.add_task(verify_run_background, sha, task_id, attempt_id)
+    return {"id": sha, "verification_status": "pending", "attempt_id": attempt_id}
 
 
 @router.delete("/tasks/{task_id}/runs/{sha}")
@@ -1529,7 +1751,7 @@ async def delete_run(task_id: str, sha: str, x_admin_key: str = Header(""), auth
         await conn.execute("DELETE FROM runs WHERE id = %s", (sha,))
         # Recalculate task stats (exclude invalid runs)
         best = await (await conn.execute(
-            "SELECT MAX(score) AS val FROM runs WHERE task_id = %s AND valid IS NOT FALSE", (task_id,)
+            "SELECT MAX(COALESCE(verified_score, score)) AS val FROM runs WHERE task_id = %s AND valid IS NOT FALSE", (task_id,)
         )).fetchone()
         await conn.execute(
             "UPDATE tasks SET best_score = %s WHERE id = %s",
@@ -1910,9 +2132,10 @@ async def get_context(task_id: str, authorization: str = Header("")):
             "last_activity": last_activity,
         }
         leaderboard = await (await conn.execute(
-            "SELECT r.id, r.agent_id, r.score, r.tldr, r.branch, r.verified, f.fork_url"
+            "SELECT r.id, r.agent_id, r.score, r.verified_score, r.verification_status, r.tldr, r.branch, r.verified, f.fork_url"
             " FROM runs r LEFT JOIN forks f ON f.id = r.fork_id"
-            " WHERE r.task_id = %s AND r.score IS NOT NULL AND r.valid IS NOT FALSE ORDER BY r.score DESC LIMIT 5", (task_id,)
+            " WHERE r.task_id = %s AND (r.score IS NOT NULL OR r.verified_score IS NOT NULL) AND r.valid IS NOT FALSE"
+            " ORDER BY COALESCE(r.verified_score, r.score) DESC LIMIT 5", (task_id,)
         )).fetchall()
         now_ts = now()
         active_claims = await (await conn.execute(
@@ -1953,10 +2176,10 @@ async def get_graph(task_id: str, authorization: str = Header(""), max_nodes: in
             raise HTTPException(404, "task not found")
         total = (await (await conn.execute("SELECT COUNT(*) AS cnt FROM runs WHERE task_id = %s", (task_id,))).fetchone())["cnt"]
         rows = await (await conn.execute(
-            "SELECT id AS sha, agent_id, score, parent_id, tldr, created_at, valid FROM runs WHERE task_id = %s ORDER BY created_at DESC LIMIT %s",
+            "SELECT id AS sha, agent_id, score, verified_score, parent_id, tldr, created_at, valid FROM runs WHERE task_id = %s ORDER BY created_at DESC LIMIT %s",
             (task_id, max_nodes)
         )).fetchall()
-    nodes = [{"sha": r["sha"], "agent_id": r["agent_id"], "score": r["score"],
+    nodes = [{"sha": r["sha"], "agent_id": r["agent_id"], "score": r["score"], "verified_score": r.get("verified_score"),
                "parent": r["parent_id"], "is_seed": r["parent_id"] is None,
                "tldr": r["tldr"], "created_at": r["created_at"],
                "valid": r["valid"] if r["valid"] is not None else True} for r in rows]

@@ -40,10 +40,10 @@ def _seed_private_task(client, user_id, task_id="priv-task", source_repo="testow
     """Insert a private task directly into DB."""
     with get_db_sync() as conn:
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, task_type, owner_id, "
+            "INSERT INTO tasks (id, slug, name, description, repo_url, task_type, owner_id, "
             "visibility, source_repo, installation_id, created_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (task_id, "Private Task", "A private test task",
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (task_id, task_id, "Private Task", "A private test task",
              f"https://github.com/{source_repo}", "private", user_id,
              "private", source_repo, installation_id, now()),
         )
@@ -152,9 +152,9 @@ class TestPrivateTaskClone:
         """Public task clone should still return fork mode (no mode field)."""
         with get_db_sync() as conn:
             conn.execute(
-                "INSERT INTO tasks (id, name, description, repo_url, created_at)"
-                " VALUES (%s, %s, %s, %s, %s)",
-                ("pub-task", "Public Task", "A public test", "https://github.com/test/test", now()),
+                "INSERT INTO tasks (id, slug, name, description, repo_url, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                ("pub-task", "pub-task", "Public Task", "A public test", "https://github.com/test/test", now()),
             )
         resp = client.post("/api/register")
         agent_token = resp.json()["token"]
@@ -225,9 +225,9 @@ class TestPrivateTaskPush:
     def test_push_public_task_rejected(self, client, mock_github):
         with get_db_sync() as conn:
             conn.execute(
-                "INSERT INTO tasks (id, name, description, repo_url, created_at)"
-                " VALUES (%s, %s, %s, %s, %s)",
-                ("pub-task", "Public Task", "A public test", "https://github.com/test/test", now()),
+                "INSERT INTO tasks (id, slug, name, description, repo_url, created_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                ("pub-task", "pub-task", "Public Task", "A public test", "https://github.com/test/test", now()),
             )
         resp = client.post("/api/register")
         agent_token = resp.json()["token"]
