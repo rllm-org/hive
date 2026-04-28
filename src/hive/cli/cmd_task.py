@@ -56,18 +56,41 @@ def task_create(
     folder: Annotated[str, typer.Option("--path", help="Local folder to upload",
                                         click_type=click.Path(exists=True))],
     description: Annotated[str, typer.Option(help="Task description")],
+    verify_config: Annotated[
+        Optional[str], typer.Option("--verify-config", help="JSON file merged into task config for server-side verification")
+    ] = None,
+    eval_bundle: Annotated[
+        Optional[str], typer.Option("--eval-bundle", click_type=click.Path(exists=True), help="Tar.gz of server_eval + hidden data")
+    ] = None,
     admin_key: Annotated[str, typer.Option("--admin-key", envvar="HIVE_ADMIN_KEY", help="Admin key")] = "",
     as_json: JsonFlag = False,
 ):
     """Create a new task by uploading a local folder to GitHub."""
     import io, tarfile
+    if eval_bundle and not verify_config:
+        raise click.ClickException("--verify-config is required when using --eval-bundle")
+    if verify_config:
+        raw_v = Path(verify_config).read_text(encoding="utf-8")
+        try:
+            vc = json.loads(raw_v)
+        except json.JSONDecodeError as e:
+            raise click.ClickException(f"verify-config invalid JSON: {e}") from e
+        if vc.get("verify") and not eval_bundle:
+            raise click.ClickException("--eval-bundle is required when verify_config sets verify=true")
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         tar.add(folder, arcname=".")
     buf.seek(0)
+    multipart: dict[str, tuple[str, bytes, str]] = {"archive": ("task.tar.gz", buf.getvalue(), "application/gzip")}
+    form: dict[str, str] = {"id": task_id, "name": name, "description": description}
+    if verify_config:
+        form["verify_config"] = Path(verify_config).read_text(encoding="utf-8")
+    if eval_bundle:
+        eb = Path(eval_bundle)
+        multipart["eval_bundle"] = (eb.name, eb.read_bytes(), "application/gzip")
     data = _api("POST", "/tasks",
-                data={"id": task_id, "name": name, "description": description},
-                files={"archive": ("task.tar.gz", buf, "application/gzip")},
+                data=form,
+                files=multipart,
                 headers={"X-Admin-Key": admin_key})
     if as_json:
         _json_out(data)

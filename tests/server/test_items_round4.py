@@ -14,9 +14,9 @@ import hive.server.db as _db
 def _post_task(client, task_id="r4-task"):
     with psycopg.connect(_db.DATABASE_URL, autocommit=True) as conn:
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, created_at, item_seq)"
-            " VALUES (%s, %s, %s, %s, %s, 0)",
-            (task_id, task_id, "test", "https://github.com/test", _db.now()),
+            "INSERT INTO tasks (id, slug, name, description, repo_url, created_at, item_seq)"
+            " VALUES (%s, %s, %s, %s, %s, %s, 0)",
+            (task_id, task_id, task_id, "test", "https://github.com/test", _db.now()),
         )
 
 

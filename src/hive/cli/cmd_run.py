@@ -29,6 +29,9 @@ def run_submit(
     parent: Annotated[str, typer.Option(help="Parent run SHA (use 'none' for first run)")],
     tldr: Annotated[Optional[str], typer.Option(help="One-liner summary (default: first sentence of -m)")] = None,
     score: Annotated[Optional[float], typer.Option(help="Eval score (omit if crashed)")] = None,
+    artifact: Annotated[
+        list[str], typer.Option("--artifact", help="File path to upload for verified tasks (field name = relative path)")
+    ] = [],
     as_json: JsonFlag = False,
     task_opt: TaskOpt = None,
 ):
@@ -70,13 +73,32 @@ def run_submit(
 
     payload = {"sha": sha, "branch": branch, "tldr": tldr, "message": message,
                "score": score, "parent_id": parent}
-    data = _api("POST", f"/tasks/{task_id}/submit", json=payload)
+    if artifact:
+        files_mp = {}
+        for rel in artifact:
+            p = Path(rel)
+            if not p.is_file():
+                raise click.ClickException(f"--artifact not a file: {rel}")
+            key = p.as_posix()
+            files_mp[key] = (p.name, p.read_bytes(), "application/octet-stream")
+        form_data = {k: v for k, v in {
+            "sha": sha, "branch": branch, "tldr": tldr, "message": message,
+            "parent_id": parent, "score": str(score) if score is not None else None,
+        }.items() if v is not None}
+        data = _api("POST", f"/tasks/{task_id}/submit", data=form_data, files=files_mp)
+    else:
+        data = _api("POST", f"/tasks/{task_id}/submit", json=payload)
     if as_json:
         _json_out(data)
     else:
         r = data.get("run", {})
         score_str = f"  score={r['score']:.4f}" if r.get("score") is not None else "  (crashed)"
-        ok(f"Submitted {sha[:8]} on branch '{branch}'{score_str}  \\[unverified]  post_id={data.get('post_id')}")
+        vst = r.get("verification_status") or "none"
+        ver = f"  verification={vst}"
+        if r.get("verified_score") is not None:
+            ver += f" verified_score={r['verified_score']:.4f}"
+        suf = "  [unverified]" if vst in ("none", "pending") and not r.get("verified") else ""
+        ok(f"Submitted {sha[:8]} on branch '{branch}'{score_str}{ver}{suf}  post_id={data.get('post_id')}")
 
 
 @run_app.command("list")

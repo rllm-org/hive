@@ -1034,8 +1034,8 @@ class TestGlobalStats:
         with get_db_sync() as conn:
             for tid in ("ta", "tb"):
                 conn.execute(
-                    "INSERT INTO tasks (id, name, description, repo_url, created_at) VALUES (%s, %s, %s, %s, %s)",
-                    (tid, tid, "desc", "https://github.com/test/test", now()),
+                    "INSERT INTO tasks (id, slug, name, description, repo_url, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                    (tid, tid, tid, "desc", "https://github.com/test/test", now()),
                 )
         # Submit to both tasks
         client.post("/api/tasks/ta/submit", params={"token": token},
@@ -1226,6 +1226,6 @@ def _seed_task(client):
     from hive.server.db import get_db_sync, now
     with get_db_sync() as conn:
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repo_url, created_at) VALUES (%s, %s, %s, %s, %s)",
-            ("t1", "Test Task", "A test", "https://github.com/test/test", now()),
+            "INSERT INTO tasks (id, slug, name, description, repo_url, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
+            ("t1", "t1", "Test Task", "A test", "https://github.com/test/test", now()),
         )

@@ -170,6 +170,10 @@ def init_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_users_github_id ON users(github_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_visibility_owner ON tasks(visibility, owner_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_agents_token ON agents(token)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_runs_task_verified_score"
+            " ON runs(task_id, verified_score DESC) WHERE verified_score IS NOT NULL"
+        )
         # Items indexes
         conn.execute("CREATE INDEX IF NOT EXISTS idx_items_task_status ON items(task_id, status) WHERE deleted_at IS NULL")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_items_task_assignee ON items(task_id, assignee_id) WHERE deleted_at IS NULL")
@@ -430,6 +434,81 @@ def _ensure_postgres_migrations(conn) -> None:
     ).fetchone()
     if not row:
         conn.execute("ALTER TABLE tasks ADD COLUMN owner TEXT NOT NULL DEFAULT 'hive'")
+    # Verified run / server eval columns on runs
+    for col, ddl in [
+        ("verified_score", "ALTER TABLE runs ADD COLUMN verified_score DOUBLE PRECISION"),
+        ("verified_metric_key", "ALTER TABLE runs ADD COLUMN verified_metric_key TEXT"),
+        ("verified_metric_value", "ALTER TABLE runs ADD COLUMN verified_metric_value DOUBLE PRECISION"),
+        ("verification_status", "ALTER TABLE runs ADD COLUMN verification_status TEXT NOT NULL DEFAULT 'none'"),
+        ("verification_error", "ALTER TABLE runs ADD COLUMN verification_error TEXT"),
+        ("verified_at", "ALTER TABLE runs ADD COLUMN verified_at TIMESTAMPTZ"),
+    ]:
+        row = conn.execute(
+            "SELECT 1 FROM information_schema.columns"
+            " WHERE table_name = 'runs' AND column_name = %s", (col,)
+        ).fetchone()
+        if not row:
+            conn.execute(ddl)
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.tables"
+        " WHERE table_schema = 'public' AND table_name = 'verification_attempts'"
+    ).fetchone()
+    if not row:
+        conn.execute(
+            """CREATE TABLE verification_attempts (
+                id              TEXT PRIMARY KEY,
+                task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                run_id          TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                status          TEXT NOT NULL,
+                sandbox_id      TEXT,
+                metrics         JSONB,
+                logs            TEXT,
+                error           TEXT,
+                created_at      TIMESTAMPTZ NOT NULL,
+                started_at      TIMESTAMPTZ,
+                finished_at     TIMESTAMPTZ
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_verification_attempts_run"
+            " ON verification_attempts(run_id, created_at DESC)"
+        )
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.tables"
+        " WHERE table_schema = 'public' AND table_name = 'task_eval_bundles'"
+    ).fetchone()
+    if not row:
+        conn.execute(
+            """CREATE TABLE task_eval_bundles (
+                id              SERIAL PRIMARY KEY,
+                task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                version         TEXT NOT NULL,
+                volume_id       TEXT NOT NULL,
+                bundle_sha256   TEXT,
+                created_at      TIMESTAMPTZ NOT NULL,
+                UNIQUE(task_id, version)
+            )"""
+        )
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.tables"
+        " WHERE table_schema = 'public' AND table_name = 'run_artifacts'"
+    ).fetchone()
+    if not row:
+        conn.execute(
+            """CREATE TABLE run_artifacts (
+                id              SERIAL PRIMARY KEY,
+                run_id          TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                rel_path        TEXT NOT NULL,
+                storage_path    TEXT NOT NULL,
+                size_bytes      BIGINT,
+                created_at      TIMESTAMPTZ NOT NULL,
+                UNIQUE(run_id, rel_path)
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_run_artifacts_run ON run_artifacts(run_id)"
+        )
 
 
 # --- Async connection pool (one per worker process) ---
