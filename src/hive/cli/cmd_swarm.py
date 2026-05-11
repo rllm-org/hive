@@ -72,6 +72,18 @@ def _register_agents(count: int, prefix: str | None) -> list[dict]:
     return agents
 
 
+def _ensure_gitignore_entry(gitignore_path: Path, entry: str):
+    if gitignore_path.exists():
+        content = gitignore_path.read_text()
+        if entry in content.splitlines():
+            return
+        if not content.endswith("\n"):
+            content += "\n"
+    else:
+        content = ""
+    gitignore_path.write_text(content + entry + "\n")
+
+
 def _clone_one(task_id: str, agent: dict, base_dir: Path) -> dict:
     token = agent["token"]
     agent_id = agent["id"]
@@ -84,7 +96,7 @@ def _clone_one(task_id: str, agent: dict, base_dir: Path) -> dict:
     key_dir = Path.home() / ".hive" / "keys"
     key_dir.mkdir(parents=True, exist_ok=True)
     fork_name = ssh_url.split("/")[-1].replace(".git", "")
-    key_path = key_dir / fork_name
+    key_path = key_dir / f"{fork_name}--{agent_id}"
     if private_key:
         key_path.write_text(private_key)
         key_path.chmod(0o600)
@@ -103,33 +115,46 @@ def _clone_one(task_id: str, agent: dict, base_dir: Path) -> dict:
     subprocess.run(["git", "-C", str(work_dir), "config", "core.sshCommand", ssh_cmd],
                     capture_output=True, text=True)
 
-    # Write .hive metadata
-    hive_dir = work_dir / ".hive"
-    hive_dir.mkdir(exist_ok=True)
-    (hive_dir / "task").write_text(task_id)
-    (hive_dir / "agent").write_text(agent_id)
-
     if mode == "branch":
-        # Branch mode: checkout initial branch, no upstream remote
+        # Branch mode: checkout initial branch
         default_branch = resp.get("default_branch", "")
         if default_branch:
-            subprocess.run(["git", "-C", str(work_dir), "checkout", default_branch],
-                           capture_output=True, text=True)
+            checkout = subprocess.run(
+                ["git", "-C", str(work_dir), "checkout", default_branch],
+                capture_output=True, text=True)
+            if checkout.returncode != 0:
+                subprocess.run(
+                    ["git", "-C", str(work_dir), "checkout", "-b", default_branch],
+                    capture_output=True, text=True)
+
+        # Write .hive metadata AFTER checkout so it can't be overwritten
+        hive_dir = work_dir / ".hive"
+        hive_dir.mkdir(exist_ok=True)
+        (hive_dir / "task").write_text(task_id)
+        (hive_dir / "agent").write_text(agent_id)
         (hive_dir / "fork.json").write_text(json.dumps({
             "mode": "branch",
             "branch_prefix": resp.get("branch_prefix", ""),
             "key_path": str(key_path),
         }, indent=2))
+        _ensure_gitignore_entry(work_dir / ".gitignore", ".hive/")
     else:
         # Fork mode: add upstream remote
         upstream_url = resp.get("upstream_url", "")
         if upstream_url:
             subprocess.run(["git", "-C", str(work_dir), "remote", "add", "upstream", upstream_url],
                            capture_output=True, text=True)
+
+        # Write .hive metadata
+        hive_dir = work_dir / ".hive"
+        hive_dir.mkdir(exist_ok=True)
+        (hive_dir / "task").write_text(task_id)
+        (hive_dir / "agent").write_text(agent_id)
         (hive_dir / "fork.json").write_text(json.dumps({
             "mode": "fork",
             "fork_url": resp.get("fork_url", ""), "key_path": str(key_path),
         }, indent=2))
+        _ensure_gitignore_entry(work_dir / ".gitignore", ".hive/")
 
     return {"agent_id": agent_id, "work_dir": str(work_dir), "key_path": str(key_path)}
 
